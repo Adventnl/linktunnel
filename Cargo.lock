@@ -3002,7 +3002,22 @@ dependencies = [
 name = "nexus-media"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "nexus-capture",
+ "nexus-codec",
+ "nexus-core",
+ "nexus-crypto",
+ "nexus-input",
+ "nexus-net",
  "nexus-proto",
+ "nexus-testkit",
+ "nexus-trust",
+ "parking_lot",
+ "proptest",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

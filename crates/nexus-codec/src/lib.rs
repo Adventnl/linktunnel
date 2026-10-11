@@ -33,3 +33,65 @@ pub use types::{
 };
 #[cfg(target_os = "macos")]
 pub use videotoolbox::VideoToolboxEncoder;
+
+use nexus_proto::v1::VideoCodec;
+
+/// Codecs this build can encode, best first.
+#[must_use]
+pub fn supported_encode() -> Vec<VideoCodec> {
+    #[cfg(any(feature = "software", target_os = "macos"))]
+    {
+        vec![VideoCodec::H264]
+    }
+    #[cfg(not(any(feature = "software", target_os = "macos")))]
+    {
+        Vec::new()
+    }
+}
+
+/// Codecs this build can decode, best first.
+#[must_use]
+pub fn supported_decode() -> Vec<VideoCodec> {
+    #[cfg(feature = "software")]
+    {
+        vec![VideoCodec::H264]
+    }
+    #[cfg(not(feature = "software"))]
+    {
+        Vec::new()
+    }
+}
+
+/// Creates the best available encoder for `config`: hardware first where this build has a
+/// backend, then software. The returned encoder's [`Encoder::name`] says which one was chosen.
+pub fn create_encoder(config: EncoderConfig) -> Result<Box<dyn Encoder>, CodecError> {
+    #[cfg(target_os = "macos")]
+    {
+        match VideoToolboxEncoder::new(config.clone()) {
+            Ok(e) => return Ok(Box::new(e)),
+            Err(e) => {
+                tracing::warn!(error = %e, "VideoToolbox encoder unavailable; falling back to software")
+            }
+        }
+    }
+    #[cfg(feature = "software")]
+    {
+        return Ok(Box::new(H264Encoder::new(config)?));
+    }
+    #[allow(unreachable_code)]
+    Err(CodecError::Unavailable(format!(
+        "no encoder for {:?} in this build",
+        config.codec
+    )))
+}
+
+/// Creates a decoder for `codec`.
+pub fn create_decoder(codec: VideoCodec) -> Result<Box<dyn Decoder>, CodecError> {
+    #[cfg(feature = "software")]
+    if codec == VideoCodec::H264 {
+        return Ok(Box::new(H264Decoder::new()?));
+    }
+    Err(CodecError::Unavailable(format!(
+        "no decoder for {codec:?} in this build"
+    )))
+}

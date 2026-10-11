@@ -1,0 +1,643 @@
+//! The controller side of a remote-desktop session (network half).
+//!
+//! [`ControllerSession::start`] takes an established session, asks the target for video, and
+//! returns a stream of [`MediaEvent`]s: frames in decode order, cursor shapes, monitor lists.
+//! Cursor *positions* arrive on a separate latest-wins channel because they must never queue
+//! behind video. Input goes the other way through [`ControllerSession::send_input`].
+
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+use bytes::Bytes;
+use nexus_core::clock::now_us;
+use nexus_core::telemetry::{LatencyRecorder, LatencySummary};
+use nexus_net::{FramedStream, Session, StreamKind};
+use nexus_proto::serial::newer_u32;
+use nexus_proto::v1::control_message::Body;
+use nexus_proto::v1::{
+    ControlMessage, CursorShape, Goodbye, GoodbyeReason, MonitorInfo, Ping, ReceiverReport,
+    RequestKeyframe, SetQuality, StartVideo, StopVideo, VideoCodec, VideoStarted,
+};
+use nexus_proto::wire::cursor::CursorUpdate;
+use nexus_proto::wire::input::{InputEvent, InputPacket, MAX_EVENTS, TimedInput};
+use nexus_proto::wire::video::{FIXED_LEN, FrameKind, VideoFrameHeader};
+use tokio::sync::{mpsc, watch};
+use tracing::{debug, warn};
+
+use crate::MediaError;
+use crate::input_wire;
+use crate::reorder::{Action, Reorder, Sequenced};
+
+/// How often the controller reports what it received.
+const REPORT_INTERVAL: Duration = Duration::from_millis(250);
+/// How often the control stream measures round-trip time and clock offset.
+const PING_INTERVAL: Duration = Duration::from_secs(1);
+/// Longest a single frame may take to arrive in full.
+const FRAME_TIMEOUT: Duration = Duration::from_secs(5);
+/// Frames buffered between the reorder task and the consumer before the consumer counts as slow.
+const EVENT_QUEUE: usize = 16;
+
+/// What to ask the target for.
+#[derive(Debug, Clone)]
+pub struct ControllerOptions {
+    /// Monitor to view.
+    pub monitor: u32,
+    /// Frame-rate cap (0 = target's default).
+    pub max_fps: u32,
+    /// Starting bitrate (0 = target's default).
+    pub bitrate_bps: u32,
+    /// Codecs this controller can decode, best first.
+    pub codecs: Vec<VideoCodec>,
+    /// How long a missing frame is waited for before it counts as lost.
+    pub reorder_wait: Duration,
+    /// Request video at all (false = control-only session, e.g. terminal).
+    pub want_video: bool,
+}
+
+impl Default for ControllerOptions {
+    fn default() -> Self {
+        Self {
+            monitor: 0,
+            max_fps: 0,
+            bitrate_bps: 0,
+            codecs: nexus_codec::supported_decode(),
+            reorder_wait: Duration::from_millis(60),
+            want_video: true,
+        }
+    }
+}
+
+/// A compressed frame as received, ready for a decoder.
+#[derive(Debug, Clone)]
+pub struct VideoFrame {
+    /// The frame header (sequence, kind, dirty rectangles, sender timestamps).
+    pub header: VideoFrameHeader,
+    /// Codec bitstream.
+    pub payload: Bytes,
+    /// Local monotonic time when the last byte arrived.
+    pub recv_us: u64,
+}
+
+impl Sequenced for VideoFrame {
+    fn seq(&self) -> u32 {
+        self.header.frame_seq
+    }
+
+    fn is_key(&self) -> bool {
+        self.header.kind == FrameKind::Key
+    }
+}
+
+/// Something that happened on the session.
+#[derive(Debug, Clone)]
+pub enum MediaEvent {
+    /// The target's monitors.
+    Monitors(Vec<MonitorInfo>),
+    /// Video is flowing with these parameters.
+    Started(VideoStarted),
+    /// A frame, in decode order.
+    Frame(VideoFrame),
+    /// A new cursor bitmap.
+    CursorShape(CursorShape),
+    /// The target refused or failed a request.
+    Refused {
+        /// Machine-readable code.
+        code: i32,
+        /// Diagnostic text.
+        message: String,
+    },
+    /// The session is over. Always the last event.
+    Closed(String),
+}
+
+/// The channels a consumer reads.
+#[derive(Debug)]
+pub struct Streams {
+    /// Reliable events, in order.
+    pub events: mpsc::Receiver<MediaEvent>,
+    /// Latest cursor position (older ones are replaced, never queued).
+    pub cursor: watch::Receiver<Option<CursorUpdate>>,
+}
+
+/// Measurements for the HUD and the benchmarks.
+#[derive(Debug, Default)]
+pub struct ControllerStats {
+    /// Frames received in full.
+    pub frames_received: AtomicU64,
+    /// Compressed bytes received.
+    pub bytes_received: AtomicU64,
+    /// Frames delivered to the consumer.
+    pub frames_delivered: AtomicU64,
+    /// Frames dropped (late, duplicate, desynchronised, consumer too slow).
+    pub frames_dropped: AtomicU64,
+    /// Gaps declared lost.
+    pub losses: AtomicU64,
+    /// Keyframe requests sent.
+    pub keyframe_requests: AtomicU64,
+    /// Round-trip time of the control channel, microseconds (latest).
+    pub rtt_us: AtomicU64,
+    /// Target clock minus controller clock, microseconds, as a two's-complement `i64`.
+    pub clock_offset_us: AtomicU64,
+    /// Time from capture on the target to last byte received here (offset-corrected).
+    pub capture_to_receive: LatencyRecorder,
+    /// Time from the target handing the frame to the network until it fully arrived.
+    pub network: LatencyRecorder,
+    /// Cursor updates received.
+    pub cursor_updates: AtomicU32,
+}
+
+impl ControllerStats {
+    /// Offset of the target's clock relative to ours, microseconds.
+    #[must_use]
+    pub fn clock_offset(&self) -> i64 {
+        i64::from_ne_bytes(self.clock_offset_us.load(Ordering::Relaxed).to_ne_bytes())
+    }
+
+    /// Capture → received latency percentiles.
+    #[must_use]
+    pub fn capture_to_receive_summary(&self) -> LatencySummary {
+        self.capture_to_receive.summary()
+    }
+}
+
+enum Command {
+    Control(ControlMessage),
+}
+
+/// A live controller session.
+#[derive(Debug, Clone)]
+pub struct ControllerSession {
+    session: Session,
+    commands: mpsc::UnboundedSender<Command>,
+    desync: mpsc::UnboundedSender<()>,
+    input: mpsc::UnboundedSender<(u64, InputEvent)>,
+    stats: Arc<ControllerStats>,
+    monitor: u32,
+}
+
+impl ControllerSession {
+    /// Starts the session machinery on an established session and (if `want_video`) asks the
+    /// target to start streaming. Look for [`MediaEvent::Started`] or [`MediaEvent::Refused`].
+    pub async fn start(
+        session: Session,
+        control: FramedStream,
+        options: ControllerOptions,
+    ) -> Result<(Self, Streams), MediaError> {
+        let stats = Arc::new(ControllerStats::default());
+        let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
+        let (cursor_tx, cursor_rx) = watch::channel(None);
+        let (commands_tx, commands_rx) = mpsc::unbounded_channel();
+        let (input_tx, input_rx) = mpsc::unbounded_channel();
+        let (frames_tx, frames_rx) = mpsc::unbounded_channel::<VideoFrame>();
+        let (desync_tx, desync_rx) = mpsc::unbounded_channel::<()>();
+
+        if options.want_video {
+            let _ = commands_tx.send(Command::Control(ControlMessage {
+                id: 1,
+                body: Some(Body::StartVideo(StartVideo {
+                    monitor: options.monitor,
+                    codecs: options.codecs.iter().map(|c| *c as i32).collect(),
+                    max_fps: options.max_fps,
+                    bitrate_bps: options.bitrate_bps,
+                    max_width: 0,
+                    max_height: 0,
+                })),
+                ..Default::default()
+            }));
+        }
+
+        tokio::spawn(control_task(
+            control,
+            commands_rx,
+            events_tx.clone(),
+            Arc::clone(&stats),
+            options.monitor,
+            session.clone(),
+        ));
+        tokio::spawn(video_receiver(
+            session.clone(),
+            frames_tx,
+            Arc::clone(&stats),
+        ));
+        tokio::spawn(reorder_task(
+            frames_rx,
+            desync_rx,
+            events_tx.clone(),
+            commands_tx.clone(),
+            Arc::clone(&stats),
+            options.monitor,
+            options.reorder_wait,
+        ));
+        tokio::spawn(cursor_receiver(
+            session.clone(),
+            cursor_tx,
+            Arc::clone(&stats),
+        ));
+        tokio::spawn(input_task(session.clone(), input_rx));
+
+        Ok((
+            Self {
+                session,
+                commands: commands_tx,
+                desync: desync_tx,
+                input: input_tx,
+                stats,
+                monitor: options.monitor,
+            },
+            Streams {
+                events: events_rx,
+                cursor: cursor_rx,
+            },
+        ))
+    }
+
+    /// Statistics shared with the background tasks.
+    #[must_use]
+    pub fn stats(&self) -> &Arc<ControllerStats> {
+        &self.stats
+    }
+
+    /// The underlying transport session (path information, close).
+    #[must_use]
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    /// Queues input events, in order. Cheap and non-blocking; the input task batches them.
+    pub fn send_input(&self, events: impl IntoIterator<Item = InputEvent>) {
+        let now = now_us();
+        for e in events {
+            let _ = self.input.send((now, e));
+        }
+    }
+
+    /// Asks the target for a recovery frame (the decoder choked) and drops frames until it arrives.
+    pub fn request_keyframe(&self) {
+        let _ = self.desync.send(());
+    }
+
+    /// Changes quality settings (0 = unchanged).
+    pub fn set_quality(&self, bitrate_bps: u32, fps: u32, scale_percent: u32) {
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::SetQuality(SetQuality {
+                monitor: self.monitor,
+                bitrate_bps,
+                fps,
+                scale_percent,
+            })),
+            ..Default::default()
+        }));
+    }
+
+    /// Stops video without ending the session.
+    pub fn stop_video(&self) {
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::StopVideo(StopVideo {
+                monitor: self.monitor,
+            })),
+            ..Default::default()
+        }));
+    }
+
+    /// Says goodbye and closes the connection.
+    pub async fn close(&self) {
+        let _ = self.input.send((now_us(), InputEvent::ReleaseAll));
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::Goodbye(Goodbye {
+                reason: GoodbyeReason::ControllerDisconnect as i32,
+                detail: String::new(),
+            })),
+            ..Default::default()
+        }));
+        // Give the goodbye and the release-all a moment to leave before the connection closes.
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        self.session.close_normal();
+    }
+}
+
+async fn control_task(
+    mut control: FramedStream,
+    mut commands: mpsc::UnboundedReceiver<Command>,
+    events: mpsc::Sender<MediaEvent>,
+    stats: Arc<ControllerStats>,
+    monitor: u32,
+    session: Session,
+) {
+    let mut ping = tokio::time::interval(PING_INTERVAL);
+    let mut report = tokio::time::interval(REPORT_INTERVAL);
+    let mut samples: VecDeque<(u64, i64)> = VecDeque::with_capacity(10); // (rtt, offset)
+    let mut last_report = ReportState::default();
+    let mut closed = Box::pin(session.closed());
+    let reason = loop {
+        tokio::select! {
+            msg = control.recv::<ControlMessage>() => {
+                let msg = match msg {
+                    Ok(Some(m)) => m,
+                    Ok(None) => break "target closed the control stream".to_owned(),
+                    Err(e) => break e.to_string(),
+                };
+                match msg.body {
+                    Some(Body::MonitorList(l)) => { let _ = events.send(MediaEvent::Monitors(l.monitors)).await; }
+                    Some(Body::VideoStarted(v)) => { let _ = events.send(MediaEvent::Started(v)).await; }
+                    Some(Body::CursorShape(c)) => { let _ = events.send(MediaEvent::CursorShape(c)).await; }
+                    Some(Body::Error(e)) => { let _ = events.send(MediaEvent::Refused { code: e.code, message: e.message }).await; }
+                    Some(Body::Pong(p)) => {
+                        let t3 = now_us();
+                        let rtt = t3.saturating_sub(p.echo_sent_us).saturating_sub(p.reply_us.saturating_sub(p.recv_us));
+                        #[allow(clippy::cast_possible_wrap)]
+                        let offset = ((p.recv_us as i64 - p.echo_sent_us as i64) + (p.reply_us as i64 - t3 as i64)) / 2;
+                        if samples.len() == 10 { samples.pop_front(); }
+                        samples.push_back((rtt, offset));
+                        // The lowest-RTT sample has the least queueing noise in its offset.
+                        if let Some((best_rtt, best_off)) = samples.iter().min_by_key(|s| s.0) {
+                            stats.rtt_us.store(rtt, Ordering::Relaxed);
+                            stats.clock_offset_us.store(u64::from_ne_bytes(best_off.to_ne_bytes()), Ordering::Relaxed);
+                            let _ = best_rtt;
+                        }
+                    }
+                    Some(Body::Goodbye(g)) => break format!("target ended the session: {}", g.detail),
+                    _ => {}
+                }
+            }
+            Some(cmd) = commands.recv() => {
+                let Command::Control(msg) = cmd;
+                if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+            }
+            _ = ping.tick() => {
+                let msg = ControlMessage { body: Some(Body::Ping(Ping { sent_us: now_us() })), ..Default::default() };
+                if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+            }
+            _ = report.tick() => {
+                if let Some(r) = last_report.build(&stats, monitor) {
+                    let msg = ControlMessage { body: Some(Body::ReceiverReport(r)), ..Default::default() };
+                    if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+                }
+            }
+            reason = &mut closed => break reason,
+        }
+    };
+    let _ = events.send(MediaEvent::Closed(reason)).await;
+}
+
+#[derive(Default)]
+struct ReportState {
+    received: u64,
+    delivered: u64,
+    dropped: u64,
+    bytes: u64,
+    at: Option<Instant>,
+}
+
+impl ReportState {
+    fn build(&mut self, stats: &ControllerStats, monitor: u32) -> Option<ReceiverReport> {
+        let received = stats.frames_received.load(Ordering::Relaxed);
+        let delivered = stats.frames_delivered.load(Ordering::Relaxed);
+        let dropped = stats.frames_dropped.load(Ordering::Relaxed);
+        let bytes = stats.bytes_received.load(Ordering::Relaxed);
+        let now = Instant::now();
+        let elapsed = self.at.map(|t| now.duration_since(t));
+        let report = (received != self.received).then(|| {
+            let secs = elapsed.map_or(0.25, |d| d.as_secs_f64()).max(0.001);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let goodput = ((bytes - self.bytes) as f64 * 8.0 / secs) as u32;
+            ReceiverReport {
+                monitor,
+                received: u32::try_from(received - self.received).unwrap_or(u32::MAX),
+                decoded: u32::try_from(delivered - self.delivered).unwrap_or(u32::MAX),
+                dropped: u32::try_from(dropped - self.dropped).unwrap_or(u32::MAX),
+                highest_seq: 0,
+                delay_gradient_us: 0,
+                decode_us: 0,
+                goodput_bps: goodput,
+            }
+        });
+        self.received = received;
+        self.delivered = delivered;
+        self.dropped = dropped;
+        self.bytes = bytes;
+        self.at = Some(now);
+        report
+    }
+}
+
+/// Accepts the target's per-frame unidirectional streams.
+async fn video_receiver(
+    session: Session,
+    frames: mpsc::UnboundedSender<VideoFrame>,
+    stats: Arc<ControllerStats>,
+) {
+    loop {
+        let (kind, recv) = match session.accept_uni().await {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        if kind != StreamKind::Video {
+            debug!(?kind, "ignoring unexpected unidirectional stream");
+            continue;
+        }
+        let (frames, stats) = (frames.clone(), Arc::clone(&stats));
+        tokio::spawn(async move {
+            match tokio::time::timeout(FRAME_TIMEOUT, read_frame(recv)).await {
+                Ok(Ok(frame)) => {
+                    stats.frames_received.fetch_add(1, Ordering::Relaxed);
+                    stats
+                        .bytes_received
+                        .fetch_add(frame.payload.len() as u64, Ordering::Relaxed);
+                    let offset = stats.clock_offset();
+                    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+                    {
+                        let local_capture = frame.header.capture_us as i64 - offset;
+                        let local_send = frame.header.send_us as i64 - offset;
+                        stats
+                            .capture_to_receive
+                            .record_us((frame.recv_us as i64 - local_capture).max(0) as u64);
+                        stats
+                            .network
+                            .record_us((frame.recv_us as i64 - local_send).max(0) as u64);
+                    }
+                    let _ = frames.send(frame);
+                }
+                Ok(Err(e)) => debug!(error = %e, "discarding a damaged video frame"),
+                Err(_) => debug!("a video frame took too long to arrive; discarding"),
+            }
+        });
+    }
+}
+
+async fn read_frame(mut recv: nexus_net::RecvStream) -> Result<VideoFrame, MediaError> {
+    let mut fixed = [0u8; FIXED_LEN];
+    recv.read_exact(&mut fixed)
+        .await
+        .map_err(|e| MediaError::Protocol(format!("frame header: {e}")))?;
+    let extra = VideoFrameHeader::extra_len(&fixed)
+        .map_err(|e| MediaError::Protocol(format!("frame header: {e}")))?;
+    let mut head = Vec::with_capacity(FIXED_LEN + extra);
+    head.extend_from_slice(&fixed);
+    if extra > 0 {
+        head.resize(FIXED_LEN + extra, 0);
+        recv.read_exact(&mut head[FIXED_LEN..])
+            .await
+            .map_err(|e| MediaError::Protocol(format!("frame header: {e}")))?;
+    }
+    let header = VideoFrameHeader::decode(&head)
+        .map_err(|e| MediaError::Protocol(format!("frame header: {e}")))?;
+    let mut payload = vec![0u8; header.payload_len as usize];
+    recv.read_exact(&mut payload)
+        .await
+        .map_err(|e| MediaError::Protocol(format!("frame payload: {e}")))?;
+    Ok(VideoFrame {
+        header,
+        payload: Bytes::from(payload),
+        recv_us: now_us(),
+    })
+}
+
+async fn reorder_task(
+    mut frames: mpsc::UnboundedReceiver<VideoFrame>,
+    mut desync_rx: mpsc::UnboundedReceiver<()>,
+    events: mpsc::Sender<MediaEvent>,
+    commands: mpsc::UnboundedSender<Command>,
+    stats: Arc<ControllerStats>,
+    monitor: u32,
+    max_wait: Duration,
+) {
+    let mut reorder: Reorder<VideoFrame> = Reorder::new(max_wait);
+    loop {
+        let sleep_for = reorder
+            .next_deadline()
+            .map_or(Duration::from_secs(3600), |d| {
+                d.saturating_duration_since(Instant::now())
+            });
+        let mut need_desync = false;
+        let actions = tokio::select! {
+            frame = frames.recv() => match frame {
+                Some(f) => reorder.push(f, Instant::now()),
+                None => return,
+            },
+            Some(()) = desync_rx.recv() => {
+                // The decoder choked: drop everything until a keyframe and ask for one.
+                need_desync = true;
+                Vec::new()
+            }
+            () = tokio::time::sleep(sleep_for) => reorder.poll(Instant::now()),
+        };
+        for action in actions {
+            match action {
+                Action::Deliver(frame) => {
+                    if events.try_send(MediaEvent::Frame(frame)).is_err() {
+                        // The consumer cannot keep up. Frames are interdependent, so skipping one
+                        // means skipping until the next keyframe.
+                        stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                        need_desync = true;
+                    } else {
+                        stats.frames_delivered.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Action::RequestKeyframe { last_good } => {
+                    stats.keyframe_requests.fetch_add(1, Ordering::Relaxed);
+                    let _ = commands.send(Command::Control(ControlMessage {
+                        body: Some(Body::RequestKeyframe(RequestKeyframe {
+                            monitor,
+                            last_good_seq: last_good,
+                        })),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+        if need_desync {
+            for action in reorder.desync(Instant::now()) {
+                if let Action::RequestKeyframe { last_good } = action {
+                    stats.keyframe_requests.fetch_add(1, Ordering::Relaxed);
+                    let _ = commands.send(Command::Control(ControlMessage {
+                        body: Some(Body::RequestKeyframe(RequestKeyframe {
+                            monitor,
+                            last_good_seq: last_good,
+                        })),
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+        let s = reorder.stats();
+        stats.losses.store(s.losses, Ordering::Relaxed);
+        stats.frames_dropped.fetch_max(s.dropped, Ordering::Relaxed);
+    }
+}
+
+async fn cursor_receiver(
+    session: Session,
+    tx: watch::Sender<Option<CursorUpdate>>,
+    stats: Arc<ControllerStats>,
+) {
+    loop {
+        let datagram = match session.recv_datagram().await {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let Ok(update) = CursorUpdate::decode(&datagram) else {
+            continue;
+        };
+        stats.cursor_updates.fetch_add(1, Ordering::Relaxed);
+        // Datagrams can arrive out of order; only ever move forward.
+        tx.send_if_modified(|cur| match cur {
+            Some(old) if !newer_u32(update.seq, old.seq) => false,
+            _ => {
+                *cur = Some(update);
+                true
+            }
+        });
+    }
+}
+
+async fn input_task(session: Session, mut rx: mpsc::UnboundedReceiver<(u64, InputEvent)>) {
+    let mut stream: Option<nexus_net::Stream> = None;
+    let mut seq: u32 = 0;
+    while let Some(first) = rx.recv().await {
+        // Batch everything that is already waiting into one packet (up to the packet limit).
+        let mut batch = vec![first];
+        while batch.len() < MAX_EVENTS {
+            match rx.try_recv() {
+                Ok(e) => batch.push(e),
+                Err(_) => break,
+            }
+        }
+        if stream.is_none() {
+            match session.open_stream(StreamKind::Input).await {
+                Ok(s) => stream = Some(s),
+                Err(e) => {
+                    debug!(error = %e, "cannot open the input stream");
+                    return;
+                }
+            }
+        }
+        let base = batch[0].0;
+        let events: Vec<TimedInput> = batch
+            .into_iter()
+            .map(|(t, event)| TimedInput {
+                dt_us: u32::try_from(t.saturating_sub(base)).unwrap_or(u32::MAX),
+                event,
+            })
+            .collect();
+        let count = u32::try_from(events.len()).unwrap_or(0);
+        let packet = InputPacket {
+            seq,
+            base_us: base,
+            events,
+            skipped: 0,
+        };
+        seq = seq.wrapping_add(count);
+        match input_wire::encode(&packet) {
+            Ok(bytes) => {
+                if let Some(s) = stream.as_mut()
+                    && s.send.write_all(&bytes).await.is_err()
+                {
+                    return;
+                }
+            }
+            Err(e) => warn!(error = %e, "dropping an input packet that could not be encoded"),
+        }
+    }
+}

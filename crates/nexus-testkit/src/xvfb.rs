@@ -114,6 +114,17 @@ impl Painter {
         self.conn.flush().expect("flush");
     }
 
+    /// Where the pointer is, in root coordinates.
+    pub fn pointer(&self) -> (i16, i16) {
+        let r = self
+            .conn
+            .query_pointer(self.root)
+            .expect("query pointer")
+            .reply()
+            .expect("pointer reply");
+        (r.root_x, r.root_y)
+    }
+
     /// Warps the pointer.
     pub fn warp_pointer(&self, x: i16, y: i16) {
         self.conn

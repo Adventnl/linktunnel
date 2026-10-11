@@ -24,7 +24,9 @@ use std::sync::Arc;
 
 pub use error::CaptureError;
 pub use nexus_codec::{Frame, FrameFormat, Rect};
-pub use types::{CaptureBackend, Capturer, CursorBitmap, CursorSample, CursorSource, MonitorInfo};
+pub use types::{
+    CaptureBackend, Capturer, CursorBitmap, CursorSample, CursorSource, MonitorInfo, limit_rects,
+};
 
 /// The best backend for this machine, or why there is none.
 pub fn default_backend() -> Result<Arc<dyn CaptureBackend>, CaptureError> {

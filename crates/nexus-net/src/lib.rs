@@ -25,6 +25,7 @@ mod stream;
 pub use allow::{AllowList, CLOSE_NORMAL, CLOSE_NOT_PAIRED, CLOSE_REVOKED, SESSION_ALPN};
 pub use config::{NodeConfig, RelayServer, RelaySetting, RelayTrust};
 pub use error::NetError;
+pub use iroh::endpoint::{RecvStream, SendStream};
 pub use node::{Node, Reachability};
 pub use session::{Established, PathInfo, PeerAddr, Session, SessionRole};
 pub use stream::{FramedStream, Stream, StreamKind};

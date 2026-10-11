@@ -10,4 +10,21 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+bytes.workspace = true
+nexus-capture.workspace = true
+nexus-codec = { workspace = true, features = ["software"] }
+nexus-core.workspace = true
+nexus-input.workspace = true
+nexus-net.workspace = true
 nexus-proto.workspace = true
+nexus-trust.workspace = true
+parking_lot = "0.12"
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nexus-crypto.workspace = true
+nexus-testkit.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
