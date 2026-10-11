@@ -350,6 +350,14 @@ impl ControllerSession {
         Ok((cmd_tx, ev_rx))
     }
 
+    /// Opens one stream for a forwarded TCP connection (see `nexus_portfwd::open_forward`).
+    pub async fn forward_stream(
+        &self,
+    ) -> Result<tokio::io::Join<nexus_net::RecvStream, nexus_net::SendStream>, MediaError> {
+        let stream = self.session.open_stream(StreamKind::PortForward).await?;
+        Ok(tokio::io::join(stream.recv, stream.send))
+    }
+
     /// Queues input events, in order. Cheap and non-blocking; the input task batches them.
     pub fn send_input(&self, events: impl IntoIterator<Item = InputEvent>) {
         let now = now_us();

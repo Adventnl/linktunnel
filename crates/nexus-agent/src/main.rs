@@ -160,6 +160,22 @@ async fn main() -> Result<()> {
             } else {
                 base
             };
+            let base = if nexus.portfwd.enabled {
+                let mut policy = nexus_portfwd::ForwardPolicy {
+                    loopback: nexus.portfwd.loopback,
+                    allow: Vec::new(),
+                    max_connections: nexus.portfwd.max_connections as usize,
+                };
+                for t in &nexus.portfwd.allow {
+                    policy.allow.push(nexus_portfwd::AllowRule {
+                        host: t.host.clone(),
+                        ports: (t.port_min, t.port_max.unwrap_or(t.port_min)),
+                    });
+                }
+                base.with_port_forwarding(nexus_portfwd::ForwardHost::new(policy))
+            } else {
+                base
+            };
             let base = if nexus.power.accept_requests {
                 base.with_power(Arc::new(nexus_power::SystemPower))
             } else {

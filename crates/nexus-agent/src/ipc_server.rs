@@ -19,6 +19,7 @@ use tracing::{debug, info, warn};
 use crate::consent;
 use crate::error::AgentError;
 use crate::files_bridge;
+use crate::forward_bridge;
 use crate::pairing;
 use crate::power_bridge;
 use crate::sessions;
@@ -117,6 +118,7 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
             }
         }
     }
+    forward_bridge::close_all(&shared, &ctx);
     terminal_bridge::close_all(&shared, &ctx);
     viewer_bridge::close_all(&shared, &ctx).await;
     debug!(client = %name, "IPC client disconnected");
@@ -241,6 +243,13 @@ async fn dispatch(
         }
         Req::CloseTerminal(c) => {
             terminal_bridge::close(shared, ctx, &c)?;
+            Ok(ack)
+        }
+        Req::StartForward(f) => forward_bridge::start(shared, ctx, f)
+            .await
+            .map(Resp::ForwardStarted),
+        Req::StopForward(f) => {
+            forward_bridge::stop(shared, ctx, &f)?;
             Ok(ack)
         }
         Req::Shutdown(_) => {

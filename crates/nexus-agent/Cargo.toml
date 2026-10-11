@@ -22,6 +22,7 @@ clap.workspace = true
 getrandom.workspace = true
 hostname = "0.4"
 mac_address = "1"
+nexus-portfwd.workspace = true
 nexus-power.workspace = true
 nexus-terminal.workspace = true
 nexus-capture.workspace = true

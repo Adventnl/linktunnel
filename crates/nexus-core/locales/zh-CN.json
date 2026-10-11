@@ -102,5 +102,7 @@
   "cli.shell.hint": "已连接到 {name}。按 Ctrl-] 再按 . 断开（具名终端会继续运行），按 Ctrl-] 再按 k 结束终端。",
   "cli.shell.detached": "[已断开]",
   "cli.shell.reattached": "[已重新连接到正在运行的终端 {name}]",
-  "cli.shell.ended": "[终端已结束：{reason}]"
+  "cli.shell.ended": "[终端已结束：{reason}]",
+  "cli.forward.listening": "正在把 127.0.0.1:{local} 转发到 {name} 上的 {remote}。按 Ctrl-C 停止。",
+  "cli.forward.bad_spec": "转发规则格式为 [本地端口:]主机:端口，例如 5432 或 8080:localhost:80。"
 }

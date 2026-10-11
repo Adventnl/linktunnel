@@ -9,6 +9,7 @@
 mod agent_cmds;
 mod consent_cmds;
 mod files_cmds;
+mod forward_cmds;
 mod identity_cmd;
 mod power_cmds;
 mod remote_cmds;
@@ -116,6 +117,14 @@ enum Command {
         /// Also delete a directory's contents.
         #[arg(short, long)]
         recursive: bool,
+    },
+    /// Reach a service on a paired device through a local port (`nexus forward pc 5432`).
+    Forward {
+        /// Device name or ID.
+        device: String,
+        /// `[LOCAL_PORT:]HOST:PORT`, `LOCAL_PORT:PORT` or just `PORT` (HOST defaults to
+        /// localhost as seen from the device).
+        spec: String,
     },
     /// Open a terminal on a paired device (`--name` keeps it running when you disconnect).
     Shell {
@@ -238,6 +247,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Forward { device, spec } => forward_cmds::forward(&ctx, &device, &spec).await,
         Command::Shell {
             device,
             name,

@@ -72,6 +72,7 @@ async fn run(adaptive: bool, rate_mbps: f64, delay_ms: u64, secs: f64, window: f
         power: None,
         wake_relay: false,
         terminal: None,
+        portfwd: None,
         egress: Some(EgressShaper {
             rate_bps: (rate_mbps * 1e6) as u64,
             delay: Duration::from_millis(delay_ms),

@@ -18,6 +18,7 @@ nexus-core.workspace = true
 nexus-files.workspace = true
 nexus-input.workspace = true
 nexus-net.workspace = true
+nexus-portfwd.workspace = true
 nexus-power.workspace = true
 nexus-terminal.workspace = true
 nexus-proto.workspace = true

@@ -68,6 +68,8 @@ message IpcRequest {
     TerminalInput terminal_input = 45;
     TerminalResize terminal_resize = 46;
     CloseTerminal close_terminal = 47;
+    StartForward start_forward = 48;
+    StopForward stop_forward = 49;
   }
 }
 
@@ -133,6 +135,7 @@ message IpcResponse {
     FileEntry file_entry = 31;
     TransferStarted transfer_started = 32;
     TerminalStarted terminal_started = 33;
+    ForwardStarted forward_started = 34;
   }
 }
 
@@ -527,4 +530,25 @@ message TerminalEnded {
   int32 exit_code = 3;
   // Why it ended when it did not exit (refused, connection lost, taken over, ...).
   string reason = 4;
+}
+
+// ----- port forwarding (over an open session; the `terminal` grant) ----------------------------
+
+// Listen on 127.0.0.1:`local_port` here and forward each connection to `remote_host`:`remote_port`
+// as seen from the device at the other end of the session.
+message StartForward {
+  uint64 session_id = 1;
+  // 0 picks a free port.
+  uint32 local_port = 2;
+  string remote_host = 3;
+  uint32 remote_port = 4;
+}
+
+message ForwardStarted {
+  uint64 forward_id = 1;
+  uint32 local_port = 2;
+}
+
+message StopForward {
+  uint64 forward_id = 1;
 }

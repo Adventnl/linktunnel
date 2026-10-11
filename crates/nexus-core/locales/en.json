@@ -102,5 +102,7 @@
   "cli.shell.hint": "Connected to {name}. Press Ctrl-] then . to detach (a named shell keeps running), or Ctrl-] then k to end it.",
   "cli.shell.detached": "[detached]",
   "cli.shell.reattached": "[re-attached to the running shell {name}]",
-  "cli.shell.ended": "[shell ended: {reason}]"
+  "cli.shell.ended": "[shell ended: {reason}]",
+  "cli.forward.listening": "Forwarding 127.0.0.1:{local} to {remote} on {name}. Press Ctrl-C to stop.",
+  "cli.forward.bad_spec": "Write the forward as [LOCAL_PORT:]HOST:PORT, for example 5432 or 8080:localhost:80."
 }

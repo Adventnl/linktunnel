@@ -18,7 +18,7 @@ pub mod paths;
 pub mod telemetry;
 
 pub use config::{
-    ClipboardConfig, ConfigError, FilesConfig, NexusConfig, PowerConfig, SharedFolder,
-    TerminalConfig,
+    ClipboardConfig, ConfigError, FilesConfig, ForwardTarget, NexusConfig, PortForwardConfig,
+    PowerConfig, SharedFolder, TerminalConfig,
 };
 pub use paths::{Paths, Scope};

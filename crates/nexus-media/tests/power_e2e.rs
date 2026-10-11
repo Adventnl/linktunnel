@@ -54,6 +54,7 @@ async fn rig(
         power: power.map(|p| Arc::new(p) as Arc<dyn nexus_power::PowerBackend>),
         wake_relay,
         terminal: None,
+        portfwd: None,
     };
     tokio::spawn(target::serve(
         b_session,

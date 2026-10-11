@@ -9,6 +9,7 @@ mod consent;
 mod devices;
 mod error;
 mod files_bridge;
+mod forward_bridge;
 mod ipc_server;
 mod pairing;
 mod policy;
@@ -115,6 +116,7 @@ impl Agent {
             next_viewer_id: AtomicU64::new(1),
             policy: Mutex::new(policy::PolicyStore::load(policy_file, default_consent)),
             terminals: Mutex::default(),
+            forwards: Mutex::default(),
             wakebook: Mutex::new(wakebook::WakeBook::load(wake_file)),
             consents: Mutex::default(),
             next_consent_id: AtomicU64::new(1),

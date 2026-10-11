@@ -1191,7 +1191,12 @@ async fn a_named_terminal_survives_a_disconnect_through_the_agents() {
     };
 
     let sid = session().await;
-    let term = mac.client.open_terminal(open(sid)).await.unwrap().terminal_id;
+    let term = mac
+        .client
+        .open_terminal(open(sid))
+        .await
+        .unwrap()
+        .terminal_id;
     mac.client
         .terminal_input(term, b"echo via-the-agents; stty size\n".to_vec())
         .await
@@ -1212,11 +1217,18 @@ async fn a_named_terminal_survives_a_disconnect_through_the_agents() {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Another client may not touch a terminal it does not own.
-    let (other, _ev, _) = IpcClient::connect(mac.agent.ipc_paths(), "other").await.unwrap();
+    let (other, _ev, _) = IpcClient::connect(mac.agent.ipc_paths(), "other")
+        .await
+        .unwrap();
     assert!(other.terminal_input(term, b"x".to_vec()).await.is_err());
 
     let sid = session().await;
-    let term2 = mac.client.open_terminal(open(sid)).await.unwrap().terminal_id;
+    let term2 = mac
+        .client
+        .open_terminal(open(sid))
+        .await
+        .unwrap()
+        .terminal_id;
     let ready = next_matching(&mut mac.events, |ev| match &ev.body {
         Some(Ev::TerminalReady(r)) if r.terminal_id == term2 => Some(r.clone()),
         _ => None,
@@ -1230,5 +1242,110 @@ async fn a_named_terminal_survives_a_disconnect_through_the_agents() {
     })
     .await;
     assert!(ended.exited || !ended.reason.is_empty());
+    mac.client.close_session(sid).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_local_port_reaches_a_service_on_the_other_device_through_the_agents() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    // A service that only exists on the "PC": a TCP echo server on loopback.
+    let echo = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let echo_port = echo.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = echo.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let (mut r, mut w) = s.split();
+                let _ = tokio::io::copy(&mut r, &mut w).await;
+            });
+        }
+    });
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60).with_port_forwarding(
+        nexus_portfwd::ForwardHost::new(nexus_portfwd::ForwardPolicy::default()),
+    );
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let sid = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .session_id;
+    let fwd = mac
+        .client
+        .start_forward(sid, 0, "localhost", echo_port)
+        .await
+        .unwrap();
+    assert_ne!(fwd.local_port, 0);
+
+    let mut c = TcpStream::connect(("127.0.0.1", u16::try_from(fwd.local_port).unwrap()))
+        .await
+        .unwrap();
+    let msg = vec![0xA5u8; 300_000];
+    let (mut r, mut w) = c.split();
+    let write = async {
+        w.write_all(&msg).await.unwrap();
+    };
+    let mut back = vec![0u8; msg.len()];
+    let read = async {
+        tokio::time::timeout(Duration::from_secs(10), r.read_exact(&mut back))
+            .await
+            .expect("echo through two agents")
+            .unwrap();
+    };
+    tokio::join!(write, read);
+    assert!(back == msg);
+
+    // A destination the PC's policy does not allow is closed on us.
+    let bad = mac
+        .client
+        .start_forward(sid, 0, "10.255.255.1", 80)
+        .await
+        .unwrap();
+    let mut c = TcpStream::connect(("127.0.0.1", u16::try_from(bad.local_port).unwrap()))
+        .await
+        .unwrap();
+    let mut buf = [0u8; 1];
+    let n = tokio::time::timeout(Duration::from_secs(10), c.read(&mut buf))
+        .await
+        .expect("a refusal, not a hang")
+        .unwrap_or(0);
+    assert_eq!(n, 0);
+
+    // Stopping the forward closes the listener; other clients cannot stop it.
+    let (other, _ev, _) = IpcClient::connect(mac.agent.ipc_paths(), "other")
+        .await
+        .unwrap();
+    assert!(other.stop_forward(fwd.forward_id).await.is_err());
+    mac.client.stop_forward(fwd.forward_id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        TcpStream::connect(("127.0.0.1", u16::try_from(fwd.local_port).unwrap()))
+            .await
+            .is_err()
+    );
     mac.client.close_session(sid).await.unwrap();
 }

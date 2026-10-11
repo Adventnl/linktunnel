@@ -28,6 +28,7 @@ pub struct RemoteHandler {
     power: Option<Arc<dyn PowerBackend>>,
     wake_relay: bool,
     terminal: Option<Arc<nexus_terminal::TerminalHost>>,
+    portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -60,6 +61,7 @@ impl RemoteHandler {
             power: None,
             wake_relay: false,
             terminal: None,
+            portfwd: None,
         }
     }
 
@@ -86,6 +88,13 @@ impl RemoteHandler {
         self
     }
 
+    /// Lets controllers holding the `terminal` grant forward TCP connections through this machine.
+    #[must_use]
+    pub fn with_port_forwarding(mut self, host: Arc<nexus_portfwd::ForwardHost>) -> Self {
+        self.portfwd = Some(host);
+        self
+    }
+
     /// Lets controllers holding the `wake` grant use this machine to wake others on its LAN.
     #[must_use]
     pub fn with_wake_relay(mut self, on: bool) -> Self {
@@ -101,6 +110,7 @@ impl RemoteHandler {
             || self.wake_relay
             || self.clipboard.is_some()
             || self.terminal.is_some()
+            || self.portfwd.is_some()
     }
 
     /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
@@ -192,6 +202,9 @@ impl SessionHandler for RemoteHandler {
         if self.terminal.is_some() {
             features_list.push(features::TERMINAL_PTY.to_owned());
         }
+        if self.portfwd.is_some() {
+            features_list.push(features::PORT_FORWARD.to_owned());
+        }
         caps.features = features_list;
         caps
     }
@@ -222,6 +235,7 @@ impl SessionHandler for RemoteHandler {
             power: self.power.clone(),
             wake_relay: self.wake_relay,
             terminal: self.terminal.clone(),
+            portfwd: self.portfwd.clone(),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

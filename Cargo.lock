@@ -3403,6 +3403,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-media",
  "nexus-net",
+ "nexus-portfwd",
  "nexus-power",
  "nexus-proto",
  "nexus-signal",
@@ -3627,6 +3628,7 @@ dependencies = [
  "nexus-files",
  "nexus-input",
  "nexus-net",
+ "nexus-portfwd",
  "nexus-power",
  "nexus-proto",
  "nexus-terminal",
@@ -3656,6 +3658,15 @@ dependencies = [
  "prost",
  "rustls",
  "rustls-pki-types",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nexus-portfwd"
+version = "0.1.0"
+dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",

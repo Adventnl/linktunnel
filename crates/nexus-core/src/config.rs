@@ -59,6 +59,47 @@ pub struct NexusConfig {
     pub power: PowerConfig,
     /// Remote terminals.
     pub terminal: TerminalConfig,
+    /// TCP port forwarding.
+    pub portfwd: PortForwardConfig,
+}
+
+/// One destination a controller may forward to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForwardTarget {
+    /// Host name or IP address (`*` = any).
+    pub host: String,
+    /// First allowed port.
+    pub port_min: u16,
+    /// Last allowed port (defaults to `port_min`).
+    #[serde(default)]
+    pub port_max: Option<u16>,
+}
+
+/// Port forwarding: controllers holding the `terminal` grant may open TCP connections from this
+/// device. By default only to this device's own loopback addresses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PortForwardConfig {
+    /// Offer forwarding at all.
+    pub enabled: bool,
+    /// Allow any port on this device's loopback addresses.
+    pub loopback: bool,
+    /// Further destinations (other machines on this device's network).
+    pub allow: Vec<ForwardTarget>,
+    /// Most simultaneous forwarded connections.
+    pub max_connections: u32,
+}
+
+impl Default for PortForwardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            loopback: true,
+            allow: Vec::new(),
+            max_connections: 64,
+        }
+    }
 }
 
 /// Remote shells. Using one also needs the `terminal` grant from the pairing and, unless the

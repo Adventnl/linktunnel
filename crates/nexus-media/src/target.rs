@@ -76,6 +76,8 @@ pub struct TargetConfig {
     /// How to lock / sleep / restart this machine for controllers holding the `power` grant;
     /// `None` refuses power requests.
     pub power: Option<Arc<dyn nexus_power::PowerBackend>>,
+    /// Forwards TCP connections for controllers holding the `terminal` grant; `None` refuses.
+    pub portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
     /// Hosts terminals for controllers holding the `terminal` grant; `None` refuses them.
     pub terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     /// Send Wake-on-LAN packets from this machine's network on behalf of controllers holding the
@@ -242,6 +244,7 @@ pub async fn serve(
     let can_files = config.grants.contains(grants::FILES) && config.files.is_some();
     let can_clipboard = config.grants.contains(grants::CLIPBOARD) && config.clipboard.is_some();
     let can_terminal = config.grants.contains(grants::TERMINAL) && config.terminal.is_some();
+    let can_portfwd = config.grants.contains(grants::TERMINAL) && config.portfwd.is_some();
     let consent = SessionConsent::new(config.consent.clone());
     info!(
         can_view,
@@ -286,6 +289,7 @@ pub async fn serve(
             files: can_files,
             clipboard: can_clipboard,
             terminal: can_terminal,
+            portfwd: can_portfwd,
         },
         consent.clone(),
     )));
@@ -1160,6 +1164,7 @@ struct StreamAccess {
     files: bool,
     clipboard: bool,
     terminal: bool,
+    portfwd: bool,
 }
 
 /// Accepts streams the controller opens until the session ends: input (each stream gets its own
@@ -1178,6 +1183,7 @@ async fn accept_streams(
         files: can_files,
         clipboard: can_clipboard,
         terminal: can_terminal,
+        portfwd: can_portfwd,
     } = access;
     loop {
         let Ok((kind, stream)) = session.accept_stream().await else {
@@ -1245,6 +1251,18 @@ async fn accept_streams(
                     if let Err(e) = nexus_terminal::serve(&host, &mut io).await {
                         debug!(error = %e, "terminal ended");
                     }
+                });
+            }
+            StreamKind::PortForward if can_portfwd => {
+                let Some(host) = config.portfwd.clone() else {
+                    continue;
+                };
+                let consent = consent.clone();
+                tokio::spawn(async move {
+                    if consent.check().await != Consent::Allowed {
+                        return;
+                    }
+                    host.serve(tokio::io::join(stream.recv, stream.send)).await;
                 });
             }
             StreamKind::Clipboard if can_clipboard => {

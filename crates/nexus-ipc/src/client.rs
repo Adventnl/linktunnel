@@ -5,13 +5,14 @@ use std::time::Duration;
 
 use nexus_proto::v1::{
     CloseSession, CloseTerminal, ConsentDecision, DeviceList, DirListing, FileEntry, FileList,
-    FileMkdir, FileRemove, FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent,
-    IpcFrame, IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession,
+    FileMkdir, FileRemove, FileStatRequest, FileTransfer, ForwardStarted, GetStatus, IpcErrorCode,
+    IpcEvent, IpcFrame, IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession,
     OpenTerminal, PairingCancel, PairingConfirm, PairingJoin, PairingOffer, PairingStarted,
     PingDevice, PingReport, PowerCommand, SessionInput, SessionKeyframe, SessionMonitor,
-    SessionOpened, SessionQuality, SetLockdown, SetUnattended, Shutdown, Status, TerminalInput,
-    TerminalResize, TerminalStarted, TransferStarted, Unpair, WakeDevice, ipc_event::Body as Ev,
-    ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
+    SessionOpened, SessionQuality, SetLockdown, SetUnattended, Shutdown, StartForward, Status,
+    StopForward, TerminalInput, TerminalResize, TerminalStarted, TransferStarted, Unpair,
+    WakeDevice, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
+    ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -535,6 +536,35 @@ impl IpcClient {
     /// Stops using a terminal; with `kill` the shell is ended even if it is persistent.
     pub async fn close_terminal(&self, terminal_id: u64, kill: bool) -> Result<(), IpcError> {
         self.expect_ack(Req::CloseTerminal(CloseTerminal { terminal_id, kill }))
+            .await
+    }
+
+    /// Starts forwarding `127.0.0.1:local_port` here to `remote_host:remote_port` on the device
+    /// at the other end of the session (`local_port` 0 picks a free port).
+    pub async fn start_forward(
+        &self,
+        session_id: u64,
+        local_port: u16,
+        remote_host: &str,
+        remote_port: u16,
+    ) -> Result<ForwardStarted, IpcError> {
+        match self
+            .request(Req::StartForward(StartForward {
+                session_id,
+                local_port: u32::from(local_port),
+                remote_host: remote_host.to_owned(),
+                remote_port: u32::from(remote_port),
+            }))
+            .await?
+        {
+            Resp::ForwardStarted(f) => Ok(f),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Stops a forward.
+    pub async fn stop_forward(&self, forward_id: u64) -> Result<(), IpcError> {
+        self.expect_ack(Req::StopForward(StopForward { forward_id }))
             .await
     }
 }
