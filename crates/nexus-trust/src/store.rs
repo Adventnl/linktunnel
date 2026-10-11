@@ -229,6 +229,13 @@ impl TrustStore {
         self.peers.keys().copied().collect()
     }
 
+    /// Peers whose pairing was revoked locally, with the revocation time. The agent re-sends
+    /// these to the signaling server after a reconnect, so a revocation made while offline still
+    /// reaches the other party.
+    pub fn revoked(&self) -> impl Iterator<Item = ([u8; 32], u64)> + '_ {
+        self.revoked.iter().map(|(k, t)| (*k, *t))
+    }
+
     /// The local device identity this store belongs to.
     #[must_use]
     pub fn local(&self) -> &PublicIdentity {

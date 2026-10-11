@@ -6,6 +6,7 @@
 // A CLI's job is to print.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+mod agent_cmds;
 mod identity_cmd;
 
 use std::path::PathBuf;
@@ -55,6 +56,34 @@ enum Command {
     Id(identity_cmd::IdCommand),
     /// Check that this machine is ready to run Nexus Remote.
     Doctor,
+    /// Show the running agent's status.
+    Status,
+    /// List paired devices and their live state.
+    Devices,
+    /// Pair this device with another one.
+    #[command(subcommand)]
+    Pair(agent_cmds::PairCommand),
+    /// Remove a pairing (by name or ID).
+    Unpair {
+        /// Device name or ID.
+        device: String,
+    },
+    /// Measure latency and throughput to a paired device.
+    Ping {
+        /// Device name or ID.
+        device: String,
+        /// Megabytes to upload in the throughput test.
+        #[arg(long, default_value_t = 32)]
+        bulk_mb: u64,
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Turn the emergency lockdown switch on or off.
+    #[command(subcommand)]
+    Lockdown(agent_cmds::LockdownCommand),
+    /// Ask the running agent to exit.
+    Stop,
 }
 
 /// Everything a subcommand needs to know about its environment.
@@ -64,9 +93,10 @@ pub(crate) struct AppContext {
     pub store: Box<dyn SecretStore>,
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(cli) {
+    match run(cli).await {
         Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -75,7 +105,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<ExitCode> {
+async fn run(cli: Cli) -> Result<ExitCode> {
     let level = match cli.verbose {
         0 => "warn",
         1 => "info",
@@ -113,6 +143,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
         Command::Id(cmd) => identity_cmd::run(&ctx, &cmd),
         Command::Doctor => doctor(&ctx),
+        Command::Status => agent_cmds::status(&ctx).await,
+        Command::Devices => agent_cmds::devices(&ctx).await,
+        Command::Pair(cmd) => agent_cmds::pair(&ctx, &cmd).await,
+        Command::Unpair { device } => agent_cmds::unpair(&ctx, &device).await,
+        Command::Ping {
+            device,
+            bulk_mb,
+            json,
+        } => agent_cmds::ping(&ctx, &device, bulk_mb, json).await,
+        Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,
+        Command::Stop => agent_cmds::stop(&ctx).await,
     }
 }
 

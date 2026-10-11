@@ -25,9 +25,16 @@ pub struct VerifiedRevocation {
 /// `identity` revokes its pairing with the device whose Ed25519 key is `peer`.
 #[must_use]
 pub fn revoke(identity: &DeviceIdentity, peer: &PublicIdentity, now_ms: u64) -> SignedRevocation {
+    revoke_key(identity, &peer.ed25519_bytes(), now_ms)
+}
+
+/// Like [`revoke`] when only the peer's Ed25519 key is at hand (e.g. re-sending a stored
+/// revocation to the server after a reconnect).
+#[must_use]
+pub fn revoke_key(identity: &DeviceIdentity, peer: &[u8; 32], now_ms: u64) -> SignedRevocation {
     let revocation = Revocation {
         revoker: identity.public().ed25519_bytes().to_vec().into(),
-        peer: peer.ed25519_bytes().to_vec().into(),
+        peer: peer.to_vec().into(),
         unix_ms: now_ms,
     }
     .encode_to_vec();

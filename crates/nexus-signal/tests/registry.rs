@@ -73,24 +73,20 @@ async fn a_third_party_cannot_register_a_pairing_between_two_other_devices() {
 }
 
 #[tokio::test]
-async fn expired_and_future_records_are_rejected() {
+async fn future_records_are_rejected_but_old_ones_may_be_re_registered() {
     let server = TestServer::start().await;
     let (a, b) = (device(1), device(2));
     let (ca, _e) = server.connect(&a).await;
-    for at in [
-        server.now() - record::MAX_REGISTRATION_AGE_MS - 1,
-        server.now() + record::MAX_FUTURE_SKEW_MS + 1,
-    ] {
-        let err = ca
-            .register_pairing(signed_pairing(&a, &b, at))
-            .await
-            .unwrap_err();
-        assert_eq!(
-            code(&err),
-            SignalErrorCode::InvalidRequest,
-            "created_at={at}"
-        );
-    }
+    let future = server.now() + record::MAX_FUTURE_SKEW_MS + 1;
+    let err = ca
+        .register_pairing(signed_pairing(&a, &b, future))
+        .await
+        .unwrap_err();
+    assert_eq!(code(&err), SignalErrorCode::InvalidRequest);
+    // An old record is fine: after a server restart every device re-registers its pairings.
+    ca.register_pairing(signed_pairing(&a, &b, server.now() - 30 * 24 * 3600 * 1000))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

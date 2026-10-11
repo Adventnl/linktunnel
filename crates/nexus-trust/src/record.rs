@@ -17,9 +17,6 @@ pub const MAX_NAME_LEN: usize = 64;
 pub const MAX_GRANTS: usize = 32;
 /// How far in the future a record's timestamp may be (clock skew allowance).
 pub const MAX_FUTURE_SKEW_MS: u64 = 10 * 60 * 1000;
-/// A record must be registered within this long of being created. Bounds the damage of a signed
-/// record that one party holds back and registers much later.
-pub const MAX_REGISTRATION_AGE_MS: u64 = 15 * 60 * 1000;
 /// Largest serialised record we will parse.
 pub const MAX_RECORD_BYTES: usize = 4096;
 
@@ -257,11 +254,12 @@ pub fn verify(signed: &SignedPairingRecord) -> Result<VerifiedPairing, TrustErro
     })
 }
 
-/// Rejects records created too far in the future or too long ago for *registration*.
+/// Rejects records stamped too far in the future. (There is deliberately no upper bound on age:
+/// both parties hold the same dual-signed record, so either may register it at any time, and a
+/// device re-registers its pairings after a server restart. The server's store rejects records
+/// older than a later revocation, which is what actually prevents resurrecting a dead pairing.)
 pub fn check_fresh(pairing: &VerifiedPairing, now_ms: u64) -> Result<(), TrustError> {
-    if pairing.created_unix_ms > now_ms.saturating_add(MAX_FUTURE_SKEW_MS)
-        || now_ms.saturating_sub(pairing.created_unix_ms) > MAX_REGISTRATION_AGE_MS
-    {
+    if pairing.created_unix_ms > now_ms.saturating_add(MAX_FUTURE_SKEW_MS) {
         return Err(TrustError::TimestampOutOfRange);
     }
     Ok(())
@@ -432,15 +430,12 @@ mod tests {
     }
 
     #[test]
-    fn freshness_window() {
+    fn freshness_only_rejects_the_future() {
         let (x, y) = (id(1), id(2));
         let v = verify(&signed_between(&x, &y)).unwrap();
         check_fresh(&v, NOW).unwrap();
-        check_fresh(&v, NOW + MAX_REGISTRATION_AGE_MS).unwrap();
-        assert!(
-            check_fresh(&v, NOW + MAX_REGISTRATION_AGE_MS + 1).is_err(),
-            "held back too long"
-        );
+        // Old records stay registrable (re-sync after a server restart).
+        check_fresh(&v, NOW + 365 * 24 * 3600 * 1000).unwrap();
         check_fresh(&v, NOW - MAX_FUTURE_SKEW_MS).unwrap();
         assert!(
             check_fresh(&v, NOW - MAX_FUTURE_SKEW_MS - 1).is_err(),

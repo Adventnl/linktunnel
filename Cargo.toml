@@ -55,6 +55,8 @@ nexus-trust = { path = "crates/nexus-trust" }
 nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }
+nexus-ipc = { path = "crates/nexus-ipc" }
+nexus-agent = { path = "crates/nexus-agent" }
 
 # --- errors, logging, config -----------------------------------------------
 thiserror = "2"
