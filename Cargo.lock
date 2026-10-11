@@ -1571,6 +1571,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2869,6 +2879,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-capture"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "nexus-codec",
+ "nexus-core",
+ "nexus-testkit",
+ "rustix",
+ "thiserror 2.0.21",
+ "tracing",
+ "x11rb",
+]
+
+[[package]]
 name = "nexus-cli"
 version = "0.1.0"
 dependencies = [
@@ -2944,6 +2968,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-input"
+version = "0.1.0"
+dependencies = [
+ "nexus-proto",
+ "nexus-testkit",
+ "thiserror 2.0.21",
+ "tracing",
+ "x11rb",
+]
+
+[[package]]
 name = "nexus-ipc"
 version = "0.1.0"
 dependencies = [
@@ -2961,6 +2996,13 @@ dependencies = [
  "tokio",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "nexus-media"
+version = "0.1.0"
+dependencies = [
+ "nexus-proto",
 ]
 
 [[package]]
@@ -3044,6 +3086,13 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "nexus-testkit"
+version = "0.1.0"
+dependencies = [
+ "x11rb",
 ]
 
 [[package]]
@@ -6388,6 +6437,23 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "x11rb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol",
+]
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4d1bc32aa46eec18caa634ec3cf4c05bfa151f12b93b510b15190f69a1ca8"
 
 [[package]]
 name = "x25519-dalek"

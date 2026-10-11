@@ -59,8 +59,11 @@ nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }
 nexus-ipc = { path = "crates/nexus-ipc" }
-nexus-codec = { path = "crates/nexus-codec" }
+nexus-codec = { path = "crates/nexus-codec", default-features = false }
 nexus-capture = { path = "crates/nexus-capture" }
+nexus-input = { path = "crates/nexus-input" }
+nexus-media = { path = "crates/nexus-media" }
+nexus-testkit = { path = "crates/nexus-testkit" }
 nexus-agent = { path = "crates/nexus-agent" }
 
 # --- errors, logging, config -----------------------------------------------

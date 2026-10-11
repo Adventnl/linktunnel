@@ -1,0 +1,22 @@
+[package]
+name = "nexus-input"
+description = "Input injection backends (X11 XTest, recording) and HID usage tables."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexus-proto.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.14", features = ["xtest", "randr"] }
+
+[dev-dependencies]
+nexus-testkit.workspace = true
+x11rb = { version = "0.14", features = ["xtest"] }

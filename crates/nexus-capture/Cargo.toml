@@ -1,0 +1,24 @@
+[package]
+name = "nexus-capture"
+description = "Screen and cursor capture backends: X11 (Linux), synthetic (tests and benchmarks); macOS and Windows backends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes.workspace = true
+nexus-codec.workspace = true
+nexus-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", default-features = false, features = ["event", "std"] }
+x11rb = { version = "0.14", features = ["randr", "damage", "xfixes", "shm"] }
+
+[dev-dependencies]
+nexus-testkit.workspace = true

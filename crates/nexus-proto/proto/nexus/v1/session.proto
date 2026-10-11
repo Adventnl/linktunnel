@@ -24,6 +24,24 @@ message ControlMessage {
     Ping ping = 12;
     Pong pong = 13;
     Error error = 14;
+
+    // ---- remote desktop (Phase 3) ----
+    // Target → controller, right after Hello and again whenever the layout changes.
+    MonitorList monitor_list = 20;
+    // Controller → target: begin streaming one monitor.
+    StartVideo start_video = 21;
+    // Target → controller: the stream that will follow (what was actually granted).
+    VideoStarted video_started = 22;
+    StopVideo stop_video = 23;
+    // Controller → target: a frame was lost or undecodable; recover (reference invalidation or
+    // keyframe).
+    RequestKeyframe request_keyframe = 24;
+    // Controller → target: change the quality ladder rung.
+    SetQuality set_quality = 25;
+    // Target → controller: bitmap for a cursor shape id (sent once per shape).
+    CursorShape cursor_shape = 26;
+    // Controller → target: periodic receiver report driving congestion control.
+    ReceiverReport receiver_report = 27;
   }
 }
 
@@ -99,4 +117,93 @@ message Error {
   ErrorCode code = 1;
   // Diagnostic text for logs; the UI maps `code` to a localised message.
   string message = 2;
+}
+
+// ----- remote desktop -----------------------------------------------------------------------
+
+message MonitorInfo {
+  uint32 index = 1;
+  string name = 2;
+  // Position of the monitor's top-left corner in the target's virtual desktop.
+  int32 x = 3;
+  int32 y = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+  // Device pixels per logical pixel (2.0 on a Retina display).
+  float scale = 7;
+  float refresh_hz = 8;
+  bool primary = 9;
+}
+
+message MonitorList {
+  repeated MonitorInfo monitors = 1;
+}
+
+message StartVideo {
+  uint32 monitor = 1;
+  // Codecs in order of preference; the target picks the first it can encode.
+  repeated VideoCodec codecs = 2;
+  uint32 max_fps = 3;
+  // Starting bitrate; congestion control moves it from here.
+  uint32 bitrate_bps = 4;
+  // 0 = native size. Otherwise the picture is scaled down to fit.
+  uint32 max_width = 5;
+  uint32 max_height = 6;
+}
+
+message VideoStarted {
+  uint32 monitor = 1;
+  VideoCodec codec = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  uint32 fps = 5;
+  uint32 bitrate_bps = 6;
+  // Which encoder backend is in use ("openh264", "videotoolbox", ...), for the HUD.
+  string encoder = 7;
+}
+
+message StopVideo {
+  uint32 monitor = 1;
+}
+
+message RequestKeyframe {
+  uint32 monitor = 1;
+  // Highest frame sequence number the receiver decoded cleanly (0 = none).
+  uint32 last_good_seq = 2;
+}
+
+message SetQuality {
+  uint32 monitor = 1;
+  // 0 = leave unchanged for each field.
+  uint32 bitrate_bps = 2;
+  uint32 fps = 3;
+  // Resolution scale in percent of native (100 = native).
+  uint32 scale_percent = 4;
+}
+
+message CursorShape {
+  uint32 shape_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 hot_x = 4;
+  uint32 hot_y = 5;
+  // Premultiplied BGRA, width * height * 4 bytes.
+  bytes bgra = 6;
+}
+
+message ReceiverReport {
+  uint32 monitor = 1;
+  // Frames fully received / decoded / dropped since the previous report.
+  uint32 received = 2;
+  uint32 decoded = 3;
+  uint32 dropped = 4;
+  // Highest frame sequence number received.
+  uint32 highest_seq = 5;
+  // Mean one-way delay variation of frame arrivals vs. send spacing, microseconds (signed
+  // as zigzag would be overkill: negative means arriving faster than sent).
+  sint32 delay_gradient_us = 6;
+  // Decode + queue time on the receiver, microseconds (p50 over the window).
+  uint32 decode_us = 7;
+  // Receiver-observed goodput over the window, bits per second.
+  uint32 goodput_bps = 8;
 }
