@@ -78,11 +78,42 @@ pub struct TargetConfig {
     pub power: Option<Arc<dyn nexus_power::PowerBackend>>,
     /// Forwards TCP connections for controllers holding the `terminal` grant; `None` refuses.
     pub portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
+    /// Where to note what the controller does on this machine (screen, input, files, ...).
+    pub audit: Option<AuditContext>,
     /// Hosts terminals for controllers holding the `terminal` grant; `None` refuses them.
     pub terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     /// Send Wake-on-LAN packets from this machine's network on behalf of controllers holding the
     /// `wake` grant (a device that is always on can wake the ones that sleep).
     pub wake_relay: bool,
+}
+
+/// Who is doing things on this machine, and where to write it down.
+#[derive(Clone)]
+pub struct AuditContext {
+    /// The log.
+    pub sink: Arc<dyn nexus_audit::AuditSink>,
+    /// The controlling device (its ID).
+    pub actor: String,
+}
+
+impl std::fmt::Debug for AuditContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditContext")
+            .field("actor", &self.actor)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AuditContext {
+    fn note(&self, kind: &str, detail: &[(&str, &str)]) {
+        self.sink.record(kind, Some(&self.actor), detail);
+    }
+}
+
+fn note(audit: &Option<AuditContext>, kind: &str, detail: &[(&str, &str)]) {
+    if let Some(a) = audit {
+        a.note(kind, detail);
+    }
 }
 
 /// A serial bottleneck applied to outgoing video frames.
@@ -323,6 +354,7 @@ pub async fn serve(
                         let id = msg.id;
                         match start_video(&config, &monitors, &req, &frame_tx, &stats, &out_tx) {
                             Ok((pipeline, started)) => {
+                                note(&config.audit, "screen.started", &[("monitor", &req.monitor.to_string())]);
                                 if let Some(mut old) = pipelines.insert(u8::try_from(req.monitor).unwrap_or(0), pipeline) {
                                     old.stop();
                                 }
@@ -505,6 +537,11 @@ async fn handle_power(
         return PowerOutcome::Refused(answer);
     }
     info!(?action, "power request accepted");
+    note(
+        &config.audit,
+        "power.requested",
+        &[("action", &format!("{action:?}"))],
+    );
     if action.drops_connection() {
         // Report success first: the machine may be gone a moment later.
         tokio::spawn(async move {
@@ -556,6 +593,11 @@ fn handle_wake(config: &TargetConfig, id: u64, macs: &[String]) -> ControlMessag
         }
     }
     info!(count = macs.len(), "relayed Wake-on-LAN packets");
+    note(
+        &config.audit,
+        "wake.relayed",
+        &[("count", &macs.len().to_string())],
+    );
     power_reply(id, true, "sent")
 }
 
@@ -1208,13 +1250,15 @@ async fn accept_streams(
                         scale: m.scale,
                     })
                     .collect();
-                let (consent, stats) = (consent.clone(), Arc::clone(&stats));
+                let (consent, stats, audit) =
+                    (consent.clone(), Arc::clone(&stats), config.audit.clone());
                 tokio::spawn(async move {
                     if consent.check().await != Consent::Allowed {
                         return;
                     }
                     // Each stream gets its own injector so a reconnecting controller never
                     // inherits another connection's held keys.
+                    note(&audit, "input.attached", &[]);
                     match factory() {
                         Ok(injector) => run_input_stream(stream, injector, rects, stats).await,
                         Err(e) => {
@@ -1227,13 +1271,20 @@ async fn accept_streams(
                 let Some(server) = config.files.clone() else {
                     continue;
                 };
-                let consent = consent.clone();
+                let (consent, audit) = (consent.clone(), config.audit.clone());
                 tokio::spawn(async move {
                     if consent.check().await != Consent::Allowed {
                         return;
                     }
                     let mut io = nexus_files::framed(stream);
-                    if let Err(e) = server.serve(&mut io).await {
+                    let observe = |op: &str, path: &str, ok: bool| {
+                        note(
+                            &audit,
+                            &format!("files.{op}"),
+                            &[("path", path), ("ok", if ok { "yes" } else { "no" })],
+                        );
+                    };
+                    if let Err(e) = server.serve_observed(&mut io, &observe).await {
                         debug!(error = %e, "file operation ended with an error");
                     }
                 });
@@ -1242,11 +1293,12 @@ async fn accept_streams(
                 let Some(host) = config.terminal.clone() else {
                     continue;
                 };
-                let consent = consent.clone();
+                let (consent, audit) = (consent.clone(), config.audit.clone());
                 tokio::spawn(async move {
                     if consent.check().await != Consent::Allowed {
                         return;
                     }
+                    note(&audit, "terminal.opened", &[]);
                     let mut io = crate::terminal_io::QuicTerm::new(stream);
                     if let Err(e) = nexus_terminal::serve(&host, &mut io).await {
                         debug!(error = %e, "terminal ended");
@@ -1257,12 +1309,23 @@ async fn accept_streams(
                 let Some(host) = config.portfwd.clone() else {
                     continue;
                 };
-                let consent = consent.clone();
+                let (consent, audit) = (consent.clone(), config.audit.clone());
                 tokio::spawn(async move {
                     if consent.check().await != Consent::Allowed {
                         return;
                     }
-                    host.serve(tokio::io::join(stream.recv, stream.send)).await;
+                    let observe = |host: &str, port: u16, status: nexus_portfwd::Status| {
+                        note(
+                            &audit,
+                            "forward.opened",
+                            &[
+                                ("destination", &format!("{host}:{port}")),
+                                ("result", &format!("{status:?}")),
+                            ],
+                        );
+                    };
+                    host.serve_observed(tokio::io::join(stream.recv, stream.send), &observe)
+                        .await;
                 });
             }
             StreamKind::Clipboard if can_clipboard => {
@@ -1276,11 +1339,12 @@ async fn accept_streams(
                         continue;
                     }
                 };
-                let consent = consent.clone();
+                let (consent, audit) = (consent.clone(), config.audit.clone());
                 tokio::spawn(async move {
                     if consent.check().await != Consent::Allowed {
                         return;
                     }
+                    note(&audit, "clipboard.attached", &[]);
                     let io = FramedStream::new(stream, nexus_proto::framing::MAX_BULK_FRAME);
                     if let Err(e) = nexus_clipboard::run(backend, io, setup.policy).await {
                         debug!(error = %e, "clipboard sync ended");

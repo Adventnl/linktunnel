@@ -44,6 +44,19 @@ pub(crate) async fn request(
     path: nexus_proto::v1::PathKind,
 ) -> Consent {
     let key = peer.identity.ed25519_bytes();
+    if shared
+        .limits
+        .lock()
+        .locked_out(&key, std::time::Instant::now())
+    {
+        warn!(peer = %peer.name, "refused without asking: too many recent refusals");
+        shared.audit.record(
+            "consent.locked_out",
+            Some(&peer.identity.device_id().to_string()),
+            &[("name", &peer.name)],
+        );
+        return Consent::Denied;
+    }
     // Nobody to ask means nobody can say yes: refuse straight away instead of making the
     // controller wait out the timeout. (A headless machine is made unattended on purpose with
     // `nexus trust unattended`.)
@@ -71,6 +84,10 @@ pub(crate) async fn request(
         path: path as i32,
     }));
     info!(peer = %peer.name, request = id, "waiting for approval");
+    let actor = peer.identity.device_id().to_string();
+    shared
+        .audit
+        .record("consent.requested", Some(&actor), &[("name", &peer.name)]);
     let mut shutdown = shared.shutdown.subscribe();
     let outcome = tokio::select! {
         answer = rx => match answer {
@@ -90,12 +107,30 @@ pub(crate) async fn request(
         _ = shutdown.changed() => Consent::Denied,
     };
     shared.consents.lock().remove(&id);
+    {
+        let mut limits = shared.limits.lock();
+        if outcome == Consent::Allowed {
+            limits.approved(&key);
+        } else if limits.refused(key, std::time::Instant::now()) {
+            warn!(peer = %peer.name, "locking this device out of approval prompts for a while");
+            shared.audit.record(
+                "consent.lockout_started",
+                Some(&actor),
+                &[("name", &peer.name)],
+            );
+        }
+    }
     shared.emit(Ev::ConsentResolved(ConsentResolved {
         request_id: id,
         allowed: outcome == Consent::Allowed,
         timed_out: outcome == Consent::TimedOut,
     }));
     info!(peer = %peer.name, ?outcome, "approval decided");
+    shared.audit.record(
+        "consent.decided",
+        Some(&actor),
+        &[("outcome", &format!("{outcome:?}"))],
+    );
     outcome
 }
 
@@ -135,6 +170,11 @@ pub(crate) fn set_unattended(
         .set(&key, mode)
         .map_err(|e| AgentError::Failed(format!("could not save the policy: {e}")))?;
     shared.emit_device_changed(&key);
+    shared.audit.record(
+        "consent.policy_changed",
+        Some(&peer.identity.device_id().to_string()),
+        &[("unattended", if unattended { "yes" } else { "no" })],
+    );
     info!(peer = %peer.name, unattended, "consent policy changed");
     Ok(())
 }

@@ -7,6 +7,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod agent_cmds;
+mod audit_cmds;
 mod consent_cmds;
 mod files_cmds;
 mod forward_cmds;
@@ -160,6 +161,9 @@ enum Command {
         #[arg(long)]
         via: Option<String>,
     },
+    /// Read and verify this device's tamper-evident audit log.
+    #[command(subcommand)]
+    Audit(audit_cmds::AuditCommand),
     /// Answer "may this device use me?" prompts in this terminal.
     Consent,
     /// Choose which paired devices may use this one without asking.
@@ -260,6 +264,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             yes,
         } => power_cmds::power(&ctx, &device, action, yes).await,
         Command::Wake { device, via } => power_cmds::wake(&ctx, &device, via.as_deref()).await,
+        Command::Audit(cmd) => audit_cmds::run(&ctx, &cmd),
         Command::Consent => consent_cmds::watch(&ctx).await,
         Command::Trust(cmd) => consent_cmds::trust(&ctx, cmd).await,
         Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,

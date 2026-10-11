@@ -11,6 +11,7 @@ mod error;
 mod files_bridge;
 mod forward_bridge;
 mod ipc_server;
+mod limits;
 mod pairing;
 mod policy;
 mod power_bridge;
@@ -39,7 +40,9 @@ use tracing::info;
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use remote::RemoteHandler;
-pub use sessions::{CLOSE_LOCKDOWN, DiagnosticsHandler, SessionContext, SessionHandler};
+pub use sessions::{
+    CLOSE_LOCKDOWN, CLOSE_RATE_LIMITED, DiagnosticsHandler, SessionContext, SessionHandler,
+};
 pub use state::Shared;
 
 /// Why the agent could not start.
@@ -57,6 +60,9 @@ pub enum StartError {
     /// The IPC endpoint could not be created (another agent already running?).
     #[error("starting local IPC: {0}")]
     Ipc(#[from] nexus_ipc::IpcError),
+    /// The audit log cannot be opened. The agent does not run without one.
+    #[error("opening the audit log: {0}")]
+    Audit(#[from] nexus_audit::AuditError),
 }
 
 /// A running agent.
@@ -89,6 +95,15 @@ impl Agent {
         } else {
             trust.allowlist()
         });
+        let audit: Arc<dyn nexus_audit::AuditSink> = Arc::new(nexus_audit::AuditLog::open(
+            &config.audit_dir(),
+            Some(Arc::clone(&identity)),
+        )?);
+        audit.record(
+            "agent.started",
+            None,
+            &[("version", env!("CARGO_PKG_VERSION"))],
+        );
         let node = Node::start(&identity, &config.node, allow).await?;
         let ipc_paths = IpcPaths::in_dir(&config.paths.runtime_dir);
         let ipc = IpcServer::bind(ipc_paths.clone()).await?;
@@ -118,6 +133,8 @@ impl Agent {
             terminals: Mutex::default(),
             forwards: Mutex::default(),
             wakebook: Mutex::new(wakebook::WakeBook::load(wake_file)),
+            audit,
+            limits: Mutex::default(),
             consents: Mutex::default(),
             next_consent_id: AtomicU64::new(1),
             started: Instant::now(),

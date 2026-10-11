@@ -21,6 +21,7 @@ anyhow.workspace = true
 bytes.workspace = true
 clap.workspace = true
 crossterm = { version = "0.29", default-features = false, features = ["events"] }
+nexus-audit.workspace = true
 nexus-input.workspace = true
 nexus-media.workspace = true
 nexus-core.workspace = true

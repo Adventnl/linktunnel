@@ -3393,6 +3393,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hostname",
  "mac_address",
+ "nexus-audit",
  "nexus-capture",
  "nexus-clipboard",
  "nexus-codec",
@@ -3419,6 +3420,21 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "nexus-audit"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake3",
+ "nexus-crypto",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -3475,6 +3491,7 @@ dependencies = [
  "bytes",
  "clap",
  "crossterm",
+ "nexus-audit",
  "nexus-core",
  "nexus-crypto",
  "nexus-input",
@@ -3620,6 +3637,7 @@ dependencies = [
  "blake3",
  "bytes",
  "iroh",
+ "nexus-audit",
  "nexus-capture",
  "nexus-clipboard",
  "nexus-codec",

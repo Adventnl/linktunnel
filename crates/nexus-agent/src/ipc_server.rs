@@ -272,6 +272,7 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
     shared.devices.lock().remove(&key);
     shared.policy.lock().forget(&key);
     shared.wakebook.lock().forget(&key);
+    shared.limits.lock().forget(&key);
     shared.emit(Ev::DeviceRemoved(nexus_proto::v1::DeviceRemoved {
         device_id: device_id.to_vec().into(),
     }));
@@ -284,6 +285,11 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
             warn!(error = %e, "could not notify the server of the revocation yet; will retry on reconnect");
         }
     }
+    shared.audit.record(
+        "pairing.revoked",
+        Some(&peer.identity.device_id().to_string()),
+        &[("name", &peer.name)],
+    );
     info!(peer = %peer.identity.device_id(), "unpaired");
     Ok(())
 }
@@ -306,6 +312,11 @@ fn set_lockdown(shared: &Shared, enabled: bool) -> Result<(), AgentError> {
     shared.lockdown.store(enabled, Ordering::SeqCst);
     // Lockdown empties the allow-list, which terminates every live session at once.
     shared.refresh_allowlist();
+    shared.audit.record(
+        "lockdown.changed",
+        None,
+        &[("enabled", if enabled { "yes" } else { "no" })],
+    );
     info!(enabled, "lockdown changed");
     Ok(())
 }

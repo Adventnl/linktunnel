@@ -74,8 +74,28 @@ impl FileServer {
 
     /// Handles the operation on `io`, replying with an error message if it fails.
     pub async fn serve<I: MsgIo>(&self, io: &mut I) -> Result<(), FileError> {
+        self.serve_observed(io, &|_, _, _| {}).await
+    }
+
+    /// Like [`serve`](Self::serve), and tells `observe(operation, path, succeeded)` how the
+    /// operation went (for the audit log). `operation` is one of `list`, `stat`, `read`,
+    /// `write`, `mkdir`, `remove`.
+    pub async fn serve_observed<I: MsgIo>(
+        &self,
+        io: &mut I,
+        observe: &(dyn Fn(&str, &str, bool) + Sync),
+    ) -> Result<(), FileError> {
         let Some(first) = io.recv().await? else {
             return Ok(());
+        };
+        let (op, path) = match &first.body {
+            Some(Body::List(r)) => ("list", r.path.clone()),
+            Some(Body::Stat(r)) => ("stat", r.path.clone()),
+            Some(Body::Read(r)) => ("read", r.path.clone()),
+            Some(Body::Write(r)) => ("write", r.path.clone()),
+            Some(Body::Mkdir(r)) => ("mkdir", r.path.clone()),
+            Some(Body::Remove(r)) => ("remove", r.path.clone()),
+            _ => ("invalid", String::new()),
         };
         let result = match first.body {
             Some(Body::List(r)) => self.list(io, &r.path).await,
@@ -86,6 +106,7 @@ impl FileServer {
             Some(Body::Remove(r)) => self.remove(io, r).await,
             _ => Err(FileError::Protocol("unexpected first message".into())),
         };
+        observe(op, &path, result.is_ok());
         match result {
             Ok(()) => io.finish(),
             Err(e) => {

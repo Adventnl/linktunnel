@@ -1349,3 +1349,140 @@ async fn a_local_port_reaches_a_service_on_the_other_device_through_the_agents()
     );
     mac.client.close_session(sid).await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_happened_is_written_to_a_log_that_verifies_and_detects_tampering() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_server, mac, mut pc, share) = attended_pair(dir.path(), Duration::from_secs(30)).await;
+    let want = share.to_str().unwrap().to_owned();
+    let sid = open_files_session(&mac, &pc).await;
+    let list = {
+        let (client, want) = (mac.client.clone(), want.clone());
+        tokio::spawn(async move { client.file_list(sid, &want).await })
+    };
+    let req = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    pc.client
+        .consent_decision(req.request_id, true, false)
+        .await
+        .unwrap();
+    list.await.unwrap().unwrap();
+    mac.client.close_session(sid).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let audit_dir = config("Windows PC", &dir.path().join("b"), None).audit_dir();
+    let log = nexus_audit::AuditLog::open(&audit_dir, None).unwrap();
+    let kinds: Vec<String> = log
+        .recent(100)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.kind)
+        .collect();
+    for expected in [
+        "agent.started",
+        "pairing.created",
+        "session.accepted",
+        "consent.requested",
+        "consent.decided",
+        "files.list",
+        "session.ended",
+    ] {
+        assert!(
+            kinds.iter().any(|k| k == expected),
+            "missing {expected} in {kinds:?}"
+        );
+    }
+    let listed = log
+        .recent(100)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.kind == "files.list")
+        .unwrap();
+    assert_eq!(
+        listed.detail.get("path").map(String::as_str),
+        Some(want.as_str())
+    );
+    assert_eq!(
+        listed.actor.as_deref(),
+        Some(mac.agent.device_id().to_string().as_str())
+    );
+    drop(log);
+
+    // It verifies against the PC's own identity …
+    let pc_identity = identity(2);
+    let v = nexus_audit::verify(&audit_dir, Some(pc_identity.public())).unwrap();
+    assert!(v.is_clean() && v.head_verified, "{v:?}");
+    // … and editing a line is noticed.
+    let path = audit_dir.join("audit.log");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        text.replacen("consent.decided", "consent.dedided", 1),
+    )
+    .unwrap();
+    assert!(
+        nexus_audit::verify(&audit_dir, Some(pc_identity.public()))
+            .unwrap()
+            .problem
+            .is_some()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_that_keeps_being_refused_stops_getting_prompts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_server, mac, mut pc, share) = attended_pair(dir.path(), Duration::from_secs(30)).await;
+    let want = share.to_str().unwrap().to_owned();
+
+    for _ in 0..3 {
+        let sid = open_files_session(&mac, &pc).await;
+        let list = {
+            let (client, want) = (mac.client.clone(), want.clone());
+            tokio::spawn(async move { client.file_list(sid, &want).await })
+        };
+        let req = next_matching(&mut pc.events, |ev| match &ev.body {
+            Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+            _ => None,
+        })
+        .await;
+        pc.client
+            .consent_decision(req.request_id, false, false)
+            .await
+            .unwrap();
+        assert!(list.await.unwrap().is_err());
+        mac.client.close_session(sid).await.ok();
+    }
+
+    // The fourth attempt is turned away without anyone being asked.
+    let sid = open_files_session(&mac, &pc).await;
+    let started = std::time::Instant::now();
+    assert!(mac.client.file_list(sid, &want).await.is_err());
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let prompted = tokio::time::timeout(
+        Duration::from_millis(500),
+        next_matching(&mut pc.events, |ev| match &ev.body {
+            Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+            _ => None,
+        }),
+    )
+    .await;
+    assert!(prompted.is_err(), "no prompt during a lockout");
+
+    let audit_dir = config("Windows PC", &dir.path().join("b"), None).audit_dir();
+    let kinds: Vec<String> = nexus_audit::AuditLog::open(&audit_dir, None)
+        .unwrap()
+        .recent(200)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.kind)
+        .collect();
+    assert!(
+        kinds.iter().any(|k| k == "consent.lockout_started"),
+        "{kinds:?}"
+    );
+    assert!(kinds.iter().any(|k| k == "consent.locked_out"), "{kinds:?}");
+    mac.client.close_session(sid).await.ok();
+}

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use nexus_net::{CLOSE_NOT_PAIRED, Established, NetError, PeerAddr, Session, SessionRole, diag};
@@ -17,6 +17,8 @@ use crate::sysinfo;
 
 /// Close code used when lockdown refuses a session.
 pub const CLOSE_LOCKDOWN: u32 = 0x4E03;
+/// Close code used when a device opens sessions faster than allowed.
+pub const CLOSE_RATE_LIMITED: u32 = 0x4E04;
 
 /// Everything a handler needs about one established incoming session.
 pub struct SessionContext {
@@ -128,6 +130,16 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
         session.close(CLOSE_NOT_PAIRED, "not paired");
         return;
     };
+    if !shared.limits.lock().allow_session(key, Instant::now()) {
+        warn!(peer = %peer.identity.device_id(), "too many session attempts; refusing");
+        shared.audit.record(
+            "session.rate_limited",
+            Some(&peer.identity.device_id().to_string()),
+            &[("name", &peer.name)],
+        );
+        session.close(CLOSE_RATE_LIMITED, "too many attempts");
+        return;
+    }
     let hello = local_hello(&shared);
     let established = match session
         .establish(&hello, SessionRole::Target, &[VideoCodec::H264])
@@ -142,6 +154,15 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
     };
     info!(peer = %peer.identity.device_id(), path = ?session.path().kind, "session established");
     let _guard = SessionGuard::new(&shared, key, session.path().kind);
+    let actor = peer.identity.device_id().to_string();
+    shared.audit.record(
+        "session.accepted",
+        Some(&actor),
+        &[
+            ("name", &peer.name),
+            ("path", &format!("{:?}", session.path().kind)),
+        ],
+    );
 
     // Keep the dashboard's path indicator current (relay → direct migration, etc.).
     let watcher = {
@@ -169,6 +190,7 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
         })
         .await;
     watcher.abort();
+    shared.audit.record("session.ended", Some(&actor), &[]);
 }
 
 /// Opens a session to the paired device `device_id` as its controller.

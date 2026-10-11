@@ -166,6 +166,15 @@ impl Outcome {
 
 fn finished(shared: &Shared, id: u64, outcome: Outcome) {
     let (peer_device_id, peer_name) = outcome.peer.unwrap_or_default();
+    shared.audit.record(
+        if outcome.success {
+            "pairing.created"
+        } else {
+            "pairing.failed"
+        },
+        None,
+        &[("name", &peer_name), ("reason", &outcome.reason)],
+    );
     shared.emit(Ev::PairingFinished(PairingFinished {
         pairing_id: id,
         success: outcome.success,

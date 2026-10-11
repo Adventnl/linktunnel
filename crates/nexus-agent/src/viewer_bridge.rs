@@ -166,6 +166,11 @@ pub(crate) async fn open(
         },
     );
     ctx.owned.lock().insert(id);
+    shared.audit.record(
+        "outgoing.session",
+        Some(&peer.identity.device_id().to_string()),
+        &[("name", &peer.name)],
+    );
     info!(session = id, peer = %peer.name, "viewer session opened");
     Ok(SessionOpened {
         session_id: id,

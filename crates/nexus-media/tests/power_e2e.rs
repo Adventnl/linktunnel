@@ -55,6 +55,7 @@ async fn rig(
         wake_relay,
         terminal: None,
         portfwd: None,
+        audit: None,
     };
     tokio::spawn(target::serve(
         b_session,

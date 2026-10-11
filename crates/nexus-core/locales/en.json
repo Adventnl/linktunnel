@@ -104,5 +104,10 @@
   "cli.shell.reattached": "[re-attached to the running shell {name}]",
   "cli.shell.ended": "[shell ended: {reason}]",
   "cli.forward.listening": "Forwarding 127.0.0.1:{local} to {remote} on {name}. Press Ctrl-C to stop.",
-  "cli.forward.bad_spec": "Write the forward as [LOCAL_PORT:]HOST:PORT, for example 5432 or 8080:localhost:80."
+  "cli.forward.bad_spec": "Write the forward as [LOCAL_PORT:]HOST:PORT, for example 5432 or 8080:localhost:80.",
+  "cli.audit.none": "There is no audit log yet: the agent has not run on this device.",
+  "cli.audit.ok": "Audit log intact: {records} records, signed head {head}.",
+  "cli.audit.head_ok": "verified",
+  "cli.audit.head_unchecked": "not checked (no identity here)",
+  "cli.audit.broken": "AUDIT LOG DAMAGED at record {seq}: {why}"
 }

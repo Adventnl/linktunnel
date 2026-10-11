@@ -232,6 +232,10 @@ impl SessionHandler for RemoteHandler {
             files: self.files.clone(),
             clipboard: self.clipboard.clone(),
             consent: crate::consent::gate(&ctx.shared, &ctx.peer, ctx.session.path().kind),
+            audit: Some(nexus_media::target::AuditContext {
+                sink: Arc::clone(&ctx.shared.audit),
+                actor: ctx.peer.identity.device_id().to_string(),
+            }),
             power: self.power.clone(),
             wake_relay: self.wake_relay,
             terminal: self.terminal.clone(),

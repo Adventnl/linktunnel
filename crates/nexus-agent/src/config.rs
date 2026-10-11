@@ -59,6 +59,12 @@ impl AgentConfig {
         self.paths.data_dir.join("trust.json")
     }
 
+    /// The tamper-evident audit log.
+    #[must_use]
+    pub fn audit_dir(&self) -> PathBuf {
+        self.paths.data_dir.join("audit")
+    }
+
     /// Per-device consent overrides.
     #[must_use]
     pub fn policy_file(&self) -> PathBuf {

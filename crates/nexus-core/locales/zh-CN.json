@@ -104,5 +104,10 @@
   "cli.shell.reattached": "[已重新连接到正在运行的终端 {name}]",
   "cli.shell.ended": "[终端已结束：{reason}]",
   "cli.forward.listening": "正在把 127.0.0.1:{local} 转发到 {name} 上的 {remote}。按 Ctrl-C 停止。",
-  "cli.forward.bad_spec": "转发规则格式为 [本地端口:]主机:端口，例如 5432 或 8080:localhost:80。"
+  "cli.forward.bad_spec": "转发规则格式为 [本地端口:]主机:端口，例如 5432 或 8080:localhost:80。",
+  "cli.audit.none": "还没有审计日志：代理尚未在此设备上运行。",
+  "cli.audit.ok": "审计日志完好：共 {records} 条记录，签名头{head}。",
+  "cli.audit.head_ok": "已验证",
+  "cli.audit.head_unchecked": "未校验（此处没有设备身份）",
+  "cli.audit.broken": "审计日志已损坏，位置：第 {seq} 条记录：{why}"
 }

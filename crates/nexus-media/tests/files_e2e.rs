@@ -47,6 +47,7 @@ async fn rig(grant_list: &[&str], root: &std::path::Path) -> ControllerSession {
         wake_relay: false,
         terminal: None,
         portfwd: None,
+        audit: None,
     };
     tokio::spawn(target::serve(
         b_session,

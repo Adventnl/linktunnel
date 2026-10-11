@@ -52,6 +52,8 @@ pub struct Shared {
     pub(crate) terminals:
         Mutex<std::collections::HashMap<u64, crate::terminal_bridge::TerminalEntry>>,
     pub(crate) forwards: Mutex<std::collections::HashMap<u64, crate::forward_bridge::ForwardEntry>>,
+    pub(crate) audit: Arc<dyn nexus_audit::AuditSink>,
+    pub(crate) limits: Mutex<crate::limits::Limits>,
     pub(crate) wakebook: Mutex<crate::wakebook::WakeBook>,
     pub(crate) consents: Mutex<std::collections::HashMap<u64, crate::consent::Pending>>,
     pub(crate) next_consent_id: AtomicU64,

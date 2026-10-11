@@ -33,7 +33,7 @@ fn pipe(policy: ForwardPolicy) -> tokio::io::DuplexStream {
     let (client, server) = tokio::io::duplex(64 * 1024);
     let active = Arc::default();
     tokio::spawn(async move {
-        serve_stream(server, &policy, &active).await;
+        serve_stream(server, &policy, &active, &|_, _, _| {}).await;
     });
     client
 }
@@ -93,7 +93,9 @@ async fn policy_and_failures_are_reported_distinctly() {
     ));
     let (mut c, server) = tokio::io::duplex(1024);
     let active = Arc::default();
-    tokio::spawn(async move { serve_stream(server, &ForwardPolicy::default(), &active).await });
+    tokio::spawn(async move {
+        serve_stream(server, &ForwardPolicy::default(), &active, &|_, _, _| {}).await
+    });
     c.write_all(b"XXXXXXXX").await.unwrap();
     assert_eq!(c.read_u8().await.unwrap(), 4, "bad request status");
 }
@@ -113,7 +115,9 @@ async fn explicit_allow_rules_work_and_the_connection_limit_holds() {
         let (policy, active) = (Arc::clone(&policy), Arc::clone(&active));
         async move {
             let (mut client, server) = tokio::io::duplex(1024);
-            tokio::spawn(async move { serve_stream(server, &policy, &active).await });
+            tokio::spawn(
+                async move { serve_stream(server, &policy, &active, &|_, _, _| {}).await },
+            );
             open_forward(&mut client, host, port).await.map(|()| client)
         }
     };
@@ -153,7 +157,9 @@ async fn a_local_listener_forwards_each_connection() {
         let (policy, active) = (Arc::clone(&policy), Arc::clone(&active));
         async move {
             let (client, server) = tokio::io::duplex(64 * 1024);
-            tokio::spawn(async move { serve_stream(server, &policy, &active).await });
+            tokio::spawn(
+                async move { serve_stream(server, &policy, &active, &|_, _, _| {}).await },
+            );
             Ok::<_, String>(client)
         }
     };
