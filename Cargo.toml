@@ -51,6 +51,9 @@ module_name_repetitions = "allow"
 nexus-core = { path = "crates/nexus-core" }
 nexus-proto = { path = "crates/nexus-proto" }
 nexus-crypto = { path = "crates/nexus-crypto" }
+nexus-trust = { path = "crates/nexus-trust" }
+nexus-signal-client = { path = "crates/nexus-signal-client" }
+nexus-signal = { path = "crates/nexus-signal" }
 
 # --- errors, logging, config -----------------------------------------------
 thiserror = "2"
@@ -59,11 +62,15 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "json", "std", "registry", "ansi"] }
 tracing-appender = "0.2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 figment = { version = "0.10", features = ["toml", "env"] }
 directories = "6"
 hdrhistogram = { version = "7", default-features = false }
 
 # --- async / bytes ---------------------------------------------------------
+async-trait = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio-stream = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "signal", "fs"] }
 bytes = "1"
 
@@ -76,11 +83,19 @@ protox = "0.10"
 ed25519-dalek = { version = "3", features = ["zeroize"] }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 blake3 = "1"
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom", "std"] }
+bip39 = { version = "3", default-features = false }
 zeroize = { version = "1", features = ["derive"] }
 getrandom = "0.4"
 subtle = "2"
 data-encoding = "2"
 keyring = "4"
+
+# --- web (signaling server and client) ---------------------------------------
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json", "query"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "stream", "rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7"
 
 # --- CLI -------------------------------------------------------------------
 clap = { version = "4", features = ["derive", "env"] }
@@ -108,6 +123,10 @@ opt-level = 3
 [profile.dev.package.x25519-dalek]
 opt-level = 3
 [profile.dev.package.blake3]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.snow]
 opt-level = 3
 
 [profile.release]

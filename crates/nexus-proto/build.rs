@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = PathBuf::from("proto");
-    let files: Vec<PathBuf> = ["common.proto", "session.proto"]
+    let files: Vec<PathBuf> = ["common.proto", "session.proto", "signal.proto"]
         .iter()
         .map(|f| proto_root.join("nexus/v1").join(f))
         .collect();

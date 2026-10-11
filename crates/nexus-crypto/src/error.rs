@@ -18,6 +18,9 @@ pub enum CryptoError {
     /// The system random number generator failed.
     #[error("system random number generator failure: {0}")]
     Rng(String),
+    /// A Noise-based protocol (pairing, sealed envelope) failed.
+    #[error(transparent)]
+    Noise(#[from] crate::noise::NoiseError),
     /// Secret storage failed.
     #[error(transparent)]
     Store(#[from] StoreError),

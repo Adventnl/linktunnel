@@ -16,11 +16,13 @@ workspace = true
 pure-blake3 = ["blake3/pure"]
 
 [dependencies]
+bip39.workspace = true
 blake3.workspace = true
 data-encoding.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
 keyring.workspace = true
+snow.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

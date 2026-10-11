@@ -144,6 +144,16 @@ impl DeviceId {
         Self(id)
     }
 
+    /// Derives the ID from raw Ed25519 public-key bytes without parsing the curve point.
+    /// Identical to [`from_public_key`](Self::from_public_key) for any valid key.
+    #[must_use]
+    pub fn from_ed25519_bytes(key: &[u8; 32]) -> Self {
+        let digest = blake3::derive_key(KDF_DEVICE_ID, key);
+        let mut id = [0u8; Self::LEN];
+        id.copy_from_slice(&digest[..Self::LEN]);
+        Self(id)
+    }
+
     /// Wraps raw bytes (e.g. from a protobuf field).
     #[must_use]
     pub const fn from_bytes(bytes: [u8; Self::LEN]) -> Self {
@@ -434,10 +444,6 @@ impl DeviceIdentity {
 
     /// The X25519 static secret, for Noise handshakes within this crate.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consumed by the Noise modules (Phase 2)")
-    )]
     pub(crate) fn noise_secret(&self) -> &[u8; 32] {
         &self.noise_secret
     }
@@ -636,6 +642,15 @@ mod tests {
             verify_with_key(&key, SignContext::Envelope, b"x", &sig),
             Err(CryptoError::WeakKey)
         ));
+    }
+
+    #[test]
+    fn device_id_from_raw_bytes_matches_from_public_key() {
+        let id = fixed();
+        assert_eq!(
+            DeviceId::from_ed25519_bytes(&id.public().ed25519_bytes()),
+            id.device_id()
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@
 pub mod features;
 pub mod framing;
 pub mod serial;
+pub mod signal;
 pub mod version;
 pub mod wire;
 

@@ -1,0 +1,26 @@
+[package]
+name = "nexus-signal-client"
+description = "Client for nexus-signal: authentication, presence, pairing registry, sealed envelopes, rendezvous."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+futures-util.workspace = true
+getrandom.workspace = true
+nexus-core.workspace = true
+nexus-crypto.workspace = true
+nexus-proto.workspace = true
+nexus-trust.workspace = true
+prost.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+url = "2"

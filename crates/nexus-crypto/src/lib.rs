@@ -17,6 +17,7 @@
 
 pub mod error;
 pub mod identity;
+pub mod noise;
 pub mod provision;
 pub mod store;
 
