@@ -6,6 +6,8 @@
 //! | Backend | Where |
 //! |---|---|
 //! | `x11` | Linux X11 / Xvfb via the XTest extension |
+//! | `macos` | macOS via `CGEvent` (needs the Accessibility permission; type-checked only here) |
+//! | `windows_inject` | Windows via `SendInput` (type-checked only here; the SYSTEM helper handles the secure desktop) |
 //! | [`recording::RecordingInjector`] | tests |
 //!
 //! Every injector is wrapped by [`Guarded`], which remembers which keys and buttons are held so
@@ -22,6 +24,12 @@ pub mod recording;
 pub mod remap;
 mod scroll;
 
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub mod macos;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub mod windows_inject;
 #[cfg(target_os = "linux")]
 pub mod x11;
 pub use error::InputError;
@@ -33,18 +41,21 @@ pub use scroll::ScrollAccumulator;
 
 /// Where a monitor sits in the target's virtual desktop. Absolute pointer events carry a monitor
 /// index and monitor-local pixels; the injector needs this to place them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MonitorRect {
     /// Monitor index as announced in the monitor list.
     pub index: u8,
-    /// Left edge in the virtual desktop.
+    /// Left edge in the virtual desktop, in the OS's own coordinate units (pixels on Windows and
+    /// X11, points on macOS).
     pub x: i32,
-    /// Top edge in the virtual desktop.
+    /// Top edge in the virtual desktop, same units as `x`.
     pub y: i32,
-    /// Width in pixels.
+    /// Width in device pixels (the unit of pointer positions on the wire).
     pub width: u32,
-    /// Height in pixels.
+    /// Height in device pixels.
     pub height: u32,
+    /// Device pixels per coordinate unit: 1.0 everywhere except macOS Retina (2.0).
+    pub scale: f32,
 }
 
 /// Turns input events into OS input. One injector serves one session, from one thread.

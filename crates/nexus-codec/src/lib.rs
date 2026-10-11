@@ -64,6 +64,7 @@ pub fn supported_decode() -> Vec<VideoCodec> {
 
 /// Creates the best available encoder for `config`: hardware first where this build has a
 /// backend, then software. The returned encoder's [`Encoder::name`] says which one was chosen.
+#[allow(clippy::needless_pass_by_value)]
 pub fn create_encoder(config: EncoderConfig) -> Result<Box<dyn Encoder>, CodecError> {
     #[cfg(target_os = "macos")]
     {

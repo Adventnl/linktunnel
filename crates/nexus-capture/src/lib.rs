@@ -7,6 +7,9 @@
 //! |---|---|---|
 //! | [`synthetic`] | everywhere | test pattern + flashing probe region for latency benchmarks |
 //! | `x11` | Linux (X11, Xvfb) | XDamage-driven, partial updates, XFixes cursor |
+//! | `macos` | macOS | ScreenCaptureKit (type-checked only here) |
+//! | `windows_capture` | Windows | DXGI Desktop Duplication (type-checked only here) |
+//! | `macos` | macOS | ScreenCaptureKit (type-checked only here) |
 //!
 //! Capture is **damage driven**: `next_frame` returns `None` when nothing changed, so a static
 //! desktop costs no encoding and no bandwidth.
@@ -16,7 +19,13 @@
 mod error;
 mod types;
 
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub mod macos;
 pub mod synthetic;
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub mod windows_capture;
 #[cfg(target_os = "linux")]
 pub mod x11;
 
@@ -33,6 +42,14 @@ pub fn default_backend() -> Result<Arc<dyn CaptureBackend>, CaptureError> {
     #[cfg(target_os = "linux")]
     {
         return Ok(Arc::new(x11::X11Backend::connect(None)?));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(Arc::new(macos::MacBackend::new()?));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Arc::new(windows_capture::WindowsBackend::new()?));
     }
     #[allow(unreachable_code)]
     Err(CaptureError::Unsupported(

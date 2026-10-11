@@ -103,6 +103,7 @@ fn setup() -> Option<(Xvfb, Listener, Guarded)> {
             y: 0,
             width: 800,
             height: 600,
+            scale: 1.0,
         }],
     );
     Some((xvfb, listener, Guarded::new(Box::new(inj))))

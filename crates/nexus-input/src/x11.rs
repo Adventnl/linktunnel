@@ -150,6 +150,7 @@ impl X11Injector {
                     y: 0,
                     width: u32::MAX / 2,
                     height: u32::MAX / 2,
+                    scale: 1.0,
                 })
             })
             .ok_or_else(|| InputError::Invalid(format!("unknown monitor {index}")))

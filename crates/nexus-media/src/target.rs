@@ -698,7 +698,13 @@ async fn cursor_loop(
         let Some(sample) = rx.borrow_and_update().clone() else {
             continue;
         };
-        let (x, y) = (sample.x - monitor.x, sample.y - monitor.y);
+        // Monitor origin is in the OS's coordinate units (points on macOS); the wire format is
+        // device pixels, hence the scale.
+        #[allow(clippy::cast_possible_truncation)]
+        let (x, y) = (
+            ((sample.x - monitor.x) as f32 * monitor.scale) as i32,
+            ((sample.y - monitor.y) as f32 * monitor.scale) as i32,
+        );
         let inside = x >= 0
             && y >= 0
             && i64::from(x) < i64::from(monitor.width)
@@ -780,6 +786,7 @@ async fn accept_streams(
                         y: m.y,
                         width: m.width,
                         height: m.height,
+                        scale: m.scale,
                     })
                     .collect();
                 tokio::spawn(run_input_stream(
