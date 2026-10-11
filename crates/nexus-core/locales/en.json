@@ -71,5 +71,6 @@
   "cli.remote.done": "Done.",
   "cli.monitors.row": "{primary}{index}: {name}  {size} at {pos}",
   "cli.screenshot.saved": "Saved {size} screenshot to {path}",
-  "cli.screenshot.timeout": "The device did not send a picture in time."
+  "cli.screenshot.timeout": "The device did not send a picture in time.",
+  "cli.view.ended": "Viewer closed: {reason}"
 }

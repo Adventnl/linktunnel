@@ -71,5 +71,6 @@
   "cli.remote.done": "完成。",
   "cli.monitors.row": "{primary}{index}：{name}  {size}，位置 {pos}",
   "cli.screenshot.saved": "已将 {size} 的截图保存到 {path}",
-  "cli.screenshot.timeout": "设备未能及时发送画面。"
+  "cli.screenshot.timeout": "设备未能及时发送画面。",
+  "cli.view.ended": "查看器已关闭：{reason}"
 }

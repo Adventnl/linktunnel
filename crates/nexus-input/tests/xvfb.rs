@@ -382,3 +382,32 @@ fn unsupported_and_invalid_events_are_errors_not_panics() {
         .is_err()
     );
 }
+
+#[test]
+fn a_held_injected_key_is_repeated_by_the_server() {
+    // Documents the behaviour the viewer relies on: X auto-repeats a held key itself, so the
+    // controller must NOT also forward its local repeat events as extra presses on X11.
+    let Some((_x, listener, mut inj)) = setup() else {
+        return;
+    };
+    inj.inject(&InputEvent::MouseMoveAbs {
+        monitor: 0,
+        x: 10,
+        y: 10,
+    })
+    .unwrap();
+    listener.drain();
+    inj.inject(&key(0x04, KeyState::Down)).unwrap();
+    std::thread::sleep(Duration::from_millis(1200));
+    inj.inject(&key(0x04, KeyState::Up)).unwrap();
+    let presses = listener
+        .events(100)
+        .iter()
+        .filter(|e| matches!(e, Event::KeyPress(_)))
+        .count();
+    println!("key presses seen while holding for 1.2 s: {presses}");
+    assert!(
+        presses > 1,
+        "expected server-side auto-repeat, saw {presses} press(es)"
+    );
+}

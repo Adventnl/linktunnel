@@ -41,6 +41,23 @@ pub enum RemoteCommand {
         #[arg(long)]
         cursor: bool,
     },
+    /// Open a live window onto a paired device's screen and control it.
+    View {
+        /// Device name or ID.
+        device: String,
+        /// Which monitor.
+        #[arg(long, default_value_t = 0)]
+        monitor: u32,
+        /// Frame-rate cap.
+        #[arg(long, default_value_t = 0)]
+        fps: u32,
+        /// Starting bitrate in Mbit/s.
+        #[arg(long, default_value_t = 0)]
+        mbps: u32,
+        /// Watch only; send no input.
+        #[arg(long)]
+        view_only: bool,
+    },
     /// List a paired device's monitors.
     Monitors {
         /// Device name or ID.
@@ -147,6 +164,13 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
             monitor,
             cursor,
         } => screenshot(ctx, &device, &output, monitor, cursor).await,
+        RemoteCommand::View {
+            device,
+            monitor,
+            fps,
+            mbps,
+            view_only,
+        } => view(ctx, &device, monitor, fps, mbps, view_only).await,
         RemoteCommand::Monitors { device } => monitors(ctx, &device).await,
         RemoteCommand::Type { device, text } => {
             let live = open(ctx, &device, 0, false).await?;
@@ -212,6 +236,37 @@ async fn finish(ctx: &AppContext, live: Live) -> Result<ExitCode> {
     tokio::time::sleep(Duration::from_millis(150)).await;
     live.client.close_session(live.opened.session_id).await?;
     println!("{}", tr(ctx.locale, "cli.remote.done"));
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn view(
+    ctx: &AppContext,
+    query: &str,
+    monitor: u32,
+    fps: u32,
+    mbps: u32,
+    view_only: bool,
+) -> Result<ExitCode> {
+    let client = crate::agent_cmds::connect(ctx).await?;
+    let devices = client.list_devices().await?.devices;
+    let device = resolve(ctx.locale, &devices, query)?;
+    drop(client);
+    let options = nexus_render::ViewerOptions {
+        ipc: nexus_ipc::IpcPaths::in_dir(&ctx.paths.runtime_dir),
+        device_id: device.device_id.to_vec(),
+        device_name: device.name.clone(),
+        monitor,
+        max_fps: fps,
+        bitrate_bps: mbps.saturating_mul(1_000_000),
+        view_only,
+    };
+    // The window owns the main thread; it runs its own network thread.
+    let reason = tokio::task::block_in_place(|| nexus_render::run(options))
+        .map_err(|e| anyhow::anyhow!(e))?;
+    println!(
+        "{}",
+        tr_args(ctx.locale, "cli.view.ended", &[("reason", &reason)])
+    );
     Ok(ExitCode::SUCCESS)
 }
 

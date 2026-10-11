@@ -39,6 +39,8 @@ const BTN_WHEEL_RIGHT: u8 = 7;
 const BTN_BACK: u8 = 8;
 const BTN_FORWARD: u8 = 9;
 
+/// How long applications get to notice a temporary keymap change before the key is pressed.
+const MAPPING_SETTLE: Duration = Duration::from_millis(20);
 /// Pixels of trackpad travel that count as one wheel notch.
 const PIXELS_PER_NOTCH: i32 = 40;
 /// Most notches performed for a single scroll event (a runaway delta must not freeze the UI).
@@ -168,11 +170,9 @@ impl X11Injector {
         match state {
             KeyState::Down => self.fake(KEY_PRESS, keycode, 0, 0),
             KeyState::Up => self.fake(KEY_RELEASE, keycode, 0, 0),
-            // The server generates its own auto-repeat for a held key; a repeat is another press.
-            KeyState::Repeat => {
-                self.fake(KEY_RELEASE, keycode, 0, 0)?;
-                self.fake(KEY_PRESS, keycode, 0, 0)
-            }
+            // X auto-repeats a held (even synthetic) key by itself (verified by
+            // tests/xvfb.rs), so the controller's repeat events must not become extra presses.
+            KeyState::Repeat => Ok(()),
         }
     }
 
@@ -259,6 +259,9 @@ impl X11Injector {
                 .map_err(failed)?
                 .reply()
                 .map_err(failed)?;
+            // Applications refresh their keymap on MappingNotify; pressing before they have
+            // done so types nothing in some toolkits. 20 ms is what xdotool settles on too.
+            std::thread::sleep(MAPPING_SETTLE);
             self.fake(KEY_PRESS, keycode, 0, 0)?;
             self.fake(KEY_RELEASE, keycode, 0, 0)?;
             self.flush()?;
@@ -267,7 +270,7 @@ impl X11Injector {
                 .map_err(failed)?
                 .reply()
                 .map_err(failed)?;
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(MAPPING_SETTLE / 2);
         }
         if let Some((keycode, original)) = spare {
             self.conn

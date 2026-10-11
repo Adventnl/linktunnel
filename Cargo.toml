@@ -63,6 +63,7 @@ nexus-codec = { path = "crates/nexus-codec", default-features = false }
 nexus-capture = { path = "crates/nexus-capture" }
 nexus-input = { path = "crates/nexus-input" }
 nexus-media = { path = "crates/nexus-media" }
+nexus-render = { path = "crates/nexus-render" }
 nexus-testkit = { path = "crates/nexus-testkit" }
 nexus-agent = { path = "crates/nexus-agent" }
 

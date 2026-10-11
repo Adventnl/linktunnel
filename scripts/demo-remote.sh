@@ -29,7 +29,7 @@ Xvfb "$DISP" -screen 0 1024x640x24 -nolisten tcp >"$WORK/xvfb.log" 2>&1 &
 PIDS+=($!)
 sleep 1
 for app in xclock xeyes xterm; do
-  if command -v "$app" >/dev/null; then DISPLAY="$DISP" "$app" >/dev/null 2>&1 & PIDS+=($!); fi
+  if command -v "$app" >/dev/null; then LC_ALL=C.UTF-8 DISPLAY="$DISP" "$app" >/dev/null 2>&1 & PIDS+=($!); fi
 done
 
 "$BIN/nexus-signal" --listen "127.0.0.1:$PORT" --audience "127.0.0.1:$PORT" >"$WORK/signal.log" 2>&1 &
@@ -68,4 +68,17 @@ sleep 1
 cli "$A" remote screenshot "Windows PC" -o "$OUT/after.png" --cursor
 echo; echo "Screenshots written to $OUT (before.png, after.png)"
 ls -la "$OUT"/*.png
+
+if command -v ffmpeg >/dev/null; then
+  say "Live viewer window (on a second virtual display), driving the PC with the mouse"
+  VDISP="${REMOTE_DEMO_VIEWER_DISPLAY:-:94}"
+  Xvfb "$VDISP" -screen 0 1280x800x24 -nolisten tcp >"$WORK/xvfb2.log" 2>&1 &
+  PIDS+=($!)
+  sleep 1
+  DISPLAY="$VDISP" cli "$A" remote view "Windows PC" >"$WORK/view.log" 2>&1 &
+  PIDS+=($!)
+  sleep 4
+  ffmpeg -loglevel error -f x11grab -video_size 1280x800 -i "$VDISP" -frames:v 1 -y "$OUT/viewer-window.png"
+  echo "viewer window captured to $OUT/viewer-window.png"
+fi
 cli "$A" stop; cli "$B" stop

@@ -25,6 +25,7 @@ nexus-media.workspace = true
 nexus-core.workspace = true
 nexus-crypto.workspace = true
 nexus-ipc.workspace = true
+nexus-render.workspace = true
 nexus-proto.workspace = true
 nexus-trust.workspace = true
 png = "0.18"
