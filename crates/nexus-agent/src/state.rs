@@ -46,6 +46,8 @@ pub struct Shared {
     pub(crate) handler: Arc<dyn SessionHandler>,
     pub(crate) shutdown: watch::Sender<bool>,
     pub(crate) next_pairing_id: AtomicU64,
+    pub(crate) viewers: Mutex<std::collections::HashMap<u64, crate::viewer_bridge::ViewerEntry>>,
+    pub(crate) next_viewer_id: AtomicU64,
     pub(crate) started: Instant,
 }
 

@@ -20,6 +20,7 @@ use crate::error::AgentError;
 use crate::pairing;
 use crate::sessions;
 use crate::state::Shared;
+use crate::viewer_bridge::{self, ConnCtx};
 
 /// Limits on what a client may ask the diagnostics to do.
 const MAX_PINGS: u32 = 10_000;
@@ -61,19 +62,25 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
     let (mut reader, mut writer) = conn.split();
     let mut events = shared.events.subscribe();
     let (responses_tx, mut responses_rx) = mpsc::channel::<IpcResponse>(64);
+    // Session traffic (video, cursor) for sessions this client opened.
+    let (session_tx, mut session_rx) = mpsc::channel::<nexus_proto::v1::IpcEvent>(32);
+    let ctx = ConnCtx::new(session_tx);
     let mut shutdown = shared.shutdown.subscribe();
 
     loop {
         tokio::select! {
             frame = reader.recv() => match frame {
                 Ok(Some(IpcFrame { body: Some(F::Request(req)) })) => {
-                    let (shared, tx) = (Arc::clone(&shared), responses_tx.clone());
+                    let (shared, tx, ctx) = (Arc::clone(&shared), responses_tx.clone(), Arc::clone(&ctx));
                     // Requests run concurrently: a long diagnostics run must not block others.
-                    tokio::spawn(async move { let _ = tx.send(handle(&shared, req).await).await; });
+                    tokio::spawn(async move { let _ = tx.send(handle(&shared, &ctx, req).await).await; });
                 }
                 Ok(Some(_)) => {}
                 Ok(None) | Err(_) => break,
             },
+            Some(ev) = session_rx.recv() => {
+                if writer.send(&IpcFrame { body: Some(F::Event(ev)) }).await.is_err() { break; }
+            }
             Some(response) = responses_rx.recv() => {
                 if writer.send(&IpcFrame { body: Some(F::Response(response)) }).await.is_err() { break; }
             }
@@ -106,12 +113,13 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
             }
         }
     }
+    viewer_bridge::close_all(&shared, &ctx).await;
     debug!(client = %name, "IPC client disconnected");
 }
 
-async fn handle(shared: &Arc<Shared>, request: IpcRequest) -> IpcResponse {
+async fn handle(shared: &Arc<Shared>, ctx: &Arc<ConnCtx>, request: IpcRequest) -> IpcResponse {
     let id = request.id;
-    let body = match dispatch(shared, request.body).await {
+    let body = match dispatch(shared, ctx, request.body).await {
         Ok(body) => body,
         Err(e) => Resp::Error(e.to_ipc()),
     };
@@ -121,7 +129,11 @@ async fn handle(shared: &Arc<Shared>, request: IpcRequest) -> IpcResponse {
     }
 }
 
-async fn dispatch(shared: &Arc<Shared>, body: Option<Req>) -> Result<Resp, AgentError> {
+async fn dispatch(
+    shared: &Arc<Shared>,
+    ctx: &Arc<ConnCtx>,
+    body: Option<Req>,
+) -> Result<Resp, AgentError> {
     let ack = Resp::Ack(IpcAck {});
     match body.ok_or_else(|| AgentError::Invalid("empty request".into()))? {
         Req::Status(_) => Ok(Resp::Status(shared.status())),
@@ -155,6 +167,25 @@ async fn dispatch(shared: &Arc<Shared>, body: Option<Req>) -> Result<Resp, Agent
         Req::Ping(p) => ping(shared, p).await.map(Resp::PingReport),
         Req::SetLockdown(l) => {
             set_lockdown(shared, l.enabled)?;
+            Ok(ack)
+        }
+        Req::OpenSession(o) => viewer_bridge::open(shared, ctx, o)
+            .await
+            .map(Resp::SessionOpened),
+        Req::CloseSession(c) => {
+            viewer_bridge::close(shared, ctx, c.session_id).await?;
+            Ok(ack)
+        }
+        Req::SessionInput(i) => {
+            viewer_bridge::input(shared, ctx, i.session_id, &i.packet)?;
+            Ok(ack)
+        }
+        Req::SessionKeyframe(k) => {
+            viewer_bridge::keyframe(shared, ctx, k.session_id)?;
+            Ok(ack)
+        }
+        Req::SessionQuality(q) => {
+            viewer_bridge::quality(shared, ctx, &q)?;
             Ok(ack)
         }
         Req::Shutdown(_) => {

@@ -5,8 +5,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, Wr
 
 use crate::IpcError;
 
-/// Largest IPC frame (device lists with many entries stay far below this).
-pub const MAX_IPC_FRAME: usize = 1 << 20;
+/// Largest IPC frame. Device lists are tiny; the limit exists for encoded video keyframes.
+pub const MAX_IPC_FRAME: usize = 16 << 20;
 
 /// Any byte stream the IPC can run over.
 pub(crate) trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}

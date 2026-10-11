@@ -8,6 +8,7 @@
 
 mod agent_cmds;
 mod identity_cmd;
+mod remote_cmds;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -79,6 +80,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Look at and control a paired device's screen (screenshot, type, key, click, monitors).
+    #[command(flatten_help = true, subcommand)]
+    Remote(remote_cmds::RemoteCommand),
     /// Turn the emergency lockdown switch on or off.
     #[command(subcommand)]
     Lockdown(agent_cmds::LockdownCommand),
@@ -152,6 +156,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             bulk_mb,
             json,
         } => agent_cmds::ping(&ctx, &device, bulk_mb, json).await,
+        Command::Remote(cmd) => remote_cmds::run(&ctx, cmd).await,
         Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,
         Command::Stop => agent_cmds::stop(&ctx).await,
     }

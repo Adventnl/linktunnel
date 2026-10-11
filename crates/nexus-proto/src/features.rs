@@ -41,3 +41,5 @@ pub const CURSOR_CHANNEL: &str = "cursor.channel";
 pub const DIRTY_RECTS: &str = "video.dirty_rects";
 /// Loss recovery via reference-frame invalidation instead of full keyframes.
 pub const REF_INVALIDATION: &str = "video.ref_invalidation";
+/// Keyboard, mouse, scroll and committed-text injection.
+pub const INPUT_BASIC: &str = "input.basic";

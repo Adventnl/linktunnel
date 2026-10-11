@@ -9,10 +9,12 @@ mod devices;
 mod error;
 mod ipc_server;
 mod pairing;
+mod remote;
 mod sessions;
 mod state;
 mod supervisor;
 pub mod sysinfo;
+mod viewer_bridge;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
@@ -29,6 +31,7 @@ use tracing::info;
 
 pub use config::AgentConfig;
 pub use error::AgentError;
+pub use remote::RemoteHandler;
 pub use sessions::{CLOSE_LOCKDOWN, DiagnosticsHandler, SessionContext, SessionHandler};
 pub use state::Shared;
 
@@ -99,6 +102,8 @@ impl Agent {
             handler,
             shutdown,
             next_pairing_id: AtomicU64::new(1),
+            viewers: Mutex::default(),
+            next_viewer_id: AtomicU64::new(1),
             started: Instant::now(),
         });
         info!(device = %shared.identity.device_id(), locked, "agent starting");

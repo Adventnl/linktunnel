@@ -66,5 +66,10 @@
   "cli.ping.path": "路径",
   "cli.lockdown.on": "锁定模式已开启：所有远程访问请求都将被拒绝。",
   "cli.lockdown.off": "锁定模式已关闭。",
-  "cli.agent.stopping": "已请求代理停止。"
+  "cli.agent.stopping": "已请求代理停止。",
+  "cli.remote.open_failed": "无法与 {name} 建立会话",
+  "cli.remote.done": "完成。",
+  "cli.monitors.row": "{primary}{index}：{name}  {size}，位置 {pos}",
+  "cli.screenshot.saved": "已将 {size} 的截图保存到 {path}",
+  "cli.screenshot.timeout": "设备未能及时发送画面。"
 }

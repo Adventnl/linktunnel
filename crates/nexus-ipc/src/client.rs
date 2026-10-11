@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use nexus_proto::v1::{
-    DeviceList, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello, IpcRequest, IpcResponse,
-    IpcWelcome, ListDevices, PairingCancel, PairingConfirm, PairingJoin, PairingOffer,
-    PairingStarted, PingDevice, PingReport, SetLockdown, Shutdown, Status, Unpair,
+    CloseSession, DeviceList, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello, IpcRequest,
+    IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel, PairingConfirm, PairingJoin,
+    PairingOffer, PairingStarted, PingDevice, PingReport, SessionInput, SessionKeyframe,
+    SessionOpened, SessionQuality, SetLockdown, Shutdown, Status, Unpair, ipc_event::Body as Ev,
     ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
@@ -123,7 +124,24 @@ impl IpcClient {
                         }
                     }
                     Some(F::Event(e)) => {
-                        let _ = events_tx.try_send(e);
+                        // Video and shapes must not be dropped silently (a lost frame breaks the
+                        // decoder chain), so those wait for room; the reader then stops reading
+                        // the socket, which backs pressure up to the agent. Everything else is
+                        // droppable state that is resent on change.
+                        if matches!(
+                            e.body,
+                            Some(
+                                Ev::SessionVideo(_)
+                                    | Ev::SessionCursorShape(_)
+                                    | Ev::SessionEnded(_)
+                            )
+                        ) {
+                            if events_tx.send(e).await.is_err() {
+                                break;
+                            }
+                        } else {
+                            let _ = events_tx.try_send(e);
+                        }
                     }
                     _ => {}
                 }
@@ -284,5 +302,42 @@ impl IpcClient {
     /// Asks the agent to exit.
     pub async fn shutdown(&self) -> Result<(), IpcError> {
         self.expect_ack(Req::Shutdown(Shutdown {})).await
+    }
+
+    /// Opens a remote-desktop session to a paired device. Video and cursor arrive as events.
+    pub async fn open_session(&self, request: OpenSession) -> Result<SessionOpened, IpcError> {
+        match self
+            .request_with_timeout(Req::OpenSession(request), Duration::from_secs(30))
+            .await?
+        {
+            Resp::SessionOpened(s) => Ok(s),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Ends a session.
+    pub async fn close_session(&self, session_id: u64) -> Result<(), IpcError> {
+        self.expect_ack(Req::CloseSession(CloseSession { session_id }))
+            .await
+    }
+
+    /// Sends input events (an `InputPacket` in wire format) into a session.
+    pub async fn session_input(&self, session_id: u64, packet: Vec<u8>) -> Result<(), IpcError> {
+        self.expect_ack(Req::SessionInput(SessionInput {
+            session_id,
+            packet: packet.into(),
+        }))
+        .await
+    }
+
+    /// Asks for a recovery frame (the decoder choked).
+    pub async fn session_keyframe(&self, session_id: u64) -> Result<(), IpcError> {
+        self.expect_ack(Req::SessionKeyframe(SessionKeyframe { session_id }))
+            .await
+    }
+
+    /// Changes quality settings (0 = unchanged).
+    pub async fn session_quality(&self, request: SessionQuality) -> Result<(), IpcError> {
+        self.expect_ack(Req::SessionQuality(request)).await
     }
 }

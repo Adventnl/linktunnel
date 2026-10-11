@@ -89,13 +89,19 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
 }
 
 async fn start_device(name: &str, seed: u8, home: &std::path::Path, signal: Option<Url>) -> Device {
-    let agent = Agent::start(
-        config(name, home, signal),
-        identity(seed),
-        Arc::new(DiagnosticsHandler),
-    )
-    .await
-    .unwrap();
+    start_device_with(name, seed, home, signal, Arc::new(DiagnosticsHandler)).await
+}
+
+async fn start_device_with(
+    name: &str,
+    seed: u8,
+    home: &std::path::Path,
+    signal: Option<Url>,
+    handler: Arc<dyn nexus_agent::SessionHandler>,
+) -> Device {
+    let agent = Agent::start(config(name, home, signal), identity(seed), handler)
+        .await
+        .unwrap();
     let (client, events, _welcome) = IpcClient::connect(agent.ipc_paths(), "test").await.unwrap();
     Device {
         agent,
@@ -505,4 +511,181 @@ async fn status_reports_identity_and_a_second_agent_on_the_same_home_is_refused(
     )
     .await;
     assert!(second.is_err(), "two agents shared one runtime directory");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_paired_device_can_watch_and_control_another_through_the_agents() {
+    use nexus_capture::synthetic::{PROBE_ON, SyntheticBackend, SyntheticConfig};
+    use nexus_input::recording::RecordingInjector;
+    use nexus_input::{InputEvent, KeyState, Modifiers};
+    use nexus_media::viewer::VideoDecoder;
+    use nexus_proto::wire::input::{InputPacket, TimedInput};
+    use nexus_proto::wire::video::{FIXED_LEN, VideoFrameHeader};
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (backend, probe) = SyntheticBackend::new(SyntheticConfig {
+        width: 320,
+        height: 240,
+        ..Default::default()
+    });
+    let (injector, recorded) = RecordingInjector::new();
+    let injector = std::sync::Mutex::new(Some(injector));
+    let handler = nexus_agent::RemoteHandler::new(
+        Some(Arc::new(backend)),
+        Some(Arc::new(move || {
+            let i = injector
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| nexus_input::InputError::Failed("used".into()))?;
+            Ok(Box::new(i) as Box<dyn nexus_input::Injector>)
+        })),
+        60,
+    );
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let opened = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(opened.peer_name, "Windows PC");
+    let video = opened.video.clone().unwrap();
+    assert_eq!((video.width, video.height), (320, 240));
+    assert_eq!(opened.monitors.len(), 1);
+    assert_eq!(opened.path(), PathKind::Lan);
+
+    // Decode what arrives over IPC, exactly as a viewer process would.
+    let mut decoder = VideoDecoder::new();
+    let mut saw_first = false;
+    probe.set_flash(true);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut flash_seen = false;
+    while tokio::time::Instant::now() < deadline && !flash_seen {
+        let Ok(Some(ev)) =
+            tokio::time::timeout(Duration::from_millis(500), mac.events.next()).await
+        else {
+            continue;
+        };
+        let Some(Ev::SessionVideo(v)) = ev.body else {
+            continue;
+        };
+        assert_eq!(v.session_id, opened.session_id);
+        let fixed: [u8; FIXED_LEN] = v.frame[..FIXED_LEN].try_into().unwrap();
+        let head_len = FIXED_LEN + VideoFrameHeader::extra_len(&fixed).unwrap();
+        let header = VideoFrameHeader::decode(&v.frame[..head_len]).unwrap();
+        let frame = nexus_media::controller::VideoFrame {
+            header,
+            payload: v.frame.slice(head_len..),
+            recv_us: 0,
+        };
+        match decoder.decode(&frame) {
+            Ok(Some(p)) => {
+                saw_first = true;
+                let i = (32 * p.width as usize + 32) * 4;
+                flash_seen = [p.bgra[i], p.bgra[i + 1], p.bgra[i + 2]]
+                    .iter()
+                    .zip(PROBE_ON)
+                    .all(|(a, b)| a.abs_diff(b) < 40);
+            }
+            Ok(None) => {}
+            Err(_) => {
+                mac.client
+                    .session_keyframe(opened.session_id)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+    assert!(
+        saw_first && flash_seen,
+        "the controller must see the target's screen, including a change made after connecting"
+    );
+
+    // Input travels IPC → agent → QUIC → target agent → injector.
+    let sent = vec![
+        InputEvent::MouseMoveAbs {
+            monitor: 0,
+            x: 5,
+            y: 6,
+        },
+        InputEvent::Key {
+            page: 7,
+            usage: 4,
+            state: KeyState::Down,
+            modifiers: Modifiers::default(),
+        },
+        InputEvent::Key {
+            page: 7,
+            usage: 4,
+            state: KeyState::Up,
+            modifiers: Modifiers::default(),
+        },
+    ];
+    let packet = InputPacket {
+        seq: 0,
+        base_us: 0,
+        events: sent
+            .iter()
+            .cloned()
+            .map(|event| TimedInput { dt_us: 0, event })
+            .collect(),
+        skipped: 0,
+    };
+    let mut bytes = bytes::BytesMut::new();
+    packet.encode(&mut bytes).unwrap();
+    mac.client
+        .session_input(opened.session_id, bytes.to_vec())
+        .await
+        .unwrap();
+    eventually("input to reach the target's injector", || async {
+        recorded.events() == sent
+    })
+    .await;
+
+    // Other clients cannot touch the session; unknown sessions are errors.
+    let (other, _ev, _) = IpcClient::connect(mac.agent.ipc_paths(), "other")
+        .await
+        .unwrap();
+    assert!(matches!(
+        other.close_session(opened.session_id).await,
+        Err(IpcError::Agent {
+            code: IpcErrorCode::PermissionDenied,
+            ..
+        })
+    ));
+    assert!(matches!(
+        other.session_keyframe(9999).await,
+        Err(IpcError::Agent {
+            code: IpcErrorCode::NotFound,
+            ..
+        })
+    ));
+
+    // Diagnostics still work against a remote-desktop target.
+    mac.client.ping(ping_request(&pc)).await.unwrap();
+
+    // Disconnecting the viewer's IPC connection ends the session on both agents.
+    mac.client.close_session(opened.session_id).await.unwrap();
+    eventually("the target to see no active sessions", || async {
+        pc.client.status().await.unwrap().active_sessions == 0
+    })
+    .await;
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use nexus_agent::{Agent, AgentConfig, DiagnosticsHandler};
+use nexus_agent::{Agent, AgentConfig, DiagnosticsHandler, RemoteHandler, SessionHandler};
 use nexus_core::config::{ConfigLoader, LogConfig};
 use nexus_core::{Paths, Scope};
 use nexus_crypto::provision::load_or_create_identity;
@@ -36,6 +36,12 @@ struct Args {
     /// Run as the machine-wide service account (uses system state directories).
     #[arg(long)]
     system: bool,
+    /// Do not offer this machine's screen or accept remote input (diagnostics only).
+    #[arg(long)]
+    no_screen: bool,
+    /// Highest frame rate to stream when this device is being watched.
+    #[arg(long, default_value_t = 60)]
+    max_fps: u32,
     /// Log filter, e.g. `info,nexus_net=debug`.
     #[arg(long, env = "RUST_LOG")]
     log: Option<String>,
@@ -85,7 +91,12 @@ async fn main() -> Result<()> {
 
     let name = args.name.unwrap_or_else(nexus_agent::sysinfo::hostname);
     let config = AgentConfig::from_nexus_config(&nexus, paths, name)?;
-    let agent = Agent::start(config, Arc::new(identity), Arc::new(DiagnosticsHandler)).await?;
+    let handler: Arc<dyn SessionHandler> = if args.no_screen {
+        Arc::new(DiagnosticsHandler)
+    } else {
+        Arc::new(RemoteHandler::detect(args.max_fps))
+    };
+    let agent = Agent::start(config, Arc::new(identity), handler).await?;
     tracing::info!(device = %agent.device_id(), ipc = ?agent.ipc_paths().endpoint, "agent running; Ctrl-C to stop");
 
     tokio::select! {

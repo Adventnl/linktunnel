@@ -106,7 +106,9 @@ pub async fn serve(session: Session, mut control: FramedStream) {
     streams.abort();
 }
 
-async fn serve_stream(stream: crate::stream::Stream) {
+/// Serves one diagnostics stream (echo or sink mode). Used by [`serve`] and by sessions that
+/// multiplex diagnostics with other traffic.
+pub async fn serve_stream(stream: crate::stream::Stream) {
     let crate::stream::Stream { mut send, mut recv } = stream;
     let mut mode = [0u8; 1];
     if recv.read_exact(&mut mode).await.is_err() {
@@ -152,14 +154,24 @@ pub async fn run(
             ..Default::default()
         };
         control.send(&msg).await?;
-        match control.recv::<ControlMessage>().await? {
-            Some(ControlMessage {
-                body: Some(Body::Pong(p)),
-                ..
-            }) if p.echo_sent_us == sent => {
-                control_stats.record_us(now_us().saturating_sub(sent));
+        // A remote-desktop target announces its monitors on connect; skip anything that is not
+        // the reply to this ping.
+        loop {
+            match control.recv::<ControlMessage>().await? {
+                Some(ControlMessage {
+                    body: Some(Body::Pong(p)),
+                    ..
+                }) if p.echo_sent_us == sent => {
+                    control_stats.record_us(now_us().saturating_sub(sent));
+                    break;
+                }
+                Some(ControlMessage {
+                    body: Some(Body::Pong(_)),
+                    ..
+                })
+                | None => return Err(NetError::Protocol("unexpected reply to ping")),
+                Some(_) => {}
             }
-            _ => return Err(NetError::Protocol("unexpected reply to ping")),
         }
     }
 

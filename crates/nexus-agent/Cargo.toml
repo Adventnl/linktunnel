@@ -16,9 +16,14 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+bytes.workspace = true
 clap.workspace = true
 getrandom.workspace = true
 hostname = "0.4"
+nexus-capture.workspace = true
+nexus-codec = { workspace = true, features = ["software"] }
+nexus-input.workspace = true
+nexus-media.workspace = true
 nexus-core.workspace = true
 nexus-crypto.workspace = true
 nexus-ipc.workspace = true
@@ -34,6 +39,7 @@ tracing.workspace = true
 url = "2"
 
 [dev-dependencies]
+bytes.workspace = true
 nexus-signal.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

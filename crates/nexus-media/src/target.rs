@@ -178,20 +178,20 @@ pub async fn serve(
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     tasks.push(tokio::spawn(send_frames(session.clone(), frame_rx)));
 
-    // Input comes in on a stream the controller opens; accept it in the background.
-    let (input_tx, input_done) = watch::channel(false);
-    if can_input {
-        tasks.push(tokio::spawn(accept_input_streams(
-            session.clone(),
-            config.clone(),
-            monitors.clone(),
-            Arc::clone(&stats),
-            input_tx,
-        )));
-    } else {
-        tasks.push(tokio::spawn(reject_streams(session.clone())));
-    }
-    let _ = input_done;
+    // Streams the controller opens: input, and diagnostics (`nexus ping`).
+    tasks.push(tokio::spawn(accept_streams(
+        session.clone(),
+        config.clone(),
+        monitors.clone(),
+        Arc::clone(&stats),
+        can_input,
+    )));
+    // Diagnostics datagram echo, until video starts (after that datagrams carry the cursor).
+    let video_active = Arc::new(AtomicBool::new(false));
+    tasks.push(tokio::spawn(echo_datagrams(
+        session.clone(),
+        Arc::clone(&video_active),
+    )));
 
     let mut cursor_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut closed = Box::pin(session.closed());
@@ -217,6 +217,7 @@ pub async fn serve(
                                     old.stop();
                                 }
                                 let _ = out_tx.send(ControlMessage { in_reply_to: id, body: Some(Body::VideoStarted(started)), ..Default::default() });
+                                video_active.store(true, Ordering::SeqCst);
                                 if cursor_task.is_none() {
                                     cursor_task = start_cursor(&session, &config, &monitors, req.monitor, out_tx.clone());
                                 }
@@ -742,54 +743,66 @@ async fn cursor_loop(
     stop.store(true, Ordering::Relaxed);
 }
 
-/// Accepts input streams until the session ends. Each stream gets its own injector so a
-/// reconnecting controller never inherits another connection's held keys.
-async fn accept_input_streams(
+/// Accepts streams the controller opens until the session ends: input (each stream gets its own
+/// injector so a reconnecting controller never inherits another connection's held keys) and
+/// diagnostics. Anything else is closed unread.
+async fn accept_streams(
     session: Session,
     config: TargetConfig,
     monitors: Vec<MonitorInfo>,
     stats: Arc<TargetStats>,
-    _done: watch::Sender<bool>,
+    can_input: bool,
 ) {
     loop {
-        let (kind, stream) = match session.accept_stream().await {
-            Ok(s) => s,
-            Err(_) => return,
+        let Ok((kind, stream)) = session.accept_stream().await else {
+            return;
         };
-        if kind != StreamKind::Input {
-            debug!(
-                ?kind,
-                "unexpected stream kind during remote desktop; closing"
-            );
-            drop(stream);
+        match kind {
+            StreamKind::Diagnostics => {
+                tokio::spawn(nexus_net::diag::serve_stream(stream));
+            }
+            StreamKind::Input if can_input => {
+                let Some(factory) = config.injector.clone() else {
+                    continue;
+                };
+                let injector = match factory() {
+                    Ok(i) => i,
+                    Err(e) => {
+                        warn!(error = %e, "input injection unavailable; session is view-only");
+                        continue;
+                    }
+                };
+                let rects: Vec<MonitorRect> = monitors
+                    .iter()
+                    .map(|m| MonitorRect {
+                        index: m.index,
+                        x: m.x,
+                        y: m.y,
+                        width: m.width,
+                        height: m.height,
+                    })
+                    .collect();
+                tokio::spawn(run_input_stream(
+                    stream,
+                    injector,
+                    rects,
+                    Arc::clone(&stats),
+                ));
+            }
+            other => debug!(?other, "stream refused (not granted or not supported here)"),
+        }
+    }
+}
+
+/// Echoes datagrams back while no video session is running (the diagnostics latency test).
+async fn echo_datagrams(session: Session, video_active: Arc<AtomicBool>) {
+    while let Ok(data) = session.recv_datagram().await {
+        if video_active.load(Ordering::Relaxed) {
             continue;
         }
-        let Some(factory) = config.injector.clone() else {
-            continue;
-        };
-        let injector = match factory() {
-            Ok(i) => i,
-            Err(e) => {
-                warn!(error = %e, "input injection unavailable; session is view-only");
-                continue;
-            }
-        };
-        let rects: Vec<MonitorRect> = monitors
-            .iter()
-            .map(|m| MonitorRect {
-                index: m.index,
-                x: m.x,
-                y: m.y,
-                width: m.width,
-                height: m.height,
-            })
-            .collect();
-        tokio::spawn(run_input_stream(
-            stream,
-            injector,
-            rects,
-            Arc::clone(&stats),
-        ));
+        if session.send_datagram(data).is_err() {
+            return;
+        }
     }
 }
 
@@ -858,10 +871,4 @@ async fn run_input_stream(
         }
     }
     // Dropping `tx` lets the injector thread release held keys and exit.
-}
-
-async fn reject_streams(session: Session) {
-    while let Ok((kind, _stream)) = session.accept_stream().await {
-        debug!(?kind, "stream refused: input is not granted");
-    }
 }

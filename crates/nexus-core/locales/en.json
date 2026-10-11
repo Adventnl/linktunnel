@@ -66,5 +66,10 @@
   "cli.ping.path": "path",
   "cli.lockdown.on": "Lockdown is ON: every remote access request is refused.",
   "cli.lockdown.off": "Lockdown is off.",
-  "cli.agent.stopping": "The agent was asked to stop."
+  "cli.agent.stopping": "The agent was asked to stop.",
+  "cli.remote.open_failed": "Could not open a session to {name}",
+  "cli.remote.done": "Done.",
+  "cli.monitors.row": "{primary}{index}: {name}  {size} at {pos}",
+  "cli.screenshot.saved": "Saved {size} screenshot to {path}",
+  "cli.screenshot.timeout": "The device did not send a picture in time."
 }

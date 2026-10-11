@@ -3,6 +3,7 @@ syntax = "proto3";
 package nexus.v1;
 
 import "nexus/v1/common.proto";
+import "nexus/v1/session.proto";
 
 // Local protocol between the Nexus agent (the one process that owns the device identity, the
 // signaling connection and all sessions) and its clients: the CLI, the desktop app, the tray.
@@ -47,6 +48,11 @@ message IpcRequest {
     PingDevice ping = 17;
     SetLockdown set_lockdown = 18;
     Shutdown shutdown = 19;
+    OpenSession open_session = 20;
+    CloseSession close_session = 21;
+    SessionInput session_input = 22;
+    SessionKeyframe session_keyframe = 23;
+    SessionQuality session_quality = 24;
   }
 }
 
@@ -107,6 +113,7 @@ message IpcResponse {
     DeviceList devices = 13;
     PairingStarted pairing_started = 14;
     PingReport ping_report = 15;
+    SessionOpened session_opened = 16;
   }
 }
 
@@ -199,6 +206,11 @@ message IpcEvent {
     DeviceChanged device_changed = 3;
     DeviceRemoved device_removed = 4;
     SignalState signal_state = 5;
+    // Remote-desktop session traffic. Delivered only to the connection that opened the session.
+    SessionVideo session_video = 6;
+    SessionCursorShape session_cursor_shape = 7;
+    SessionCursorPos session_cursor_pos = 8;
+    SessionEnded session_ended = 9;
   }
 }
 
@@ -230,4 +242,73 @@ message DeviceRemoved {
 
 message SignalState {
   bool connected = 1;
+}
+
+// ----- remote-desktop sessions (controller side, via the local agent) -----------------------
+//
+// The agent owns the network session; the viewer (CLI, app) owns decoding and presentation.
+// Encoded video crosses this local socket; nothing the remote machine sends is ever parsed by
+// the agent beyond framing.
+
+message OpenSession {
+  bytes device_id = 1;
+  uint32 monitor = 2;
+  // 0 = target default.
+  uint32 max_fps = 3;
+  uint32 bitrate_bps = 4;
+  // False opens a control-only session (no screen).
+  bool want_video = 5;
+}
+
+message CloseSession {
+  uint64 session_id = 1;
+}
+
+// Input events as an `InputPacket` in the compact wire format (nexus_proto::wire::input).
+message SessionInput {
+  uint64 session_id = 1;
+  bytes packet = 2;
+}
+
+message SessionKeyframe {
+  uint64 session_id = 1;
+}
+
+message SessionQuality {
+  uint64 session_id = 1;
+  uint32 bitrate_bps = 2;
+  uint32 fps = 3;
+  uint32 scale_percent = 4;
+}
+
+message SessionOpened {
+  uint64 session_id = 1;
+  VideoStarted video = 2;
+  repeated MonitorInfo monitors = 3;
+  PathKind path = 4;
+  string peer_name = 5;
+}
+
+message SessionVideo {
+  uint64 session_id = 1;
+  // `VideoFrameHeader` (wire format) immediately followed by the codec payload.
+  bytes frame = 2;
+  // Time from capture on the target to arrival at the agent (clock-offset corrected).
+  uint64 upstream_us = 3;
+}
+
+message SessionCursorShape {
+  uint64 session_id = 1;
+  CursorShape shape = 2;
+}
+
+message SessionCursorPos {
+  uint64 session_id = 1;
+  // A `CursorUpdate` in wire format.
+  bytes update = 2;
+}
+
+message SessionEnded {
+  uint64 session_id = 1;
+  string reason = 2;
 }

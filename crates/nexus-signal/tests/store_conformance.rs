@@ -240,6 +240,7 @@ async fn concurrent_expiry(s: Arc<dyn PresenceStore>) {
     assert_eq!(reports, 1, "exactly one reaper may claim the expiry");
 }
 
+#[allow(dead_code)] // used only when the postgres/redis test features are enabled
 fn service_url(var: &str) -> Option<String> {
     match std::env::var(var) {
         Ok(url) if !url.is_empty() => Some(url),

@@ -64,7 +64,9 @@ pub async fn connect(ctx: &AppContext) -> Result<IpcClient> {
     }
 }
 
-async fn connect_with_events(ctx: &AppContext) -> Result<(IpcClient, nexus_ipc::EventReceiver)> {
+pub(crate) async fn connect_with_events(
+    ctx: &AppContext,
+) -> Result<(IpcClient, nexus_ipc::EventReceiver)> {
     let paths = IpcPaths::in_dir(&ctx.paths.runtime_dir);
     match IpcClient::connect(&paths, "nexus-cli").await {
         Ok((client, events, _welcome)) => Ok((client, events)),
@@ -109,7 +111,7 @@ fn short_id(id: &[u8]) -> String {
 }
 
 /// Finds one paired device by exact/prefix ID or by name (case-insensitive).
-fn resolve(l: Locale, devices: &[DeviceView], query: &str) -> Result<DeviceView> {
+pub(crate) fn resolve(l: Locale, devices: &[DeviceView], query: &str) -> Result<DeviceView> {
     let q = query.trim().to_lowercase();
     let matches: Vec<&DeviceView> = devices
         .iter()

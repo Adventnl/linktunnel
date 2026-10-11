@@ -17,6 +17,7 @@
 mod error;
 mod guard;
 pub mod hid;
+pub mod keys;
 pub mod recording;
 pub mod remap;
 mod scroll;
