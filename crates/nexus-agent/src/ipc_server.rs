@@ -17,6 +17,7 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
 
 use crate::error::AgentError;
+use crate::files_bridge;
 use crate::pairing;
 use crate::sessions;
 use crate::state::Shared;
@@ -188,6 +189,21 @@ async fn dispatch(
             viewer_bridge::quality(shared, ctx, &q)?;
             Ok(ack)
         }
+        Req::FileList(r) => files_bridge::list(shared, ctx, r)
+            .await
+            .map(Resp::FileListing),
+        Req::FileStat(r) => files_bridge::stat(shared, ctx, r)
+            .await
+            .map(Resp::FileEntry),
+        Req::FileMkdir(r) => {
+            files_bridge::mkdir(shared, ctx, r).await?;
+            Ok(ack)
+        }
+        Req::FileRemove(r) => {
+            files_bridge::remove(shared, ctx, r).await?;
+            Ok(ack)
+        }
+        Req::FileTransfer(r) => files_bridge::transfer(shared, ctx, r).map(Resp::TransferStarted),
         Req::Shutdown(_) => {
             info!("shutdown requested over IPC");
             let _ = shared.shutdown.send(true);

@@ -1,0 +1,22 @@
+[package]
+name = "nexus-files"
+description = "File browsing and resumable, hash-verified file transfer over a Nexus session."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3.workspace = true
+bytes.workspace = true
+nexus-net.workspace = true
+nexus-proto.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

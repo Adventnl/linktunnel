@@ -72,5 +72,15 @@
   "cli.monitors.row": "{primary}{index}: {name}  {size} at {pos}",
   "cli.screenshot.saved": "Saved {size} screenshot to {path}",
   "cli.screenshot.timeout": "The device did not send a picture in time.",
-  "cli.view.ended": "Viewer closed: {reason}"
+  "cli.view.ended": "Viewer closed: {reason}",
+  "cli.files.entry": "{kind} {size}  {name}",
+  "cli.files.roots": "Shared folders on {name}:",
+  "cli.files.truncated": "(listing cut off; the folder has more entries)",
+  "cli.files.progress": "{done} of {total} ({percent}%)",
+  "cli.files.done": "Copied {size} to {dest} (BLAKE3 {hash}{resumed})",
+  "cli.files.resumed": ", resumed from {offset}",
+  "cli.files.failed": "Transfer failed: {reason}",
+  "cli.files.need_remote": "Exactly one side must be on a device, written as DEVICE:PATH",
+  "cli.files.removed": "Removed.",
+  "cli.files.created": "Created."
 }

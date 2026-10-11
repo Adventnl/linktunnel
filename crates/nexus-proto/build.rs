@@ -5,10 +5,17 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = PathBuf::from("proto");
-    let files: Vec<PathBuf> = ["common.proto", "session.proto", "signal.proto", "ipc.proto"]
-        .iter()
-        .map(|f| proto_root.join("nexus/v1").join(f))
-        .collect();
+    let files: Vec<PathBuf> = [
+        "common.proto",
+        "session.proto",
+        "signal.proto",
+        "ipc.proto",
+        "files.proto",
+        "clipboard.proto",
+    ]
+    .iter()
+    .map(|f| proto_root.join("nexus/v1").join(f))
+    .collect();
 
     let descriptors = protox::compile(&files, [&proto_root])?;
     prost_build::Config::new()

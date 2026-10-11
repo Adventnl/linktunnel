@@ -7,6 +7,7 @@
 mod config;
 mod devices;
 mod error;
+mod files_bridge;
 mod ipc_server;
 mod pairing;
 mod remote;

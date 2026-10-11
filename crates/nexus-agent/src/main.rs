@@ -10,6 +10,7 @@ use nexus_core::config::{ConfigLoader, LogConfig};
 use nexus_core::{Paths, Scope};
 use nexus_crypto::provision::load_or_create_identity;
 use nexus_crypto::store::{DefaultStoreOptions, open_default};
+use nexus_files::{FileRoots, SharedRoot};
 use url::Url;
 
 const KEYCHAIN_SERVICE: &str = "app.nexus-remote";
@@ -39,6 +40,12 @@ struct Args {
     /// Do not offer this machine's screen or accept remote input (diagnostics only).
     #[arg(long)]
     no_screen: bool,
+    /// Share this folder read-only with paired devices that hold the `files` grant (repeatable).
+    #[arg(long = "share", value_name = "DIR")]
+    share: Vec<PathBuf>,
+    /// Share this folder read-write (repeatable).
+    #[arg(long = "share-rw", value_name = "DIR")]
+    share_rw: Vec<PathBuf>,
     /// Highest frame rate to stream when this device is being watched.
     #[arg(long, default_value_t = 60)]
     max_fps: u32,
@@ -91,10 +98,37 @@ async fn main() -> Result<()> {
 
     let name = args.name.unwrap_or_else(nexus_agent::sysinfo::hostname);
     let config = AgentConfig::from_nexus_config(&nexus, paths, name)?;
-    let handler: Arc<dyn SessionHandler> = if args.no_screen {
+    let mut shared: Vec<SharedRoot> = nexus
+        .files
+        .shared
+        .iter()
+        .map(|f| SharedRoot {
+            path: f.path.clone(),
+            writable: f.writable,
+        })
+        .collect();
+    shared.extend(args.share.iter().map(|p| SharedRoot {
+        path: p.clone(),
+        writable: false,
+    }));
+    shared.extend(args.share_rw.iter().map(|p| SharedRoot {
+        path: p.clone(),
+        writable: true,
+    }));
+    let roots = FileRoots::new(shared);
+    if !roots.is_empty() {
+        tracing::info!(
+            folders = roots.roots().len(),
+            "sharing folders with devices that hold the files grant"
+        );
+    }
+    let max_upload = nexus.files.max_upload_mib.saturating_mul(1 << 20);
+    let handler: Arc<dyn SessionHandler> = if args.no_screen && roots.is_empty() {
         Arc::new(DiagnosticsHandler)
+    } else if args.no_screen {
+        Arc::new(RemoteHandler::new(None, None, args.max_fps).with_files(roots, max_upload))
     } else {
-        Arc::new(RemoteHandler::detect(args.max_fps))
+        Arc::new(RemoteHandler::detect(args.max_fps).with_files(roots, max_upload))
     };
     let agent = Agent::start(config, Arc::new(identity), handler).await?;
     tracing::info!(device = %agent.device_id(), ipc = ?agent.ipc_paths().endpoint, "agent running; Ctrl-C to stop");

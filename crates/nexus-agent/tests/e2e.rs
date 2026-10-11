@@ -689,3 +689,123 @@ async fn a_paired_device_can_watch_and_control_another_through_the_agents() {
     })
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn files_move_between_paired_devices_through_the_agents_even_when_the_target_has_no_screen() {
+    use nexus_files::{FileRoots, SharedRoot};
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let share = dir.path().join("share");
+    std::fs::create_dir_all(&share).unwrap();
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60).with_files(
+        FileRoots::new(vec![SharedRoot {
+            path: share.clone(),
+            writable: true,
+        }]),
+        1 << 30,
+    );
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let opened = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let sid = opened.session_id;
+
+    let roots = mac.client.file_list(sid, "").await.unwrap();
+    assert_eq!(roots.entries.len(), 1);
+    let remote_dir = roots.entries[0].name.clone();
+
+    // Upload ~3 MiB, watching progress events.
+    let payload: Vec<u8> = (0..3_000_000u32)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8)
+        .collect();
+    let src = dir.path().join("src.bin");
+    std::fs::write(&src, &payload).unwrap();
+    let remote_file = format!("{remote_dir}/up.bin");
+    let started = mac
+        .client
+        .file_transfer(nexus_proto::v1::FileTransfer {
+            session_id: sid,
+            remote_path: remote_file.clone(),
+            local_path: src.to_string_lossy().into_owned(),
+            upload: true,
+            overwrite: false,
+        })
+        .await
+        .unwrap();
+    let finished = loop {
+        let ev = tokio::time::timeout(Duration::from_secs(20), mac.events.next())
+            .await
+            .expect("transfer events")
+            .expect("event stream");
+        if let Some(Ev::TransferFinished(f)) = ev.body
+            && f.transfer_id == started.transfer_id
+        {
+            break f;
+        }
+    };
+    assert!(finished.ok, "{}", finished.error_message);
+    assert_eq!(finished.blake3.as_ref(), blake3::hash(&payload).as_bytes());
+    assert_eq!(std::fs::read(share.join("up.bin")).unwrap(), payload);
+
+    // Download it back to a different place.
+    let dst = dir.path().join("down.bin");
+    let started = mac
+        .client
+        .file_transfer(nexus_proto::v1::FileTransfer {
+            session_id: sid,
+            remote_path: remote_file,
+            local_path: dst.to_string_lossy().into_owned(),
+            upload: false,
+            overwrite: false,
+        })
+        .await
+        .unwrap();
+    let finished = loop {
+        let ev = tokio::time::timeout(Duration::from_secs(20), mac.events.next())
+            .await
+            .expect("transfer events")
+            .expect("event stream");
+        if let Some(Ev::TransferFinished(f)) = ev.body
+            && f.transfer_id == started.transfer_id
+        {
+            break f;
+        }
+    };
+    assert!(finished.ok, "{}", finished.error_message);
+    assert_eq!(std::fs::read(&dst).unwrap(), payload);
+
+    // Outside the share: refused, nothing leaks.
+    std::fs::write(dir.path().join("secret"), b"s").unwrap();
+    let err = mac
+        .client
+        .file_stat(sid, dir.path().join("secret").to_str().unwrap())
+        .await;
+    assert!(matches!(
+        err,
+        Err(IpcError::Agent {
+            code: IpcErrorCode::PermissionDenied,
+            ..
+        })
+    ));
+    mac.client.close_session(sid).await.unwrap();
+}

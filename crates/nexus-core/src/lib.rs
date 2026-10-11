@@ -17,5 +17,5 @@ pub mod i18n;
 pub mod paths;
 pub mod telemetry;
 
-pub use config::{ConfigError, NexusConfig};
+pub use config::{ConfigError, FilesConfig, NexusConfig, SharedFolder};
 pub use paths::{Paths, Scope};

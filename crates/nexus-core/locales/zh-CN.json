@@ -72,5 +72,15 @@
   "cli.monitors.row": "{primary}{index}：{name}  {size}，位置 {pos}",
   "cli.screenshot.saved": "已将 {size} 的截图保存到 {path}",
   "cli.screenshot.timeout": "设备未能及时发送画面。",
-  "cli.view.ended": "查看器已关闭：{reason}"
+  "cli.view.ended": "查看器已关闭：{reason}",
+  "cli.files.entry": "{kind} {size}  {name}",
+  "cli.files.roots": "{name} 上的共享文件夹：",
+  "cli.files.truncated": "（列表已截断，该文件夹还有更多条目）",
+  "cli.files.progress": "{done} / {total}（{percent}%）",
+  "cli.files.done": "已复制 {size} 到 {dest}（BLAKE3 {hash}{resumed}）",
+  "cli.files.resumed": "，从 {offset} 处续传",
+  "cli.files.failed": "传输失败：{reason}",
+  "cli.files.need_remote": "必须恰有一端位于设备上，写作 设备:路径",
+  "cli.files.removed": "已删除。",
+  "cli.files.created": "已创建。"
 }

@@ -284,6 +284,12 @@ impl ControllerSession {
         &self.session
     }
 
+    /// The target's file panel (needs the `files` grant and a shared folder on the target).
+    #[must_use]
+    pub fn files(&self) -> nexus_files::FilesClient<Session> {
+        nexus_files::FilesClient::new(self.session.clone())
+    }
+
     /// Queues input events, in order. Cheap and non-blocking; the input task batches them.
     pub fn send_input(&self, events: impl IntoIterator<Item = InputEvent>) {
         let now = now_us();

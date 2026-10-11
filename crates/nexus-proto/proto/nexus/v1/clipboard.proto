@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+// Clipboard sync. One long-lived bidirectional stream (kind Clipboard) per session; each side
+// pushes an `ClipboardUpdate` when its clipboard changes and applies the other's. A content hash
+// on every item lets a receiver ignore its own echo.
+
+message ClipboardUpdate {
+  // Monotonic per sender; informational.
+  uint64 seq = 1;
+  repeated ClipboardItem items = 2;
+}
+
+message ClipboardItem {
+  // "text/plain", "text/html", "image/png".
+  string mime = 1;
+  bytes data = 2;
+}

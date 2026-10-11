@@ -17,6 +17,7 @@
 #![deny(unsafe_code)]
 
 mod error;
+pub mod headless;
 mod types;
 
 #[cfg(target_os = "macos")]

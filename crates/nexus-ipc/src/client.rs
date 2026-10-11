@@ -4,11 +4,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use nexus_proto::v1::{
-    CloseSession, DeviceList, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello, IpcRequest,
-    IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel, PairingConfirm, PairingJoin,
-    PairingOffer, PairingStarted, PingDevice, PingReport, SessionInput, SessionKeyframe,
-    SessionOpened, SessionQuality, SetLockdown, Shutdown, Status, Unpair, ipc_event::Body as Ev,
-    ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
+    CloseSession, DeviceList, DirListing, FileEntry, FileList, FileMkdir, FileRemove,
+    FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello,
+    IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel, PairingConfirm,
+    PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport, SessionInput,
+    SessionKeyframe, SessionOpened, SessionQuality, SetLockdown, Shutdown, Status, TransferStarted,
+    Unpair, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
+    ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -339,5 +341,65 @@ impl IpcClient {
     /// Changes quality settings (0 = unchanged).
     pub async fn session_quality(&self, request: SessionQuality) -> Result<(), IpcError> {
         self.expect_ack(Req::SessionQuality(request)).await
+    }
+
+    /// Lists a directory on the remote device (empty path: its shared folders).
+    pub async fn file_list(&self, session_id: u64, path: &str) -> Result<DirListing, IpcError> {
+        match self
+            .request(Req::FileList(FileList {
+                session_id,
+                path: path.to_owned(),
+            }))
+            .await?
+        {
+            Resp::FileListing(l) => Ok(l),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Metadata of one remote path.
+    pub async fn file_stat(&self, session_id: u64, path: &str) -> Result<FileEntry, IpcError> {
+        match self
+            .request(Req::FileStat(FileStatRequest {
+                session_id,
+                path: path.to_owned(),
+            }))
+            .await?
+        {
+            Resp::FileEntry(e) => Ok(e),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Creates a remote directory.
+    pub async fn file_mkdir(&self, session_id: u64, path: &str) -> Result<(), IpcError> {
+        self.expect_ack(Req::FileMkdir(FileMkdir {
+            session_id,
+            path: path.to_owned(),
+        }))
+        .await
+    }
+
+    /// Deletes a remote file or directory.
+    pub async fn file_remove(
+        &self,
+        session_id: u64,
+        path: &str,
+        recursive: bool,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::FileRemove(FileRemove {
+            session_id,
+            path: path.to_owned(),
+            recursive,
+        }))
+        .await
+    }
+
+    /// Starts copying one file; progress and completion arrive as events.
+    pub async fn file_transfer(&self, request: FileTransfer) -> Result<TransferStarted, IpcError> {
+        match self.request(Req::FileTransfer(request)).await? {
+            Resp::TransferStarted(t) => Ok(t),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
     }
 }

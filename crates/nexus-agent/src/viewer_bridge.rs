@@ -216,7 +216,7 @@ async fn pump_events(
     shared.viewers.lock().remove(&id);
 }
 
-fn controller_for(
+pub(crate) fn controller_for(
     shared: &Shared,
     ctx: &Arc<ConnCtx>,
     id: u64,

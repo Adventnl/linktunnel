@@ -4,6 +4,7 @@ package nexus.v1;
 
 import "nexus/v1/common.proto";
 import "nexus/v1/session.proto";
+import "nexus/v1/files.proto";
 
 // Local protocol between the Nexus agent (the one process that owns the device identity, the
 // signaling connection and all sessions) and its clients: the CLI, the desktop app, the tray.
@@ -53,6 +54,11 @@ message IpcRequest {
     SessionInput session_input = 22;
     SessionKeyframe session_keyframe = 23;
     SessionQuality session_quality = 24;
+    FileList file_list = 30;
+    FileStatRequest file_stat = 31;
+    FileMkdir file_mkdir = 32;
+    FileRemove file_remove = 33;
+    FileTransfer file_transfer = 34;
   }
 }
 
@@ -114,6 +120,9 @@ message IpcResponse {
     PairingStarted pairing_started = 14;
     PingReport ping_report = 15;
     SessionOpened session_opened = 16;
+    DirListing file_listing = 30;
+    FileEntry file_entry = 31;
+    TransferStarted transfer_started = 32;
   }
 }
 
@@ -211,6 +220,8 @@ message IpcEvent {
     SessionCursorShape session_cursor_shape = 7;
     SessionCursorPos session_cursor_pos = 8;
     SessionEnded session_ended = 9;
+    TransferProgress transfer_progress = 10;
+    TransferFinished transfer_finished = 11;
   }
 }
 
@@ -311,4 +322,59 @@ message SessionCursorPos {
 message SessionEnded {
   uint64 session_id = 1;
   string reason = 2;
+}
+
+// ----- files (over an open session; a control-only session is enough) -----------------------
+
+message FileList {
+  uint64 session_id = 1;
+  // Absolute path on the remote device; empty lists its shared folders.
+  string path = 2;
+}
+
+message FileStatRequest {
+  uint64 session_id = 1;
+  string path = 2;
+}
+
+message FileMkdir {
+  uint64 session_id = 1;
+  string path = 2;
+}
+
+message FileRemove {
+  uint64 session_id = 1;
+  string path = 2;
+  bool recursive = 3;
+}
+
+// Copies one file. The local path is on the machine the agent runs on.
+message FileTransfer {
+  uint64 session_id = 1;
+  string remote_path = 2;
+  string local_path = 3;
+  // False downloads remote → local; true uploads local → remote.
+  bool upload = 4;
+  bool overwrite = 5;
+}
+
+message TransferStarted {
+  uint64 transfer_id = 1;
+}
+
+message TransferProgress {
+  uint64 transfer_id = 1;
+  uint64 done = 2;
+  uint64 total = 3;
+}
+
+message TransferFinished {
+  uint64 transfer_id = 1;
+  bool ok = 2;
+  FileErrorCode error_code = 3;
+  string error_message = 4;
+  uint64 size = 5;
+  bytes blake3 = 6;
+  // Non-zero if a partial copy was continued.
+  uint64 resumed_from = 7;
 }

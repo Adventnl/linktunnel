@@ -155,7 +155,7 @@ impl VideoDecoder {
         let partial = h.kind != FrameKind::Key
             && !h.dirty.is_empty()
             && self.size == (pic.width, pic.height)
-            && self.current.len() == total as usize * 4
+            && u64::try_from(self.current.len()).is_ok_and(|l| l == total * 4)
             && area * 4 < total
             && self.since_full_convert < FULL_CONVERT_EVERY;
         let converted = if partial {

@@ -51,6 +51,38 @@ pub struct NexusConfig {
     pub net: NetConfig,
     /// Security and consent policy defaults.
     pub security: SecurityConfig,
+    /// Folders other devices may browse and copy files in and out of.
+    pub files: FilesConfig,
+}
+
+/// One folder shared with paired devices that hold the `files` grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SharedFolder {
+    /// The folder on this device.
+    pub path: PathBuf,
+    /// May a controller create, overwrite and delete inside it? Read-only when false.
+    #[serde(default)]
+    pub writable: bool,
+}
+
+/// File sharing. Nothing is shared until a folder is listed here (or given with `--share`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FilesConfig {
+    /// Folders to share.
+    pub shared: Vec<SharedFolder>,
+    /// Largest single upload this device accepts, in MiB.
+    pub max_upload_mib: u64,
+}
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            shared: Vec::new(),
+            max_upload_mib: 1024 * 1024,
+        }
+    }
 }
 
 /// Log output format.
@@ -194,6 +226,12 @@ impl NexusConfig {
             return Err(ConfigError::Invalid {
                 key: "security.consent_timeout_secs",
                 reason: "must be between 1 and 600".into(),
+            });
+        }
+        if self.files.max_upload_mib == 0 {
+            return Err(ConfigError::Invalid {
+                key: "files.max_upload_mib",
+                reason: "must be at least 1".into(),
             });
         }
         // Reject unparsable filter directives early instead of silently logging nothing.

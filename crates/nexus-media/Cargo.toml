@@ -14,6 +14,7 @@ bytes.workspace = true
 nexus-capture.workspace = true
 nexus-codec = { workspace = true, features = ["software"] }
 nexus-core.workspace = true
+nexus-files.workspace = true
 nexus-input.workspace = true
 nexus-net.workspace = true
 nexus-proto.workspace = true
@@ -29,3 +30,4 @@ nexus-crypto.workspace = true
 nexus-testkit.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
+blake3.workspace = true

@@ -99,6 +99,7 @@ pub async fn rig(
         max_fps: 60,
         max_inflight: 12,
         egress,
+        files: None,
     };
     tokio::spawn(target::serve(
         b_session,

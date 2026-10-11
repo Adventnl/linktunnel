@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use nexus_capture::CaptureBackend;
+use nexus_capture::headless::HeadlessBackend;
+use nexus_files::{FileRoots, FileServer};
 use nexus_media::target::{self, InjectorFactory, TargetConfig, TargetStats};
 use nexus_proto::features;
 use nexus_proto::v1::Capabilities;
@@ -19,6 +21,7 @@ pub struct RemoteHandler {
     capture: Option<Arc<dyn CaptureBackend>>,
     injector: Option<InjectorFactory>,
     max_fps: u32,
+    files: Option<Arc<FileServer>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -27,6 +30,7 @@ impl std::fmt::Debug for RemoteHandler {
             .field("capture", &self.capture.as_ref().map(|c| c.name()))
             .field("input", &self.injector.is_some())
             .field("max_fps", &self.max_fps)
+            .field("files", &self.files.is_some())
             .finish()
     }
 }
@@ -43,7 +47,17 @@ impl RemoteHandler {
             capture,
             injector,
             max_fps: max_fps.clamp(1, 240),
+            files: None,
         }
+    }
+
+    /// Also serves the file panel from these shared folders to peers holding the `files` grant.
+    /// (With no folders nothing is served.)
+    #[must_use]
+    pub fn with_files(mut self, roots: FileRoots, max_upload_bytes: u64) -> Self {
+        self.files =
+            (!roots.is_empty()).then(|| Arc::new(FileServer::new(roots, max_upload_bytes)));
+        self
     }
 
     /// Uses this machine's real screen and input if they are reachable, and says so in the log
@@ -119,14 +133,21 @@ impl SessionHandler for RemoteHandler {
         if self.injector.is_some() {
             features_list.push(features::INPUT_BASIC.to_owned());
         }
+        if self.files.is_some() {
+            features_list.push(features::FILES_RESUME.to_owned());
+        }
         caps.features = features_list;
         caps
     }
 
     async fn handle(&self, ctx: SessionContext) {
-        let Some(capture) = self.capture.clone() else {
-            nexus_net::diag::serve(ctx.session, ctx.established.control).await;
-            return;
+        let capture = match self.capture.clone() {
+            Some(c) => c,
+            None if self.files.is_some() => Arc::new(HeadlessBackend),
+            None => {
+                nexus_net::diag::serve(ctx.session, ctx.established.control).await;
+                return;
+            }
         };
         let config = TargetConfig {
             grants: ctx.peer.grants_from_peer.clone(),
@@ -135,6 +156,7 @@ impl SessionHandler for RemoteHandler {
             max_fps: self.max_fps,
             max_inflight: target::DEFAULT_MAX_INFLIGHT,
             egress: None,
+            files: self.files.clone(),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;
