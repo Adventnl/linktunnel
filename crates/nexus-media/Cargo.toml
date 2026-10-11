@@ -1,0 +1,38 @@
+[package]
+name = "nexus-media"
+description = "Remote-desktop session: video/cursor/input streaming between a target and a controller."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes.workspace = true
+nexus-audit.workspace = true
+nexus-capture.workspace = true
+nexus-clipboard.workspace = true
+nexus-codec = { workspace = true, features = ["software"] }
+nexus-core.workspace = true
+nexus-files.workspace = true
+nexus-input.workspace = true
+nexus-net.workspace = true
+nexus-portfwd.workspace = true
+nexus-power.workspace = true
+nexus-terminal.workspace = true
+nexus-proto.workspace = true
+nexus-trust.workspace = true
+parking_lot = "0.12"
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+iroh.workspace = true
+nexus-crypto.workspace = true
+nexus-testkit.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+blake3.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "nexus-testkit"
+description = "Test support: a private Xvfb display and a painter, for capture/input/e2e tests on Linux."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.14", features = ["xtest"] }

@@ -1,0 +1,31 @@
+[package]
+name = "nexus-ipc"
+description = "Local, authenticated IPC between the Nexus agent and its clients (CLI, app, tray)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes.workspace = true
+data-encoding.workspace = true
+getrandom.workspace = true
+nexus-core.workspace = true
+nexus-proto.workspace = true
+parking_lot = "0.12"
+prost.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["process", "std", "fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

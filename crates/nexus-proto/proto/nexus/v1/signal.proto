@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/common.proto";
+
+// Protocol between a device and `nexus-signal`, one protobuf message per WebSocket binary frame.
+//
+// The server is a *router and registry*, not a trusted party:
+//   * it authenticates devices by key possession (no passwords, no bearer tokens);
+//   * it stores dual-signed pairing records and can never create one itself;
+//   * it routes opaque sealed envelopes between paired devices;
+//   * it never sees screen, input, file or clipboard data (those travel over end-to-end
+//     encrypted QUIC sessions that bypass it).
+
+// ---------------------------------------------------------------------------------------------
+// Frames
+// ---------------------------------------------------------------------------------------------
+
+message SignalClientMessage {
+  // Client-chosen request id, echoed in the reply's `in_reply_to`. 0 = fire and forget.
+  uint64 id = 1;
+  oneof body {
+    ClientAuth auth = 10;
+    PublishPresence publish_presence = 11;
+    Heartbeat heartbeat = 12;
+    GoingOffline going_offline = 13;
+    SubscribePresence subscribe_presence = 14;
+    RegisterPairing register_pairing = 15;
+    RevokePairing revoke_pairing = 16;
+    ListPairings list_pairings = 17;
+    SendEnvelope send_envelope = 18;
+    RendezvousJoin rendezvous_join = 19;
+    RendezvousSend rendezvous_send = 20;
+    RendezvousLeave rendezvous_leave = 21;
+  }
+}
+
+message SignalServerMessage {
+  // For replies: the `id` of the request. 0 for server-initiated pushes.
+  uint64 in_reply_to = 1;
+  oneof body {
+    ServerHello hello = 10;
+    AuthOk auth_ok = 11;
+    Ack ack = 12;
+    SignalError error = 13;
+    PresenceSnapshot presence_snapshot = 14;
+    PresenceUpdate presence_update = 15;
+    PairingList pairing_list = 16;
+    PairingAdded pairing_added = 17;
+    PairingRevoked pairing_revoked = 18;
+    IncomingEnvelope envelope = 19;
+    RendezvousPeer rendezvous_peer = 20;
+    RendezvousData rendezvous_data = 21;
+    Superseded superseded = 22;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------------------------
+
+// First message from the server on every connection.
+message ServerHello {
+  ProtocolVersion version = 1;
+  // 32 random bytes; the client must sign them.
+  bytes nonce = 2;
+  // Name the client must sign in, so a login proof for one server cannot be replayed to another.
+  string audience = 3;
+  uint64 server_time_ms = 4;
+}
+
+// The client proves possession of its device key. The signed bytes are built by
+// `nexus_proto::signal::auth_message` and signed with context `SignalAuth`.
+message ClientAuth {
+  ProtocolVersion version = 1;
+  // `PublicIdentity` serialisation (Ed25519 ‖ X25519 ‖ key-binding signature), 128 bytes.
+  bytes identity = 2;
+  // 16 random bytes chosen by the client (a fresh value in every signature).
+  bytes client_nonce = 3;
+  bytes signature = 4;
+  OsInfo os = 5;
+  string agent_version = 6;
+}
+
+message AuthOk {
+  bytes device_id = 1;
+  uint32 heartbeat_interval_ms = 2;
+  // If no heartbeat or presence update arrives within this time the device is marked offline.
+  uint32 presence_ttl_ms = 3;
+  uint64 server_time_ms = 4;
+  uint32 max_message_bytes = 5;
+}
+
+message Ack {}
+
+enum SignalErrorCode {
+  SIGNAL_ERROR_CODE_UNSPECIFIED = 0;
+  SIGNAL_ERROR_CODE_UNAUTHENTICATED = 1;
+  SIGNAL_ERROR_CODE_ALREADY_AUTHENTICATED = 2;
+  SIGNAL_ERROR_CODE_INVALID_REQUEST = 3;
+  SIGNAL_ERROR_CODE_NOT_PAIRED = 4;
+  SIGNAL_ERROR_CODE_RECIPIENT_OFFLINE = 5;
+  SIGNAL_ERROR_CODE_RATE_LIMITED = 6;
+  SIGNAL_ERROR_CODE_ROOM_FULL = 7;
+  SIGNAL_ERROR_CODE_NOT_FOUND = 8;
+  SIGNAL_ERROR_CODE_PAYLOAD_TOO_LARGE = 9;
+  SIGNAL_ERROR_CODE_UNSUPPORTED = 10;
+  SIGNAL_ERROR_CODE_INTERNAL = 11;
+  SIGNAL_ERROR_CODE_INCOMPATIBLE_VERSION = 12;
+  SIGNAL_ERROR_CODE_PEER_ABSENT = 13;
+  SIGNAL_ERROR_CODE_CONFLICT = 14;
+}
+
+message SignalError {
+  SignalErrorCode code = 1;
+  // Diagnostics only.
+  string message = 2;
+  uint32 retry_after_ms = 3;
+}
+
+// The same device authenticated from another connection; this one is being closed.
+message Superseded {}
+
+// ---------------------------------------------------------------------------------------------
+// Presence
+// ---------------------------------------------------------------------------------------------
+
+message PresenceInfo {
+  PresenceState state = 1;
+  string name = 2;
+  OsInfo os = 3;
+  // Logged-in user, empty if none or if the owner chose to hide it.
+  string active_user = 4;
+  // 0..=100; 255 = no battery.
+  uint32 battery_percent = 5;
+  bool on_ac_power = 6;
+  uint64 uptime_secs = 7;
+  // Coarse network hints (LAN addresses). May be empty.
+  repeated string ip_hints = 8;
+  // The device's home relay, helps controllers connect quickly.
+  string relay_url = 9;
+  // MAC addresses (6 bytes each) usable for Wake-on-LAN; only ever shared with paired devices.
+  repeated bytes wake_macs = 10;
+  string agent_version = 11;
+  Capabilities capabilities = 12;
+  // Strictly increasing per connection; the server ignores out-of-order updates.
+  uint64 seq = 13;
+}
+
+message PublishPresence {
+  PresenceInfo info = 1;
+}
+
+// Refreshes the TTL without resending the full record.
+message Heartbeat {
+  uint64 seq = 1;
+}
+
+enum GoingOfflineReason {
+  GOING_OFFLINE_REASON_UNSPECIFIED = 0;
+  GOING_OFFLINE_REASON_SLEEP = 1;
+  GOING_OFFLINE_REASON_HIBERNATE = 2;
+  GOING_OFFLINE_REASON_SHUTDOWN = 3;
+  GOING_OFFLINE_REASON_RESTART = 4;
+  GOING_OFFLINE_REASON_LOGOUT = 5;
+}
+
+// Sent from the OS suspend/shutdown hook so peers see the right state instantly.
+message GoingOffline {
+  GoingOfflineReason reason = 1;
+}
+
+// Subscribe to presence of every device this device is paired with (the server decides who
+// that is; there is no way to ask about an unpaired device).
+message SubscribePresence {}
+
+message DevicePresence {
+  bytes device_id = 1;
+  PresenceInfo info = 2;
+  bool online = 3;
+  uint64 last_seen_ms = 4;
+}
+
+message PresenceSnapshot {
+  repeated DevicePresence devices = 1;
+}
+
+message PresenceUpdate {
+  DevicePresence device = 1;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pairing registry
+// ---------------------------------------------------------------------------------------------
+
+// What two devices agreed to when they paired. `identity_a` always sorts before `identity_b`
+// (bytewise on the Ed25519 key) so a pair has exactly one canonical record.
+message PairingRecord {
+  bytes identity_a = 1;
+  bytes identity_b = 2;
+  string name_a = 3;
+  string name_b = 4;
+  uint64 created_unix_ms = 5;
+  // Feature grants: what A may do on B, and vice versa. Empty = pairing only, no control.
+  repeated string grants_a_to_b = 6;
+  repeated string grants_b_to_a = 7;
+}
+
+// `record` is the exact serialised `PairingRecord` that both devices signed (never re-encoded),
+// with context `PairingRecord`.
+message SignedPairingRecord {
+  bytes record = 1;
+  bytes signature_a = 2;
+  bytes signature_b = 3;
+}
+
+message RegisterPairing {
+  SignedPairingRecord signed = 1;
+}
+
+message Revocation {
+  // Ed25519 keys (32 bytes). The revoker is the signer.
+  bytes revoker = 1;
+  bytes peer = 2;
+  uint64 unix_ms = 3;
+}
+
+// `revocation` is the serialised `Revocation`, signed by the revoker with context `Revocation`.
+message SignedRevocation {
+  bytes revocation = 1;
+  bytes signature = 2;
+}
+
+message RevokePairing {
+  SignedRevocation signed = 1;
+}
+
+message ListPairings {}
+
+message PairingList {
+  repeated SignedPairingRecord pairings = 1;
+}
+
+// Pushed to the other party when a pairing involving it is registered.
+message PairingAdded {
+  SignedPairingRecord signed = 1;
+}
+
+// Pushed when a pairing is revoked; the receiving agent must drop live sessions with the peer.
+message PairingRevoked {
+  bytes peer_device_id = 1;
+  SignedRevocation signed = 2;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sealed envelopes
+// ---------------------------------------------------------------------------------------------
+
+// `sealed` is a Noise-`X` blob (see `nexus_crypto::noise::envelope`); the server cannot read it.
+message SendEnvelope {
+  bytes to = 1;
+  bytes sealed = 2;
+}
+
+message IncomingEnvelope {
+  bytes from = 1;
+  bytes sealed = 2;
+  uint64 server_seq = 3;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rendezvous (pairing bootstrap between devices that are not paired yet)
+// ---------------------------------------------------------------------------------------------
+
+// Two devices that know the same one-time code derive the same `room_id` and meet there. The
+// server relays opaque bytes between the (at most two) members and forgets the room after a few
+// minutes. It learns a hash of the code, not the code.
+message RendezvousJoin {
+  bytes room_id = 1;
+}
+
+message RendezvousSend {
+  bytes data = 1;
+}
+
+message RendezvousLeave {}
+
+message RendezvousPeer {
+  // True when the other member joined, false when it left.
+  bool joined = 1;
+}
+
+message RendezvousData {
+  bytes data = 1;
+}

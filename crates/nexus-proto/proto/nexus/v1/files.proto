@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+// File panel and transfer protocol. One QUIC bidirectional stream (kind Files) per operation;
+// every message in both directions is a length-delimited `FileMessage`.
+//
+//   list / stat / mkdir / remove:  request → one response (or FileError)
+//   download:  ReadFile → ReadStart → FileChunk* → FileDone
+//   upload:    WriteFile → WriteStart → UploadStart → FileChunk* → UploadEnd → FileDone
+//
+// Resume: both directions carry a BLAKE3 hash of the bytes already held by the receiver, so a
+// partial file is only continued if it is a true prefix of the source; otherwise the transfer
+// restarts from zero. The final BLAKE3 of the whole file is always verified.
+
+message FileMessage {
+  oneof body {
+    // requests (controller → target)
+    ListDir list = 1;
+    StatPath stat = 2;
+    ReadFile read = 3;
+    WriteFile write = 4;
+    MakeDir mkdir = 5;
+    RemovePath remove = 6;
+    // upload continuation (controller → target)
+    UploadStart upload_start = 7;
+    UploadEnd upload_end = 8;
+    // responses (target → controller)
+    DirListing listing = 20;
+    FileStat file_stat = 21;
+    ReadStart read_start = 22;
+    WriteStart write_start = 23;
+    FileDone done = 24;
+    FileError error = 25;
+    // data (either direction)
+    FileChunk chunk = 30;
+  }
+}
+
+// Paths are absolute native paths on the target. The target only serves paths inside its
+// configured roots; an empty path lists the roots.
+message ListDir { string path = 1; }
+message StatPath { string path = 1; }
+
+message ReadFile {
+  string path = 1;
+  // How many leading bytes the controller already has (0 = none).
+  uint64 resume_from = 2;
+  // BLAKE3 of those leading bytes; the target continues only if its own prefix hashes the same.
+  bytes prefix_blake3 = 3;
+}
+
+message WriteFile {
+  string path = 1;
+  uint64 size = 2;
+  bool overwrite = 3;
+  uint64 mtime_unix_ms = 4;
+}
+
+message MakeDir { string path = 1; }
+
+message RemovePath {
+  string path = 1;
+  bool recursive = 2;
+}
+
+message FileEntry {
+  string name = 1;
+  bool is_dir = 2;
+  bool is_symlink = 3;
+  uint64 size = 4;
+  uint64 mtime_unix_ms = 5;
+  bool readonly = 6;
+}
+
+message DirListing {
+  string path = 1;
+  repeated FileEntry entries = 2;
+  // True if the listing was cut off at the server's entry limit.
+  bool truncated = 3;
+}
+
+message FileStat {
+  string path = 1;
+  FileEntry entry = 2;
+}
+
+message ReadStart {
+  uint64 size = 1;
+  uint64 mtime_unix_ms = 2;
+  // Where the data starts: equals `resume_from` if the prefix matched, else 0.
+  uint64 start = 3;
+}
+
+message WriteStart {
+  // Bytes of a partial upload the target already holds, and their BLAKE3.
+  uint64 have = 1;
+  bytes have_blake3 = 2;
+}
+
+message UploadStart {
+  // Where the controller will start sending (== `have` if the prefix matched, else 0).
+  uint64 start = 1;
+}
+
+message UploadEnd {
+  // BLAKE3 of the entire file.
+  bytes blake3 = 1;
+}
+
+message FileChunk {
+  bytes data = 1;
+}
+
+message FileDone {
+  uint64 size = 1;
+  bytes blake3 = 2;
+}
+
+enum FileErrorCode {
+  FILE_ERROR_CODE_UNSPECIFIED = 0;
+  FILE_ERROR_CODE_NOT_FOUND = 1;
+  FILE_ERROR_CODE_PERMISSION_DENIED = 2;
+  FILE_ERROR_CODE_ALREADY_EXISTS = 3;
+  FILE_ERROR_CODE_INVALID_PATH = 4;
+  FILE_ERROR_CODE_IO = 5;
+  FILE_ERROR_CODE_TOO_LARGE = 6;
+  FILE_ERROR_CODE_HASH_MISMATCH = 7;
+  FILE_ERROR_CODE_BUSY = 8;
+  FILE_ERROR_CODE_NOT_A_DIRECTORY = 9;
+  FILE_ERROR_CODE_IS_A_DIRECTORY = 10;
+}
+
+message FileError {
+  FileErrorCode code = 1;
+  string message = 2;
+}

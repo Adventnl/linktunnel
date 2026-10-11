@@ -1,0 +1,15 @@
+[package]
+name = "nexus-portfwd"
+description = "TCP port forwarding through a Nexus session (local forwards to services on the other device)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

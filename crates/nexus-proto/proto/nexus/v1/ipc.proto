@@ -1,0 +1,554 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/common.proto";
+import "nexus/v1/session.proto";
+import "nexus/v1/files.proto";
+
+// Local protocol between the Nexus agent (the one process that owns the device identity, the
+// signaling connection and all sessions) and its clients: the CLI, the desktop app, the tray.
+//
+// Transport: a Unix domain socket (named pipe on Windows) inside the user's private runtime
+// directory, plus a random token the client reads from a private file. Both are checked.
+
+message IpcFrame {
+  oneof body {
+    IpcHello hello = 1;
+    IpcWelcome welcome = 2;
+    IpcRequest request = 3;
+    IpcResponse response = 4;
+    IpcEvent event = 5;
+  }
+}
+
+message IpcHello {
+  // Contents of the agent's token file; proves the caller can read the user's private directory.
+  string token = 1;
+  string client = 2;
+}
+
+message IpcWelcome {
+  string agent_version = 1;
+  bytes device_id = 2;
+  ProtocolVersion protocol = 3;
+}
+
+// ----- requests ---------------------------------------------------------------------------
+
+message IpcRequest {
+  uint64 id = 1;
+  oneof body {
+    GetStatus status = 10;
+    ListDevices list_devices = 11;
+    PairingOffer pairing_offer = 12;
+    PairingJoin pairing_join = 13;
+    PairingConfirm pairing_confirm = 14;
+    PairingCancel pairing_cancel = 15;
+    Unpair unpair = 16;
+    PingDevice ping = 17;
+    SetLockdown set_lockdown = 18;
+    Shutdown shutdown = 19;
+    OpenSession open_session = 20;
+    CloseSession close_session = 21;
+    SessionInput session_input = 22;
+    SessionKeyframe session_keyframe = 23;
+    SessionQuality session_quality = 24;
+    SessionMonitor session_monitor = 25;
+    FileList file_list = 30;
+    FileStatRequest file_stat = 31;
+    FileMkdir file_mkdir = 32;
+    FileRemove file_remove = 33;
+    FileTransfer file_transfer = 34;
+    ConsentDecision consent_decision = 40;
+    SetUnattended set_unattended = 41;
+    PowerCommand power_command = 42;
+    WakeDevice wake_device = 43;
+    OpenTerminal open_terminal = 44;
+    TerminalInput terminal_input = 45;
+    TerminalResize terminal_resize = 46;
+    CloseTerminal close_terminal = 47;
+    StartForward start_forward = 48;
+    StopForward stop_forward = 49;
+  }
+}
+
+message GetStatus {}
+message ListDevices {}
+
+// Start showing a pairing code and wait for another device to enter it.
+message PairingOffer {
+  // What the other device may do on this one (feature grants); empty = nothing.
+  repeated string allow_peer_to = 1;
+}
+
+// Enter the code shown by another device.
+message PairingJoin {
+  string code = 1;
+  // What this device asks to be allowed to do on the other one.
+  repeated string request_on_peer = 2;
+  // What the other device is allowed to do on this one.
+  repeated string grant_to_peer = 3;
+}
+
+message PairingConfirm {
+  uint64 pairing_id = 1;
+  // True if the words shown on both devices are identical.
+  bool words_match = 2;
+}
+
+message PairingCancel {
+  uint64 pairing_id = 1;
+}
+
+message Unpair {
+  bytes device_id = 1;
+}
+
+message PingDevice {
+  bytes device_id = 1;
+  uint32 pings = 2;
+  uint32 stream_echoes = 3;
+  uint32 datagrams = 4;
+  uint64 bulk_bytes = 5;
+}
+
+message SetLockdown {
+  bool enabled = 1;
+}
+
+message Shutdown {}
+
+// ----- responses --------------------------------------------------------------------------
+
+message IpcResponse {
+  uint64 in_reply_to = 1;
+  oneof body {
+    IpcAck ack = 10;
+    IpcError error = 11;
+    Status status = 12;
+    DeviceList devices = 13;
+    PairingStarted pairing_started = 14;
+    PingReport ping_report = 15;
+    SessionOpened session_opened = 16;
+    DirListing file_listing = 30;
+    FileEntry file_entry = 31;
+    TransferStarted transfer_started = 32;
+    TerminalStarted terminal_started = 33;
+    ForwardStarted forward_started = 34;
+  }
+}
+
+message IpcAck {}
+
+enum IpcErrorCode {
+  IPC_ERROR_CODE_UNSPECIFIED = 0;
+  IPC_ERROR_CODE_INVALID_REQUEST = 1;
+  IPC_ERROR_CODE_NOT_FOUND = 2;
+  IPC_ERROR_CODE_BUSY = 3;
+  IPC_ERROR_CODE_UNAVAILABLE = 4;
+  IPC_ERROR_CODE_FAILED = 5;
+  IPC_ERROR_CODE_PERMISSION_DENIED = 6;
+}
+
+message IpcError {
+  IpcErrorCode code = 1;
+  string message = 2;
+}
+
+message Status {
+  bytes device_id = 1;
+  string device_name = 2;
+  string fingerprint = 3;
+  string agent_version = 4;
+  bool signal_connected = 5;
+  string signal_url = 6;
+  string relay_url = 7;
+  repeated string direct_addresses = 8;
+  bool lockdown = 9;
+  uint32 paired_devices = 10;
+  uint32 active_sessions = 11;
+}
+
+// One paired device as the dashboard shows it.
+message DeviceView {
+  bytes device_id = 1;
+  string name = 2;
+  PresenceState state = 3;
+  bool online = 4;
+  uint64 last_seen_ms = 5;
+  OsInfo os = 6;
+  // What this device may do on that one.
+  repeated string grants_on_peer = 7;
+  // What that device may do on this one.
+  repeated string grants_from_peer = 8;
+  // Kind of path of a live session with it, if any.
+  PathKind path = 9;
+  string active_user = 10;
+  uint32 battery_percent = 11;
+  string fingerprint = 12;
+  // True if this device may use this one without a person approving each session.
+  bool unattended = 13;
+}
+
+message DeviceList {
+  repeated DeviceView devices = 1;
+}
+
+message PairingStarted {
+  uint64 pairing_id = 1;
+  // For an offer: the one-time code to show (six words). Empty for a join.
+  string code = 2;
+}
+
+message LatencyView {
+  uint64 count = 1;
+  uint64 p50_us = 2;
+  uint64 p95_us = 3;
+  uint64 p99_us = 4;
+  uint64 max_us = 5;
+}
+
+message PingReport {
+  LatencyView control = 1;
+  LatencyView stream = 2;
+  LatencyView datagram = 3;
+  double datagram_loss = 4;
+  double throughput_mbps = 5;
+  PathKind path_before = 6;
+  PathKind path_after = 7;
+  string remote = 8;
+  uint64 rtt_us = 9;
+}
+
+// ----- events (pushed to every connected client) -----------------------------------------
+
+message IpcEvent {
+  oneof body {
+    PairingSasReady pairing_sas = 1;
+    PairingFinished pairing_finished = 2;
+    DeviceChanged device_changed = 3;
+    DeviceRemoved device_removed = 4;
+    SignalState signal_state = 5;
+    // Remote-desktop session traffic. Delivered only to the connection that opened the session.
+    SessionVideo session_video = 6;
+    SessionCursorShape session_cursor_shape = 7;
+    SessionCursorPos session_cursor_pos = 8;
+    SessionEnded session_ended = 9;
+    TransferProgress transfer_progress = 10;
+    TransferFinished transfer_finished = 11;
+    SessionMonitorChanged session_monitor_changed = 12;
+    ConsentRequest consent_request = 13;
+    ConsentResolved consent_resolved = 14;
+    TerminalReady terminal_ready = 15;
+    TerminalOutput terminal_output = 16;
+    TerminalEnded terminal_ended = 17;
+  }
+}
+
+message PairingSasReady {
+  uint64 pairing_id = 1;
+  // The four words both people must see identically.
+  repeated string words = 2;
+  string digits = 3;
+  string peer_name = 4;
+  bytes peer_device_id = 5;
+  string peer_fingerprint = 6;
+}
+
+message PairingFinished {
+  uint64 pairing_id = 1;
+  bool success = 2;
+  string reason = 3;
+  bytes peer_device_id = 4;
+  string peer_name = 5;
+}
+
+message DeviceChanged {
+  DeviceView device = 1;
+}
+
+message DeviceRemoved {
+  bytes device_id = 1;
+}
+
+message SignalState {
+  bool connected = 1;
+}
+
+// ----- remote-desktop sessions (controller side, via the local agent) -----------------------
+//
+// The agent owns the network session; the viewer (CLI, app) owns decoding and presentation.
+// Encoded video crosses this local socket; nothing the remote machine sends is ever parsed by
+// the agent beyond framing.
+
+message OpenSession {
+  bytes device_id = 1;
+  uint32 monitor = 2;
+  // 0 = target default.
+  uint32 max_fps = 3;
+  uint32 bitrate_bps = 4;
+  // False opens a control-only session (no screen).
+  bool want_video = 5;
+  // Keep the two clipboards in sync for this session (needs the `clipboard` grant on the peer).
+  bool clipboard = 6;
+  // "auto" swaps Command and Ctrl between a Mac and a PC (for a person typing on this machine);
+  // empty sends keys exactly as given (scripted use).
+  string key_remap = 7;
+}
+
+message CloseSession {
+  uint64 session_id = 1;
+}
+
+// Input events as an `InputPacket` in the compact wire format (nexus_proto::wire::input).
+message SessionInput {
+  uint64 session_id = 1;
+  bytes packet = 2;
+}
+
+message SessionKeyframe {
+  uint64 session_id = 1;
+}
+
+message SessionQuality {
+  uint64 session_id = 1;
+  uint32 bitrate_bps = 2;
+  uint32 fps = 3;
+  uint32 scale_percent = 4;
+}
+
+// Switch which monitor of the target a session shows.
+message SessionMonitor {
+  uint64 session_id = 1;
+  uint32 monitor = 2;
+}
+
+// The target started streaming a monitor (at session start, or after `SessionMonitor`).
+message SessionMonitorChanged {
+  uint64 session_id = 1;
+  uint32 monitor = 2;
+  // Size of the video that follows (may be scaled down by the quality ladder).
+  uint32 width = 3;
+  uint32 height = 4;
+  // The monitor's real size: pointer coordinates are in these pixels.
+  uint32 native_width = 5;
+  uint32 native_height = 6;
+}
+
+message SessionOpened {
+  uint64 session_id = 1;
+  VideoStarted video = 2;
+  repeated MonitorInfo monitors = 3;
+  PathKind path = 4;
+  string peer_name = 5;
+}
+
+message SessionVideo {
+  uint64 session_id = 1;
+  // `VideoFrameHeader` (wire format) immediately followed by the codec payload.
+  bytes frame = 2;
+  // Time from capture on the target to arrival at the agent (clock-offset corrected).
+  uint64 upstream_us = 3;
+}
+
+message SessionCursorShape {
+  uint64 session_id = 1;
+  CursorShape shape = 2;
+}
+
+message SessionCursorPos {
+  uint64 session_id = 1;
+  // A `CursorUpdate` in wire format.
+  bytes update = 2;
+}
+
+message SessionEnded {
+  uint64 session_id = 1;
+  string reason = 2;
+}
+
+// ----- files (over an open session; a control-only session is enough) -----------------------
+
+message FileList {
+  uint64 session_id = 1;
+  // Absolute path on the remote device; empty lists its shared folders.
+  string path = 2;
+}
+
+message FileStatRequest {
+  uint64 session_id = 1;
+  string path = 2;
+}
+
+message FileMkdir {
+  uint64 session_id = 1;
+  string path = 2;
+}
+
+message FileRemove {
+  uint64 session_id = 1;
+  string path = 2;
+  bool recursive = 3;
+}
+
+// Copies one file. The local path is on the machine the agent runs on.
+message FileTransfer {
+  uint64 session_id = 1;
+  string remote_path = 2;
+  string local_path = 3;
+  // False downloads remote → local; true uploads local → remote.
+  bool upload = 4;
+  bool overwrite = 5;
+}
+
+message TransferStarted {
+  uint64 transfer_id = 1;
+}
+
+message TransferProgress {
+  uint64 transfer_id = 1;
+  uint64 done = 2;
+  uint64 total = 3;
+}
+
+message TransferFinished {
+  uint64 transfer_id = 1;
+  bool ok = 2;
+  FileErrorCode error_code = 3;
+  string error_message = 4;
+  uint64 size = 5;
+  bytes blake3 = 6;
+  // Non-zero if a partial copy was continued.
+  uint64 resumed_from = 7;
+}
+
+// ----- attended access ---------------------------------------------------------------------
+//
+// When a paired device starts using this one (first screen/input/file/clipboard request of a
+// session) and it is not pre-authorised, every connected IPC client receives a ConsentRequest.
+// Any one of them answers with ConsentDecision; the rest get ConsentResolved so they can dismiss
+// their prompt. No answer within the timeout, or nobody connected to answer, means "no".
+
+message ConsentRequest {
+  uint64 request_id = 1;
+  bytes peer_device_id = 2;
+  string peer_name = 3;
+  string peer_fingerprint = 4;
+  // What the peer is allowed to do on this device if you say yes.
+  repeated string grants = 5;
+  uint32 timeout_secs = 6;
+  PathKind path = 7;
+}
+
+message ConsentDecision {
+  uint64 request_id = 1;
+  bool allow = 2;
+  // Also stop asking for this device in future ("always allow").
+  bool remember = 3;
+}
+
+message ConsentResolved {
+  uint64 request_id = 1;
+  bool allowed = 2;
+  bool timed_out = 3;
+}
+
+// Pre-authorise (or stop pre-authorising) one paired device.
+message SetUnattended {
+  bytes device_id = 1;
+  bool unattended = 2;
+}
+
+// ----- power and wake ------------------------------------------------------------------------
+
+// Lock / sleep / restart / shut down the device at the other end of an open session.
+message PowerCommand {
+  uint64 session_id = 1;
+  PowerActionKind action = 2;
+}
+
+// Send Wake-on-LAN packets to a paired device using the hardware addresses learned while it was
+// awake. With `via_device_id` the packets are sent from that (always-on, `wake`-granted) device's
+// network instead of this one's.
+message WakeDevice {
+  bytes device_id = 1;
+  bytes via_device_id = 2;
+}
+
+// ----- terminals (over an open session; a control-only session is enough) ------------------
+
+message OpenTerminal {
+  uint64 session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  // Empty = the target's default shell.
+  string shell = 4;
+  string cwd = 5;
+  // Persistent session name; empty = ephemeral.
+  string name = 6;
+  bool reattach_only = 7;
+}
+
+message TerminalStarted {
+  uint64 terminal_id = 1;
+}
+
+// The target accepted the terminal (follows OpenTerminal's response).
+message TerminalReady {
+  uint64 terminal_id = 1;
+  string name = 2;
+  bool reattached = 3;
+  string shell = 4;
+}
+
+message TerminalInput {
+  uint64 terminal_id = 1;
+  bytes data = 2;
+}
+
+message TerminalResize {
+  uint64 terminal_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+// Stop using the terminal. `kill` also ends a persistent shell; otherwise it keeps running.
+message CloseTerminal {
+  uint64 terminal_id = 1;
+  bool kill = 2;
+}
+
+message TerminalOutput {
+  uint64 terminal_id = 1;
+  bytes data = 2;
+}
+
+message TerminalEnded {
+  uint64 terminal_id = 1;
+  bool exited = 2;
+  int32 exit_code = 3;
+  // Why it ended when it did not exit (refused, connection lost, taken over, ...).
+  string reason = 4;
+}
+
+// ----- port forwarding (over an open session; the `terminal` grant) ----------------------------
+
+// Listen on 127.0.0.1:`local_port` here and forward each connection to `remote_host`:`remote_port`
+// as seen from the device at the other end of the session.
+message StartForward {
+  uint64 session_id = 1;
+  // 0 picks a free port.
+  uint32 local_port = 2;
+  string remote_host = 3;
+  uint32 remote_port = 4;
+}
+
+message ForwardStarted {
+  uint64 forward_id = 1;
+  uint32 local_port = 2;
+}
+
+message StopForward {
+  uint64 forward_id = 1;
+}

@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+// Terminal (PTY) sessions. One QUIC bidirectional stream (kind Terminal) per attached terminal;
+// every message in both directions is a length-delimited `TerminalMessage`.
+//
+//   controller → target:  TermOpen, then TermData / TermResize / TermClose
+//   target → controller:  TermOpened, then TermData*, finally TermExit (or TermError)
+//
+// A named terminal outlives its stream: when the controller disconnects the shell keeps running
+// and the next TermOpen with the same name re-attaches (the target replays recent output).
+
+message TerminalMessage {
+  oneof body {
+    TermOpen open = 1;
+    TermResize resize = 2;
+    TermData data = 3;
+    TermClose close = 4;
+    TermOpened opened = 10;
+    TermExit exit = 11;
+    TermError error = 12;
+  }
+}
+
+message TermOpen {
+  uint32 cols = 1;
+  uint32 rows = 2;
+  // Program to run; empty = the user's login shell. The target may refuse programs it does not
+  // list.
+  string shell = 3;
+  repeated string args = 4;
+  string cwd = 5;
+  // Persistent session name; empty = the shell dies with the stream.
+  string name = 6;
+  // Only re-attach to an existing named session; never start one.
+  bool reattach_only = 7;
+}
+
+message TermResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message TermData {
+  bytes data = 1;
+}
+
+// Kill the shell even if the session is persistent.
+message TermClose {}
+
+message TermOpened {
+  string name = 1;
+  bool reattached = 2;
+  string shell = 3;
+}
+
+message TermExit {
+  int32 code = 1;
+}
+
+message TermError {
+  string message = 1;
+}

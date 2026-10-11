@@ -1,0 +1,57 @@
+[package]
+name = "nexus-agent"
+description = "The Nexus daemon: identity, presence, pairing, sessions, local IPC."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "nexus-agent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+clap.workspace = true
+getrandom.workspace = true
+hostname = "0.4"
+mac_address = "1"
+nexus-portfwd.workspace = true
+nexus-presence.workspace = true
+nexus-power.workspace = true
+nexus-terminal.workspace = true
+nexus-audit.workspace = true
+nexus-capture.workspace = true
+nexus-clipboard.workspace = true
+nexus-files.workspace = true
+nexus-codec = { workspace = true, features = ["software"] }
+nexus-input.workspace = true
+nexus-media.workspace = true
+nexus-core.workspace = true
+nexus-crypto.workspace = true
+nexus-ipc.workspace = true
+nexus-net.workspace = true
+nexus-proto.workspace = true
+nexus-signal-client.workspace = true
+nexus-trust.workspace = true
+os_info = { version = "3", default-features = false }
+parking_lot = "0.12"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url = "2"
+
+[dev-dependencies]
+blake3.workspace = true
+bytes.workspace = true
+nexus-signal.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

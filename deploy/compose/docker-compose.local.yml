@@ -1,0 +1,8 @@
+# Overlay for local testing: publish the signaling port on loopback only (plain ws://, no Caddy).
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build signal postgres redis
+services:
+  signal:
+    ports: ["127.0.0.1:18444:8443"]
+    environment:
+      NEXUS_SIGNAL_AUDIENCE: 127.0.0.1:18444
+      NEXUS_SIGNAL_TRUST_FORWARDED_FOR: "false"

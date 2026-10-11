@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/common.proto";
+
+// Messages on the per-session control stream. Every message is wrapped in `ControlMessage`
+// and length-delimited on the wire (see `nexus_proto::framing`).
+//
+// Rules for evolving this schema (enforced by review, see docs/PROTOCOL.md):
+//  * never reuse or renumber a field;
+//  * new behaviour = new `oneof` variant + a capability string, never a changed meaning;
+//  * a receiver must ignore unknown fields and answer unknown requests with `Error`.
+
+message ControlMessage {
+  // Correlates a response with its request. 0 for one-way notifications.
+  uint64 id = 1;
+  // Set on responses: the `id` of the request being answered.
+  uint64 in_reply_to = 2;
+
+  oneof body {
+    Hello hello = 10;
+    Goodbye goodbye = 11;
+    Ping ping = 12;
+    Pong pong = 13;
+    Error error = 14;
+
+    // ---- remote desktop (Phase 3) ----
+    // Target → controller, right after Hello and again whenever the layout changes.
+    MonitorList monitor_list = 20;
+    // Controller → target: begin streaming one monitor.
+    StartVideo start_video = 21;
+    // Target → controller: the stream that will follow (what was actually granted).
+    VideoStarted video_started = 22;
+    StopVideo stop_video = 23;
+    // Controller → target: a frame was lost or undecodable; recover (reference invalidation or
+    // keyframe).
+    RequestKeyframe request_keyframe = 24;
+    // Controller → target: change the quality ladder rung.
+    SetQuality set_quality = 25;
+    // Target → controller: bitmap for a cursor shape id (sent once per shape).
+    CursorShape cursor_shape = 26;
+    // Controller → target: periodic receiver report driving congestion control.
+    ReceiverReport receiver_report = 27;
+
+    // ---- power and wake (Phase 5/8) ----
+    // Controller → target: lock / sleep / restart / ... (needs the `power` grant and consent).
+    PowerRequest power = 30;
+    PowerResult power_result = 31;
+    // Controller → a device on the target's LAN: send Wake-on-LAN packets for these MACs
+    // (needs the `wake` grant). Answered with PowerResult.
+    WakeRequest wake = 32;
+  }
+}
+
+// First message each side sends on the control stream. It is carried inside the
+// authenticated, encrypted channel, so capabilities and versions cannot be downgraded by an
+// on-path attacker.
+message Hello {
+  ProtocolVersion version = 1;
+  // Oldest protocol version the sender is willing to speak (downgrade floor).
+  ProtocolVersion min_version = 2;
+  Capabilities capabilities = 3;
+  OsInfo os = 4;
+  // Semantic version of the sending binary (diagnostics only; never used for decisions).
+  string agent_version = 5;
+  // 16 random bytes, unique per session; folded into session-binding transcripts.
+  bytes session_nonce = 6;
+}
+
+enum GoodbyeReason {
+  GOODBYE_REASON_UNSPECIFIED = 0;
+  // The controller user closed the session.
+  GOODBYE_REASON_CONTROLLER_DISCONNECT = 1;
+  // The person at the target ended it (tray "Disconnect" or panic hotkey).
+  GOODBYE_REASON_TARGET_DISCONNECT = 2;
+  GOODBYE_REASON_CONSENT_DENIED = 3;
+  GOODBYE_REASON_CONSENT_TIMEOUT = 4;
+  // The target's lockdown switch is on.
+  GOODBYE_REASON_LOCKDOWN = 5;
+  // The pairing was revoked while the session was live.
+  GOODBYE_REASON_REVOKED = 6;
+  GOODBYE_REASON_POLICY = 7;
+  GOODBYE_REASON_PROTOCOL_ERROR = 8;
+  GOODBYE_REASON_IDLE_TIMEOUT = 9;
+  // Process or machine is shutting down.
+  GOODBYE_REASON_SHUTDOWN = 10;
+  // A newer session from the same controller replaced this one.
+  GOODBYE_REASON_SUPERSEDED = 11;
+}
+
+message Goodbye {
+  GoodbyeReason reason = 1;
+  // Free-form, for logs. Never shown to the user without localisation.
+  string detail = 2;
+}
+
+// Application-level liveness + clock probe. The sender's monotonic microsecond clock is used,
+// so only differences are meaningful.
+message Ping {
+  uint64 sent_us = 1;
+}
+
+// Three timestamps allow RTT and one-way clock-offset estimation (NTP style):
+//   rtt    = (now_us - echo_sent_us) - (reply_us - recv_us)
+//   offset = ((recv_us - echo_sent_us) + (reply_us - now_us)) / 2
+message Pong {
+  uint64 echo_sent_us = 1;
+  uint64 recv_us = 2;
+  uint64 reply_us = 3;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNSUPPORTED = 1;
+  ERROR_CODE_INVALID_REQUEST = 2;
+  ERROR_CODE_PERMISSION_DENIED = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  ERROR_CODE_RATE_LIMITED = 5;
+  ERROR_CODE_INTERNAL = 6;
+  ERROR_CODE_INCOMPATIBLE_VERSION = 7;
+}
+
+message Error {
+  ErrorCode code = 1;
+  // Diagnostic text for logs; the UI maps `code` to a localised message.
+  string message = 2;
+}
+
+// ----- remote desktop -----------------------------------------------------------------------
+
+message MonitorInfo {
+  uint32 index = 1;
+  string name = 2;
+  // Position of the monitor's top-left corner in the target's virtual desktop.
+  int32 x = 3;
+  int32 y = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+  // Device pixels per logical pixel (2.0 on a Retina display).
+  float scale = 7;
+  float refresh_hz = 8;
+  bool primary = 9;
+}
+
+message MonitorList {
+  repeated MonitorInfo monitors = 1;
+}
+
+message StartVideo {
+  uint32 monitor = 1;
+  // Codecs in order of preference; the target picks the first it can encode.
+  repeated VideoCodec codecs = 2;
+  uint32 max_fps = 3;
+  // Starting bitrate; congestion control moves it from here.
+  uint32 bitrate_bps = 4;
+  // 0 = native size. Otherwise the picture is scaled down to fit.
+  uint32 max_width = 5;
+  uint32 max_height = 6;
+}
+
+message VideoStarted {
+  uint32 monitor = 1;
+  VideoCodec codec = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  uint32 fps = 5;
+  uint32 bitrate_bps = 6;
+  // Which encoder backend is in use ("openh264", "videotoolbox", ...), for the HUD.
+  string encoder = 7;
+}
+
+message StopVideo {
+  uint32 monitor = 1;
+}
+
+message RequestKeyframe {
+  uint32 monitor = 1;
+  // Highest frame sequence number the receiver decoded cleanly (0 = none).
+  uint32 last_good_seq = 2;
+}
+
+message SetQuality {
+  uint32 monitor = 1;
+  // 0 = leave unchanged for each field. For `fps` and `scale_percent`, 0xFFFFFFFF returns the
+  // field to automatic (the quality ladder chooses); any other value pins it.
+  uint32 bitrate_bps = 2;
+  uint32 fps = 3;
+  // Resolution scale in percent of native (100 = native).
+  uint32 scale_percent = 4;
+}
+
+message CursorShape {
+  uint32 shape_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 hot_x = 4;
+  uint32 hot_y = 5;
+  // Premultiplied BGRA, width * height * 4 bytes.
+  bytes bgra = 6;
+}
+
+message ReceiverReport {
+  uint32 monitor = 1;
+  // Frames fully received / decoded / dropped since the previous report.
+  uint32 received = 2;
+  uint32 decoded = 3;
+  uint32 dropped = 4;
+  // Highest frame sequence number received.
+  uint32 highest_seq = 5;
+  // Mean one-way delay variation of frame arrivals vs. send spacing, microseconds (signed
+  // as zigzag would be overkill: negative means arriving faster than sent).
+  sint32 delay_gradient_us = 6;
+  // Decode + queue time on the receiver, microseconds (p50 over the window).
+  uint32 decode_us = 7;
+  // Receiver-observed goodput over the window, bits per second.
+  uint32 goodput_bps = 8;
+}
+
+enum PowerActionKind {
+  POWER_ACTION_KIND_UNSPECIFIED = 0;
+  POWER_ACTION_KIND_LOCK = 1;
+  POWER_ACTION_KIND_SLEEP = 2;
+  POWER_ACTION_KIND_HIBERNATE = 3;
+  POWER_ACTION_KIND_RESTART = 4;
+  POWER_ACTION_KIND_SHUTDOWN = 5;
+  POWER_ACTION_KIND_LOG_OFF = 6;
+}
+
+message PowerRequest {
+  PowerActionKind action = 1;
+}
+
+message PowerResult {
+  bool ok = 1;
+  string detail = 2;
+}
+
+message WakeRequest {
+  // MAC addresses to wake, "aa:bb:cc:dd:ee:ff".
+  repeated string macs = 1;
+}

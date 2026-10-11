@@ -1,0 +1,176 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "bench/latency"]
+# bench/transport is a standalone workspace: it pulls webrtc-rs and quinn purely for the ADR-0003
+# comparison, which should not weigh on the product build or CI.
+exclude = ["bench/transport"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+authors = ["Nexus Remote contributors"]
+description = "Nexus Remote: a secure, real-time, cross-platform remote control suite for devices you own."
+
+# ---------------------------------------------------------------------------
+# Lint policy (see docs/CONVENTIONS.md)
+#
+# * `unsafe_code` is denied workspace-wide. Crates that must talk to OS APIs
+#   (capture, input, power, ...) opt out per-module with a documented
+#   `#[allow(unsafe_code)]` and safety comments; every other crate also carries
+#   `#![forbid(unsafe_code)]`.
+# * `unwrap`/`expect`/`panic` are denied in non-test code (clippy.toml relaxes
+#   them inside tests).
+# ---------------------------------------------------------------------------
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_must_use = "deny"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+print_stderr = "warn"
+undocumented_unsafe_blocks = "deny"
+await_holding_lock = "deny"
+large_futures = "warn"
+needless_pass_by_value = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+
+[workspace.dependencies]
+# --- internal crates -------------------------------------------------------
+nexus-audit = { path = "crates/nexus-audit" }
+nexus-core = { path = "crates/nexus-core" }
+nexus-proto = { path = "crates/nexus-proto" }
+nexus-crypto = { path = "crates/nexus-crypto" }
+nexus-trust = { path = "crates/nexus-trust" }
+nexus-update = { path = "crates/nexus-update" }
+nexus-signal-client = { path = "crates/nexus-signal-client" }
+nexus-signal = { path = "crates/nexus-signal" }
+nexus-net = { path = "crates/nexus-net" }
+nexus-portfwd = { path = "crates/nexus-portfwd" }
+nexus-presence = { path = "crates/nexus-presence" }
+nexus-power = { path = "crates/nexus-power" }
+nexus-terminal = { path = "crates/nexus-terminal" }
+nexus-ipc = { path = "crates/nexus-ipc" }
+nexus-codec = { path = "crates/nexus-codec", default-features = false }
+nexus-capture = { path = "crates/nexus-capture" }
+nexus-input = { path = "crates/nexus-input" }
+nexus-clipboard = { path = "crates/nexus-clipboard" }
+nexus-files = { path = "crates/nexus-files" }
+nexus-media = { path = "crates/nexus-media" }
+nexus-render = { path = "crates/nexus-render" }
+nexus-testkit = { path = "crates/nexus-testkit" }
+nexus-agent = { path = "crates/nexus-agent" }
+
+# --- errors, logging, config -----------------------------------------------
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "json", "std", "registry", "ansi"] }
+tracing-appender = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+figment = { version = "0.10", features = ["toml", "env"] }
+directories = "6"
+hdrhistogram = { version = "7", default-features = false }
+
+# --- async / bytes ---------------------------------------------------------
+async-trait = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio-stream = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "signal", "fs"] }
+bytes = "1"
+
+# --- transport -------------------------------------------------------------
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "metrics", "platform-verifier"] }
+iroh-relay = { version = "1.3", default-features = false, features = ["tls-ring", "platform-verifier"] }
+rustls-pki-types = "1"
+
+# --- protocol --------------------------------------------------------------
+prost = "0.14"
+prost-build = "0.14"
+protox = "0.10"
+
+# --- crypto (vetted libraries only; see docs/adr/0004 and 0006) --------------
+ed25519-dalek = { version = "3", features = ["zeroize"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+blake3 = "1"
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+bip39 = { version = "3", default-features = false }
+zeroize = { version = "1", features = ["derive"] }
+getrandom = "0.4"
+subtle = "2"
+data-encoding = "2"
+keyring = "4"
+
+# --- web (signaling server and client) ---------------------------------------
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json", "query"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "stream", "rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "0.7"
+
+# --- video ---------------------------------------------------------------------
+openh264 = { version = "0.9", default-features = false, features = ["source"] }
+openh264-sys2 = { version = "0.9", default-features = false, features = ["source"] }
+yuv = { version = "0.8", default-features = false, features = ["sse", "avx", "rdm"] }
+
+# --- storage (nexus-signal) ----------------------------------------------------
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring"] }
+redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
+
+# --- CLI -------------------------------------------------------------------
+clap = { version = "4", features = ["derive", "env"] }
+
+# --- testing ---------------------------------------------------------------
+proptest = "1"
+tempfile = "3"
+
+# ---------------------------------------------------------------------------
+# Build profiles
+# ---------------------------------------------------------------------------
+[profile.dev]
+# Keep incremental builds small: line tables are enough for backtraces.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
+
+# Crypto and codec math is unusably slow at opt-level 0/1; always optimise it.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.ed25519-dalek]
+opt-level = 3
+[profile.dev.package.x25519-dalek]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.snow]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+debug = "line-tables-only"
+
+# Used for shipped installers (installers/ and release workflow).
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+debug = false

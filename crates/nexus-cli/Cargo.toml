@@ -1,0 +1,42 @@
+[package]
+name = "nexus-cli"
+description = "The `nexus` command line tool: identity management, diagnostics, scripting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nexus"
+path = "src/main.rs"
+
+[features]
+pure-blake3 = ["nexus-crypto/pure-blake3"]
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+clap.workspace = true
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
+nexus-audit.workspace = true
+nexus-input.workspace = true
+nexus-media.workspace = true
+nexus-core.workspace = true
+nexus-crypto.workspace = true
+nexus-ipc.workspace = true
+nexus-render.workspace = true
+nexus-proto.workspace = true
+nexus-trust.workspace = true
+nexus-update.workspace = true
+semver = "1"
+png = "0.18"
+serde.workspace = true
+serde_json = "1"
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
