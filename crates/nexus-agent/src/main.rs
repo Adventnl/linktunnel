@@ -24,6 +24,9 @@ struct Args {
     /// Signaling server (`wss://…/v1/ws`). Overrides the config file.
     #[arg(long, env = "NEXUS_SIGNAL_URL")]
     signal_url: Option<Url>,
+    /// Allow a plain `ws://` signaling URL to a non-loopback host. Trials on a trusted LAN only.
+    #[arg(long)]
+    allow_insecure_signal: bool,
     /// Name shown on your other devices (defaults to the host name).
     #[arg(long)]
     name: Option<String>,
@@ -54,6 +57,12 @@ async fn main() -> Result<()> {
         .context("loading configuration")?;
     if let Some(url) = args.signal_url {
         nexus.net.signal_url = Some(url);
+    }
+    if args.allow_insecure_signal {
+        nexus.net.allow_insecure_signal = true;
+        tracing::warn!(
+            "plain ws:// signaling allowed: metadata is visible to anyone on the network path"
+        );
     }
     if let Some(level) = args.log {
         nexus.log.level = level;

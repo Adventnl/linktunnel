@@ -1,0 +1,88 @@
+# Self-hosted Nexus signaling: nexus-signal + PostgreSQL (pairings) + Redis (presence) + Caddy (TLS).
+#
+#   cp .env.example .env     # set NEXUS_DOMAIN and passwords
+#   docker compose up -d --build
+#
+# Agents then use:  nexus-agent --signal-url wss://$NEXUS_DOMAIN/v1/ws
+# For a local trial without a public domain set NEXUS_DOMAIN=localhost (Caddy issues an internal CA
+# certificate) or use docker-compose.local.yml, which publishes the plain port on 127.0.0.1 only.
+name: nexus-signal
+
+services:
+  signal:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.signal
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      # Must equal the host[:port] agents use in the wss:// URL.
+      NEXUS_SIGNAL_AUDIENCE: ${NEXUS_DOMAIN:?set NEXUS_DOMAIN in .env}
+      NEXUS_SIGNAL_DATABASE_URL: postgres://nexus:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/nexus
+      NEXUS_SIGNAL_REDIS_URL: redis://redis:6379
+      # Caddy is the only thing that can reach us, and it overwrites X-Forwarded-For.
+      NEXUS_SIGNAL_TRUST_FORWARDED_FOR: "true"
+      RUST_LOG: ${RUST_LOG:-info}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend, edge]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_DB: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nexus -d nexus"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # Presence is ephemeral by design: no persistence.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [signal]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      NEXUS_DOMAIN: ${NEXUS_DOMAIN}
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    networks: [edge]
+
+networks:
+  # `backend` has no route to the outside world: databases cannot call out or be reached.
+  backend: { internal: true }
+  edge: {}
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

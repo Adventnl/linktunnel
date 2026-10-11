@@ -35,7 +35,34 @@ keys generated and persisted ✅ (macOS Keychain + file store, verified); unit t
 workflows run on GitHub**: the workflows are written and the equivalent commands pass locally on
 macOS and type-check for Linux/Windows.
 
-## Phase 2: Networking and security spine: 🔲
+## Phase 2: Networking and security spine: ✅ complete on one machine; ⛔ real-NAT validation
+
+| Item | State | Evidence |
+|---|---|---|
+| Noise pairing: `XXpsk0` + 6-word code + 4-word SAS; Noise `X` sealed envelopes; replay guard | ✅ | 78 `nexus-crypto` tests incl. MITM-with-known-code → different SAS; known-answer values from an independent Python implementation |
+| `nexus-trust`: dual-signed pairing records, revocations, local trust store, I/O-free pairing state machine | ✅ | 38 tests incl. forged/transplanted signatures, policy ceilings, stale clocks, hand-edited trust file |
+| `nexus-signal` server: key-possession login (audience + nonce bound), presence (TTL, sleep/offline states), pairing registry, sealed-envelope routing, rendezvous rooms, rate limits, `/metrics` | ✅ | 32 integration tests against a real WebSocket server (forged/replayed logins, zero-trust presence, revocation, envelopes, rate limits, full two-device pairing) |
+| Stores: in-memory, SQLite, PostgreSQL (pairings); in-memory, Redis (presence) behind traits | ✅ | one conformance suite passing on all backends, **including real PostgreSQL 17 and Redis 8 containers**; the suite caught a genuine concurrent-insert race in the SQL `put`, now fixed |
+| `nexus-net`: QUIC over iroh, endpoint keyed by the device identity, allow-list enforced before any app byte, live-session revocation, LAN/direct/relay path classification, hello negotiation, diagnostics | ✅ | 24 tests: unpaired and impostor peers rejected, revocation kills a live session, relay-only sessions through a real local `iroh-relay` with a pinned certificate, relay→direct migration |
+| Transport benchmark & ADR-0003 | ✅ loopback only | docs/benchmarks/transport-loopback.md (iroh ≈ quinn ≫ webrtc-rs on bulk); NAT/WAN performance ⛔ unmeasured |
+| `nexus-agent` daemon: signaling supervisor with reconnect + pairing re-sync, presence, pairing orchestration, session acceptance, persistent lockdown switch, unpair/revocation | ✅ | 7 whole-system tests: real agents + signaling server + QUIC, driven over IPC (restart persistence; signaling-server restart recovery) |
+| `nexus-ipc`: Unix socket / named pipe, private token, peer-UID check | ✅ Unix; 🟡 Windows named pipe (type-checked) | 8 tests incl. wrong token, pre-auth requests, stale sockets, file modes |
+| `nexus` CLI: `status`, `devices`, `pair offer/join`, `unpair`, `ping`, `lockdown`, `stop` (en + zh-CN) | ✅ | `scripts/demo-local.sh` runs signal + two agents + CLI as separate OS processes: both screens show identical words, presence goes online, `ping` over a real QUIC session on the LAN address |
+| Linux | ✅ arm64 in a container | `scripts/test-linux-container.sh` runs the whole suite on Linux (found and fixed a race that macOS timing hid) |
+| Docker Compose stack (signal + PostgreSQL + Redis + Caddy) | 🟡 | image builds and starts; see "Phase 2 compose check" below |
+| Threat model v1 | ✅ | docs/THREAT_MODEL.md; `scripts/check-threat-model.sh` verifies every cited test exists |
+| mDNS LAN discovery | 🔲 deferred to Phase 8 | peers find each other through signaling presence hints today |
+| Horizontal scaling of `nexus-signal` (cross-node push routing, shared rendezvous) | 🔲 | stores can be external; routing is per-process, so run one active replica |
+| Hole punching / symmetric NAT behaviour on real networks | ⛔ no NAT test bed | iroh's implementation is relied upon; local relay-to-direct migration is tested |
+| Windows runtime (agent, IPC pipe, Credential Manager store) | ⛔ no Windows machine | type-checked for `x86_64-pc-windows-msvc` for the C-free crates; CI `windows-latest` will compile and test the rest |
+
+**Phase 2 DoD** ("two machines pair, see each other's presence, open an authenticated E2E encrypted
+data channel across NAT; echo + ping-latency demo; threat model v1"): pairing, presence and the
+authenticated encrypted channel with echo/latency/throughput are demonstrated end to end between two
+real agent processes on this MacBook (LAN path) and between two nodes through a real relay; the
+literal "across NAT between two physical machines" step needs your second device and is described in
+docs/USER_GUIDE.md. Threat model v1 is written.
+
 ## Phase 3: First pixels: 🔲
 ## Phase 4: Hardware acceleration and the latency war: 🔲
 ## Phase 5: Full control feature set: 🔲

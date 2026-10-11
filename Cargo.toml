@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# bench/transport is a standalone workspace: it pulls webrtc-rs and quinn purely for the ADR-0003
+# comparison, which should not weigh on the product build or CI.
+exclude = ["bench/transport"]
 
 [workspace.package]
 version = "0.1.0"
@@ -91,7 +94,7 @@ protox = "0.10"
 ed25519-dalek = { version = "3", features = ["zeroize"] }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 blake3 = "1"
-snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom", "std"] }
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
 bip39 = { version = "3", default-features = false }
 zeroize = { version = "1", features = ["derive"] }
 getrandom = "0.4"
@@ -104,6 +107,10 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "stream", "rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
+
+# --- storage (nexus-signal) ----------------------------------------------------
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring"] }
+redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 
 # --- CLI -------------------------------------------------------------------
 clap = { version = "4", features = ["derive", "env"] }

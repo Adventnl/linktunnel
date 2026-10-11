@@ -1,8 +1,8 @@
 # ADR-0003: Transport: QUIC via iroh (vs WebRTC, vs raw quinn)
 
-**Status:** Accepted. The loopback benchmark appendix is added when `bench/transport` lands
-(Phase 2); the decision does not depend on its outcome, see "What the benchmark can and cannot
-tell us".
+**Status:** Accepted. Loopback benchmark recorded in
+[docs/benchmarks/transport-loopback.md](../benchmarks/transport-loopback.md); the decision does not
+depend on its outcome, see "What the benchmark can and cannot tell us".
 
 ## Context
 The brief asks us to benchmark WebRTC (`webrtc-rs`) against QUIC (`quinn`) and pick. Three

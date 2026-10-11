@@ -14,8 +14,13 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
-# Ignores must carry a reason and an expiry review date.
-ignore = []
+# Ignores must carry a reason and a review date.
+ignore = [
+    # `paste` is archived/unmaintained but is a compile-time-only proc-macro (no runtime code
+    # in any binary we ship); it enters via iroh -> netwatch -> netlink-packet-core (Linux).
+    # Informational advisory, no vulnerability. Re-check when iroh/netwatch update (review 2027-01).
+    { id = "RUSTSEC-2024-0436", reason = "compile-time proc-macro only; transitive via iroh netwatch" },
+]
 
 [licenses]
 version = 2
@@ -35,6 +40,8 @@ allow = [
     "CC0-1.0",
     "MPL-2.0",
     "BSL-1.0",
+    # Mozilla root-certificate data used by webpki-roots (permissive data licence).
+    "CDLA-Permissive-2.0",
 ]
 
 [licenses.private]

@@ -9,6 +9,14 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# SQLite is the zero-setup durable default for a single self-hosted node; PostgreSQL and Redis
+# are for deployments that want external state.
+default = ["sqlite"]
+sqlite = ["dep:sqlx", "sqlx/sqlite"]
+postgres = ["dep:sqlx", "sqlx/postgres"]
+redis = ["dep:redis"]
+
 [[bin]]
 name = "nexus-signal"
 path = "src/main.rs"
@@ -19,6 +27,7 @@ async-trait.workspace = true
 axum.workspace = true
 bytes.workspace = true
 clap.workspace = true
+data-encoding.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 nexus-core.workspace = true
@@ -27,12 +36,16 @@ nexus-proto.workspace = true
 nexus-trust.workspace = true
 parking_lot = "0.12"
 prost.workspace = true
+redis = { workspace = true, optional = true }
 serde.workspace = true
+sqlx = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+getrandom.workspace = true
+tempfile.workspace = true
 nexus-signal-client.workspace = true
 tokio-tungstenite.workspace = true
 url = "2"

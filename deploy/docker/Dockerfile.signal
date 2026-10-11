@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+# Builds nexus-signal with every storage backend and runs it as an unprivileged user in a
+# distroless image (no shell, no package manager).
+FROM rust:1.96-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p nexus-signal --features "sqlite postgres redis" \
+ && cp target/release/nexus-signal /nexus-signal
+
+FROM gcr.io/distroless/cc-debian12:nonroot
+LABEL org.opencontainers.image.title="nexus-signal" \
+      org.opencontainers.image.description="Nexus Remote signaling, presence and pairing registry"
+COPY --from=build /nexus-signal /usr/local/bin/nexus-signal
+USER nonroot:nonroot
+EXPOSE 8443
+ENTRYPOINT ["/usr/local/bin/nexus-signal"]
+CMD ["--listen", "0.0.0.0:8443"]

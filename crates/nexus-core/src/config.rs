@@ -104,6 +104,11 @@ pub struct NetConfig {
     pub udp_port: u16,
     /// Announce/discover peers on the local network (mDNS).
     pub lan_discovery: bool,
+    /// Permit a plain `ws://` signaling URL to a non-loopback host. **Trials on a trusted LAN
+    /// only**: an on-path attacker could then observe metadata (who is paired, who is online) and
+    /// drop or delay messages; sealed content, pairings and sessions stay protected by their own
+    /// end-to-end cryptography.
+    pub allow_insecure_signal: bool,
 }
 
 impl Default for NetConfig {
@@ -113,6 +118,7 @@ impl Default for NetConfig {
             relay_urls: Vec::new(),
             udp_port: 0,
             lan_discovery: true,
+            allow_insecure_signal: false,
         }
     }
 }
@@ -160,7 +166,7 @@ impl NexusConfig {
             match url.scheme() {
                 "wss" => {}
                 // Plain `ws` is only acceptable for loopback development.
-                "ws" if is_loopback_host(url) => {}
+                "ws" if is_loopback_host(url) || self.net.allow_insecure_signal => {}
                 other => {
                     return Err(ConfigError::Invalid {
                         key: "net.signal_url",
@@ -351,6 +357,18 @@ mod tests {
             ),
             "{err}"
         );
+    }
+
+    #[test]
+    fn plaintext_signal_to_a_remote_host_needs_an_explicit_opt_in() {
+        let url = "[net]\nsignal_url = \"ws://192.168.1.10:8443/v1/ws\"\n";
+        assert!(ConfigLoader::new().with_toml_str(url).load().is_err());
+        let opted_in = format!("{url}allow_insecure_signal = true\n");
+        ConfigLoader::new().with_toml_str(&opted_in).load().unwrap();
+        // The opt-in never relaxes the *relay* rule.
+        let relay =
+            "[net]\nallow_insecure_signal = true\nrelay_urls = [\"http://relay.example.com\"]\n";
+        assert!(ConfigLoader::new().with_toml_str(relay).load().is_err());
     }
 
     #[test]

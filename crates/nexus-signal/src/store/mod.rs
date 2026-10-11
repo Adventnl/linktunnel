@@ -7,10 +7,18 @@
 //! * [`PresenceStore`]: ephemeral. Who is online and in what state (Redis in production).
 
 mod memory;
+#[cfg(feature = "redis")]
+mod redis_store;
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+mod sql;
 
 use async_trait::async_trait;
 pub use memory::{MemoryPairingStore, MemoryPresenceStore};
 use nexus_proto::v1::{PresenceInfo, SignedPairingRecord, SignedRevocation};
+#[cfg(feature = "redis")]
+pub use redis_store::RedisPresenceStore;
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+pub use sql::SqlPairingStore;
 
 /// An Ed25519 public key: the primary key of a device everywhere on the server.
 pub type Key = [u8; 32];

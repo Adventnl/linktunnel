@@ -5,7 +5,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use nexus_signal::store::{MemoryPairingStore, MemoryPresenceStore};
+#[cfg(feature = "redis")]
+use nexus_signal::store::RedisPresenceStore;
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+use nexus_signal::store::SqlPairingStore;
+use nexus_signal::store::{MemoryPairingStore, MemoryPresenceStore, PairingStore, PresenceStore};
 use nexus_signal::{Hub, SignalConfig, serve};
 use tokio::net::TcpListener;
 
@@ -25,6 +29,15 @@ struct Args {
     #[arg(long, env = "NEXUS_SIGNAL_TRUST_FORWARDED_FOR")]
     trust_forwarded_for: bool,
 
+    /// Where pairings are stored: `sqlite:///var/lib/nexus/pairings.db` (default: in memory only,
+    /// lost on restart) or `postgres://user:pass@host/db`.
+    #[arg(long, env = "NEXUS_SIGNAL_DATABASE_URL")]
+    database_url: Option<String>,
+
+    /// Where presence is kept: `redis://host:6379` (default: in memory).
+    #[arg(long, env = "NEXUS_SIGNAL_REDIS_URL")]
+    redis_url: Option<String>,
+
     /// Log filter, e.g. `info,nexus_signal=debug`.
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
@@ -41,13 +54,34 @@ async fn main() -> Result<()> {
     let mut config = SignalConfig::new(args.audience);
     config.trust_forwarded_for = args.trust_forwarded_for;
 
-    // The in-memory stores lose everything on restart; production deployments select the
-    // Postgres/Redis backends (see docs/SELF_HOSTING.md).
-    let hub = Hub::new(
-        config,
-        Arc::new(MemoryPairingStore::new()),
-        Arc::new(MemoryPresenceStore::new()),
-    );
+    let pairings: Arc<dyn PairingStore> = match &args.database_url {
+        #[cfg(any(feature = "sqlite", feature = "postgres"))]
+        Some(url) => Arc::new(
+            SqlPairingStore::connect(url)
+                .await
+                .with_context(|| "connecting to the pairing database")?,
+        ),
+        #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+        Some(_) => anyhow::bail!(
+            "this build has no SQL backend (enable the `sqlite` or `postgres` feature)"
+        ),
+        None => {
+            tracing::warn!("no --database-url: pairings are kept in memory and lost on restart");
+            Arc::new(MemoryPairingStore::new())
+        }
+    };
+    let presence: Arc<dyn PresenceStore> = match &args.redis_url {
+        #[cfg(feature = "redis")]
+        Some(url) => Arc::new(
+            RedisPresenceStore::connect(url)
+                .await
+                .with_context(|| "connecting to redis")?,
+        ),
+        #[cfg(not(feature = "redis"))]
+        Some(_) => anyhow::bail!("this build has no Redis backend (enable the `redis` feature)"),
+        None => Arc::new(MemoryPresenceStore::new()),
+    };
+    let hub = Hub::new(config, pairings, presence);
 
     let listener = TcpListener::bind(args.listen)
         .await

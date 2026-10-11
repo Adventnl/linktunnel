@@ -59,6 +59,9 @@ jobs:
       - run: cargo doc --workspace --no-deps --locked
 
   cross-check:
+    # Type-checks the platform-specific code of the C-free crates for targets we do not run
+    # natively in this job. Crates that link TLS (`ring`) are covered by the native
+    # clippy/test jobs on real Linux, macOS and Windows runners instead.
     name: cross type-check (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
@@ -70,7 +73,17 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
-      - run: cargo check --workspace --locked --target ${{ matrix.target }} --features nexus-cli/pure-blake3
+      - run: >-
+          cargo check --locked --target ${{ matrix.target }}
+          -p nexus-core -p nexus-proto -p nexus-crypto -p nexus-trust -p nexus-ipc
+          --features nexus-crypto/pure-blake3
+
+  traceability:
+    name: threat-model traceability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-threat-model.sh
 
   deny:
     name: cargo-deny

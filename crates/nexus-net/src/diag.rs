@@ -200,9 +200,11 @@ pub async fn run(
         let expected = opts.datagrams;
         let collector = tokio::spawn(async move {
             let mut rtts: HashMap<u32, u64> = HashMap::new();
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            // Stop when the echoes dry up (1 s without one), not at a fixed deadline: the time
+            // to send N paced datagrams depends on N and on timer resolution.
             while rtts.len() < expected {
-                match tokio::time::timeout_at(deadline, rx_session.recv_datagram()).await {
+                match tokio::time::timeout(Duration::from_secs(1), rx_session.recv_datagram()).await
+                {
                     Ok(Ok(data)) if data.len() >= 12 => {
                         let seq = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
                         let mut ts = [0u8; 8];

@@ -130,42 +130,46 @@ async fn start(shared: &Arc<Shared>, code: PairingCode, side: Side) -> Result<u6
 
     let shared = Arc::clone(shared);
     tokio::spawn(async move {
-        let result = tokio::time::timeout(
+        let outcome = tokio::time::timeout(
             PAIRING_TIMEOUT,
-            drive(
-                &shared,
-                id,
-                flow,
-                rdv_rx,
-                confirm_rx,
-                cancel_rx,
-                matches!(side, Side::Join { .. }),
-            ),
+            drive(&shared, id, flow, rdv_rx, confirm_rx, cancel_rx),
         )
-        .await;
-        if result.is_err() {
-            finished(&shared, id, false, "the pairing code expired".into(), None);
-        }
+        .await
+        .unwrap_or_else(|_| Outcome::failed("the pairing code expired", None));
+        // Leave the room and free the slot *before* announcing the result, so a client that
+        // reacts to `PairingFinished` by starting another pairing is never told "busy".
         if let Some(signal) = shared.signal() {
             let _ = signal.rendezvous_leave().await;
         }
         shared.pairing.lock().take();
+        finished(&shared, id, outcome);
     });
     Ok(id)
 }
 
-fn finished(
-    shared: &Shared,
-    id: u64,
+/// How a pairing ended.
+struct Outcome {
     success: bool,
     reason: String,
     peer: Option<(Vec<u8>, String)>,
-) {
-    let (peer_device_id, peer_name) = peer.unwrap_or_default();
+}
+
+impl Outcome {
+    fn failed(reason: impl Into<String>, peer: Option<(Vec<u8>, String)>) -> Self {
+        Self {
+            success: false,
+            reason: reason.into(),
+            peer,
+        }
+    }
+}
+
+fn finished(shared: &Shared, id: u64, outcome: Outcome) {
+    let (peer_device_id, peer_name) = outcome.peer.unwrap_or_default();
     shared.emit(Ev::PairingFinished(PairingFinished {
         pairing_id: id,
-        success,
-        reason,
+        success: outcome.success,
+        reason: outcome.reason,
         peer_device_id: peer_device_id.into(),
         peer_name,
     }));
@@ -178,8 +182,7 @@ async fn drive(
     mut rendezvous: mpsc::Receiver<RendezvousMsg>,
     mut confirm: mpsc::Receiver<bool>,
     mut cancel: watch::Receiver<bool>,
-    _initiator: bool,
-) {
+) -> Outcome {
     // The initiator must not send before the other device is in the room.
     let mut peer_present = false;
     let mut outbox: Vec<Vec<u8>> = Vec::new();
@@ -217,32 +220,31 @@ async fn drive(
                 }
                 FlowEvent::Completed(pairing) => {
                     let outcome = store_pairing(shared, &pairing.signed).await;
-                    match outcome {
+                    return match outcome {
                         Ok(()) => {
                             info!("pairing complete");
-                            finished(shared, id, true, String::new(), peer_info.clone());
+                            Outcome {
+                                success: true,
+                                reason: String::new(),
+                                peer: peer_info,
+                            }
                         }
-                        Err(e) => finished(shared, id, false, e.to_string(), peer_info.clone()),
-                    }
-                    return;
+                        Err(e) => Outcome::failed(e.to_string(), peer_info),
+                    };
                 }
-                FlowEvent::Aborted(reason) => {
-                    finished(shared, id, false, describe(&reason), peer_info.clone());
-                    return;
-                }
+                FlowEvent::Aborted(reason) => return Outcome::failed(describe(&reason), peer_info),
             }
         }
         if flow.is_finished() {
-            return;
+            return Outcome::failed("the pairing ended unexpectedly", peer_info);
         }
 
         tokio::select! {
             msg = rendezvous.recv() => match msg {
-                None => return,
+                None => return Outcome::failed("the connection to the server ended", peer_info),
                 Some(RendezvousMsg::Peer(true)) => peer_present = true,
                 Some(RendezvousMsg::Peer(false)) => {
-                    finished(shared, id, false, "the other device left".into(), peer_info.clone());
-                    return;
+                    return Outcome::failed("the other device left", peer_info);
                 }
                 Some(RendezvousMsg::Data(data)) => {
                     if let Err(e) = flow.handle_incoming(&data, Shared::now_ms()) {
@@ -256,12 +258,9 @@ async fn drive(
                         debug!(error = %e, "confirmation rejected");
                     }
                 }
-                None => return,
+                None => return Outcome::failed("cancelled", peer_info),
             },
-            _ = cancel.changed() => {
-                finished(shared, id, false, "cancelled".into(), peer_info.clone());
-                return;
-            }
+            _ = cancel.changed() => return Outcome::failed("cancelled", peer_info),
         }
     }
 }

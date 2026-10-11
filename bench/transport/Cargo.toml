@@ -1,0 +1,28 @@
+[package]
+name = "transport-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Loopback comparison of iroh, raw quinn and webrtc-rs for ADR-0003."
+
+# Standalone workspace (see the root Cargo.toml `exclude`).
+[workspace]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+nexus-core = { path = "../../crates/nexus-core" }
+nexus-crypto = { path = "../../crates/nexus-crypto" }
+nexus-net = { path = "../../crates/nexus-net" }
+nexus-proto = { path = "../../crates/nexus-proto" }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["full"] }
+webrtc = "0.21"
+async-trait = "0.1"
+
+[profile.release]
+debug = "line-tables-only"

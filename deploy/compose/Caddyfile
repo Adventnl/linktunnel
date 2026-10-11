@@ -1,0 +1,8 @@
+{$NEXUS_DOMAIN} {
+	# WebSocket upgrades pass through automatically.
+	reverse_proxy signal:8443
+
+	# /metrics and /healthz are for the operator, not the internet.
+	@internal path /metrics /healthz
+	respond @internal 404
+}
