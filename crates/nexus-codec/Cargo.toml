@@ -13,13 +13,14 @@ workspace = true
 default = ["software"]
 # OpenH264, a C++ library. Turn it off to type-check the platform backends on a host without a
 # C toolchain for the target.
-software = ["dep:openh264"]
+software = ["dep:openh264", "dep:openh264-sys2"]
 
 [dependencies]
 bytes.workspace = true
 nexus-core.workspace = true
 nexus-proto.workspace = true
 openh264 = { workspace = true, optional = true }
+openh264-sys2 = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 yuv.workspace = true

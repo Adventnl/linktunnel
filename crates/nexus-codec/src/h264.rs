@@ -143,13 +143,62 @@ impl Encoder for H264Encoder {
         let mut next = self.config.clone();
         next.bitrate_bps = bitrate_bps;
         next.validate()?;
-        // OpenH264's safe API has no live rate change; rebuilding the encoder costs one keyframe,
-        // which the caller already expects when the quality ladder moves.
-        let raw = RawEncoder::with_api_config(OpenH264API::from_source(), raw_config(&next))
-            .map_err(|e| CodecError::Unavailable(format!("openh264 re-init: {e}")))?;
-        self.raw = raw;
+        self.apply_bitrate(bitrate_bps)?;
         self.config = next;
-        self.frame_count = 0;
+        Ok(())
+    }
+}
+
+impl H264Encoder {
+    /// Changes the target bitrate of the running encoder without a keyframe.
+    ///
+    /// Rebuilding the encoder would emit an IDR on every adjustment, and a keyframe is many
+    /// times the size of a delta frame: on a congested path that burst is itself a congestion
+    /// signal, which makes the rate controller back off further (a ratchet). OpenH264 supports a
+    /// live change through its option API, which the safe wrapper does not expose.
+    #[allow(unsafe_code)]
+    fn apply_bitrate(&mut self, bitrate_bps: u32) -> Result<(), CodecError> {
+        use openh264_sys2::{
+            ENCODER_OPTION_BITRATE, ENCODER_OPTION_MAX_BITRATE, SBitrateInfo, SPATIAL_LAYER_0,
+            SPATIAL_LAYER_ALL,
+        };
+        let bps = i32::try_from(bitrate_bps)
+            .map_err(|_| CodecError::Invalid("bitrate too large".into()))?;
+        // The ceiling must move with the target, or the encoder never exceeds its initial rate;
+        // and OpenH264 insists on `target <= ceiling` at every step, so raise the ceiling first
+        // and lower it last.
+        let increasing = bps > i32::try_from(self.config.bitrate_bps).unwrap_or(i32::MAX);
+        let order = if increasing {
+            [ENCODER_OPTION_MAX_BITRATE, ENCODER_OPTION_BITRATE]
+        } else {
+            [ENCODER_OPTION_BITRATE, ENCODER_OPTION_MAX_BITRATE]
+        };
+        for option in order {
+            let mut last_rc = 0;
+            // Spatial layer 0 is the only layer in use; "all layers" covers builds that treat the
+            // total separately. One of the two succeeding is enough.
+            let ok = [SPATIAL_LAYER_0, SPATIAL_LAYER_ALL]
+                .into_iter()
+                .any(|layer| {
+                    let mut info = SBitrateInfo {
+                        iLayer: layer,
+                        iBitrate: bps,
+                    };
+                    // SAFETY: the encoder is initialised, `info` is a valid SBitrateInfo that
+                    // outlives the call, and OpenH264 copies it during SetOption.
+                    last_rc = unsafe {
+                        self.raw
+                            .raw_api()
+                            .set_option(option, std::ptr::addr_of_mut!(info).cast())
+                    };
+                    last_rc == 0
+                });
+            if !ok {
+                return Err(CodecError::Encode(format!(
+                    "OpenH264 rejected a bitrate change (option {option}, code {last_rc})"
+                )));
+            }
+        }
         Ok(())
     }
 }
@@ -334,9 +383,85 @@ mod tests {
         enc.set_bitrate(500_000).unwrap();
         assert_eq!(enc.config().bitrate_bps, 500_000);
         let out = enc.encode(&text_like(w, h, 7), false).unwrap().unwrap();
-        assert!(out.keyframe, "a rebuilt encoder starts on a keyframe");
+        assert!(
+            !out.keyframe,
+            "a live bitrate change must not force a keyframe"
+        );
         assert!(dec.decode(&out.data).unwrap().is_some());
         assert!(enc.set_bitrate(10).is_err());
+    }
+
+    fn noise(w: u32, h: u32, seed: u64) -> Frame {
+        let mut state = seed | 1;
+        let data: Vec<u8> = (0..(w * h * 4))
+            .map(|i| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                if i % 4 == 3 {
+                    255
+                } else {
+                    u8::try_from((state >> 24) & 0xff).unwrap_or(0)
+                }
+            })
+            .collect();
+        Frame {
+            width: w,
+            height: h,
+            stride: (w * 4) as usize,
+            format: FrameFormat::Bgra8,
+            data: Bytes::from(data),
+            captured_us: 0,
+            dirty: vec![],
+        }
+    }
+
+    fn mean_frame_bytes(enc: &mut H264Encoder, frames: u64, seed0: u64) -> f64 {
+        // Bytes per frame *offered*: a frame the encoder skipped to hold its rate counts as zero.
+        let mut total = 0usize;
+        for i in 0..frames {
+            if let Some(out) = enc.encode(&noise(320, 180, seed0 + i), false).unwrap() {
+                total += out.data.len();
+            }
+        }
+        total as f64 / frames as f64
+    }
+
+    #[test]
+    fn fresh_encoders_follow_their_configured_bitrate() {
+        for bps in [300_000u32, 1_000_000, 4_000_000, 16_000_000] {
+            let mut enc = H264Encoder::new(EncoderConfig::screen(320, 180, 30.0, bps)).unwrap();
+            let _ = mean_frame_bytes(&mut enc, 30, 1);
+            let mean = mean_frame_bytes(&mut enc, 90, 100);
+            println!(
+                "fresh encoder at {bps} bit/s: {:.2} Mbit/s actual",
+                mean * 8.0 * 30.0 / 1e6
+            );
+        }
+    }
+
+    #[test]
+    fn live_bitrate_changes_move_the_output_rate_both_ways() {
+        let mut enc = H264Encoder::new(EncoderConfig::screen(320, 180, 30.0, 1_000_000)).unwrap();
+        let _ = mean_frame_bytes(&mut enc, 30, 1); // settle rate control
+        let low = mean_frame_bytes(&mut enc, 60, 100);
+        enc.set_bitrate(4_000_000).unwrap();
+        let _ = mean_frame_bytes(&mut enc, 30, 200);
+        let high = mean_frame_bytes(&mut enc, 60, 300);
+        enc.set_bitrate(500_000).unwrap();
+        let _ = mean_frame_bytes(&mut enc, 30, 400);
+        let back = mean_frame_bytes(&mut enc, 60, 500);
+        println!(
+            "mean bytes/frame at 1 Mbit/s: {low:.0}, at 4 Mbit/s: {high:.0}, at 0.5 Mbit/s: {back:.0}"
+        );
+        assert!(
+            high > low * 2.0,
+            "raising the bitrate must raise the output: {low:.0} → {high:.0}"
+        );
+        assert!(
+            back < low * 0.8,
+            "lowering it must lower the output: {low:.0} → {back:.0}"
+        );
     }
 
     #[test]

@@ -116,6 +116,7 @@ rustls-platform-verifier = "0.7"
 
 # --- video ---------------------------------------------------------------------
 openh264 = { version = "0.9", default-features = false, features = ["source"] }
+openh264-sys2 = { version = "0.9", default-features = false, features = ["source"] }
 yuv = { version = "0.8", default-features = false, features = ["sse", "avx", "rdm"] }
 
 # --- storage (nexus-signal) ----------------------------------------------------

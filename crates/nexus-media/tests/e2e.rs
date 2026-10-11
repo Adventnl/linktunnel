@@ -65,6 +65,7 @@ async fn rig(grant_list: &[&str], width: u32, height: u32) -> Rig {
         })),
         max_fps: 60,
         max_inflight: 12,
+        egress: None,
     };
     let stats = Arc::new(TargetStats::default());
     let target_task = tokio::spawn(target::serve(

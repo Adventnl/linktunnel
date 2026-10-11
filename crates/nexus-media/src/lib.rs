@@ -17,6 +17,8 @@
 pub mod controller;
 mod error;
 pub mod input_wire;
+pub mod ladder;
+pub mod rate;
 pub mod reorder;
 pub mod target;
 pub mod viewer;

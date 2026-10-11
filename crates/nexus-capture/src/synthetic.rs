@@ -39,6 +39,9 @@ pub struct SyntheticConfig {
     /// Move a block across the screen continuously (otherwise the screen only changes when the
     /// probe flips or [`Probe::touch`] is called).
     pub animate: bool,
+    /// Percentage (0–100) of the screen height, at the bottom, refilled with fresh noise every
+    /// animation frame: an incompressible stand-in for video that saturates any bitrate limit.
+    pub noise_percent: u8,
 }
 
 impl Default for SyntheticConfig {
@@ -49,6 +52,7 @@ impl Default for SyntheticConfig {
             fps: 60.0,
             monitors: 1,
             animate: false,
+            noise_percent: 0,
         }
     }
 }
@@ -235,6 +239,33 @@ impl SyntheticCapturer {
         }
     }
 
+    /// Refills the noise band with pseudo-random pixels and returns its rectangle.
+    fn noise(&mut self) -> Option<Rect> {
+        let pct = u32::from(self.config.noise_percent.min(100));
+        if pct == 0 {
+            return None;
+        }
+        let (w, h) = (self.monitor.width, self.monitor.height);
+        let band = h * pct / 100;
+        let top = h - band;
+        let mut state = self.tick.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        for y in top..h {
+            for x in 0..w {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let i = ((y * w + x) * 4) as usize;
+                self.canvas[i..i + 3].copy_from_slice(&state.to_le_bytes()[..3]);
+            }
+        }
+        Some(Rect {
+            x: 0,
+            y: u16::try_from(top).ok()?,
+            w: u16::try_from(w).ok()?,
+            h: u16::try_from(band).ok()?,
+        })
+    }
+
     fn frame(&self, dirty: Vec<Rect>) -> Frame {
         Frame {
             width: self.monitor.width,
@@ -310,6 +341,9 @@ impl Capturer for SyntheticCapturer {
                     self.fill(r, [200, 60, 30]);
                     self.block = Some(r);
                     dirty.push(r);
+                    if let Some(noise) = self.noise() {
+                        dirty.push(noise);
+                    }
                 }
                 return Ok(Some(self.frame(dirty)));
             }

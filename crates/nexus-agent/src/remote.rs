@@ -134,6 +134,7 @@ impl SessionHandler for RemoteHandler {
             injector: self.injector.clone(),
             max_fps: self.max_fps,
             max_inflight: target::DEFAULT_MAX_INFLIGHT,
+            egress: None,
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

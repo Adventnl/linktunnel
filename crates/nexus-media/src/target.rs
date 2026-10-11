@@ -37,6 +37,7 @@ use tracing::{debug, info, warn};
 
 use crate::MediaError;
 use crate::input_wire::PacketReader;
+use crate::ladder::{Content, ContentClassifier, QualityLadder};
 
 /// Frames that may be on the wire (sent but not yet acknowledged) before the encoder pauses.
 pub const DEFAULT_MAX_INFLIGHT: u32 = 12;
@@ -62,6 +63,18 @@ pub struct TargetConfig {
     pub max_fps: u32,
     /// Frames in flight before the encoder pauses.
     pub max_inflight: u32,
+    /// Limit and delay the video egress (a self-imposed bandwidth cap; also how the tests model a
+    /// slow uplink, since a userspace proxy cannot hold QUIC on one path).
+    pub egress: Option<EgressShaper>,
+}
+
+/// A serial bottleneck applied to outgoing video frames.
+#[derive(Debug, Clone, Copy)]
+pub struct EgressShaper {
+    /// Bottleneck rate in bits per second.
+    pub rate_bps: u64,
+    /// Extra one-way delay added after serialisation.
+    pub delay: Duration,
 }
 
 impl std::fmt::Debug for TargetConfig {
@@ -85,6 +98,12 @@ pub struct TargetStats {
     pub encode: LatencyRecorder,
     /// Input events injected.
     pub input_events: std::sync::atomic::AtomicU64,
+    /// Frame rate the quality ladder currently runs the encoder at.
+    pub fps_now: AtomicU32,
+    /// Resolution scale (percent of native) currently in use.
+    pub scale_now: AtomicU32,
+    /// Bitrate the encoder is currently targeting.
+    pub bitrate_now: AtomicU32,
 }
 
 /// Why a target session ended.
@@ -108,10 +127,19 @@ struct Pipeline {
 struct PipelineFlags {
     stop: AtomicBool,
     keyframe: AtomicBool,
+    /// Bitrate the controller asked for.
     bitrate: AtomicU32,
+    /// Frame-rate ceiling (from the controller's request and this device's limit).
     fps: AtomicU32,
+    /// 0 = let the quality ladder choose; otherwise a pinned value.
+    pin_fps: AtomicU32,
+    /// 0 = automatic; otherwise a pinned resolution scale in percent.
+    pin_scale: AtomicU32,
     inflight: AtomicU32,
 }
+
+/// `SetQuality` value that returns a pinned fps/scale to automatic.
+pub const QUALITY_AUTO: u32 = u32::MAX;
 
 impl Pipeline {
     /// Signals the encode thread to finish and joins it without blocking the async runtime.
@@ -176,7 +204,11 @@ pub async fn serve(
 
     let mut pipelines: HashMap<u8, Pipeline> = HashMap::new();
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-    tasks.push(tokio::spawn(send_frames(session.clone(), frame_rx)));
+    tasks.push(tokio::spawn(send_frames(
+        session.clone(),
+        frame_rx,
+        config.egress,
+    )));
 
     // Streams the controller opens: input, and diagnostics (`nexus ping`).
     tasks.push(tokio::spawn(accept_streams(
@@ -211,7 +243,7 @@ pub async fn serve(
                     }
                     Some(Body::StartVideo(req)) => {
                         let id = msg.id;
-                        match start_video(&config, &monitors, &req, &frame_tx, &stats) {
+                        match start_video(&config, &monitors, &req, &frame_tx, &stats, &out_tx) {
                             Ok((pipeline, started)) => {
                                 if let Some(mut old) = pipelines.insert(u8::try_from(req.monitor).unwrap_or(0), pipeline) {
                                     old.stop();
@@ -243,8 +275,15 @@ pub async fn serve(
                             if q.bitrate_bps != 0 {
                                 p.flags.bitrate.store(q.bitrate_bps, Ordering::SeqCst);
                             }
-                            if q.fps != 0 {
-                                p.flags.fps.store(q.fps.min(config.max_fps), Ordering::SeqCst);
+                            match q.fps {
+                                0 => {}
+                                QUALITY_AUTO => p.flags.pin_fps.store(0, Ordering::SeqCst),
+                                f => p.flags.pin_fps.store(f.min(config.max_fps), Ordering::SeqCst),
+                            }
+                            match q.scale_percent {
+                                0 => {}
+                                QUALITY_AUTO => p.flags.pin_scale.store(0, Ordering::SeqCst),
+                                sc => p.flags.pin_scale.store(sc.clamp(25, 100), Ordering::SeqCst),
                             }
                         }
                     }
@@ -348,6 +387,7 @@ fn start_video(
     req: &StartVideo,
     frame_tx: &mpsc::Sender<OutFrame>,
     stats: &Arc<TargetStats>,
+    notify: &mpsc::UnboundedSender<ControlMessage>,
 ) -> Result<(Pipeline, VideoStarted), MediaError> {
     let index =
         u8::try_from(req.monitor).map_err(|_| MediaError::Protocol("monitor index".into()))?;
@@ -394,7 +434,12 @@ fn start_video(
     flags.fps.store(fps, Ordering::SeqCst);
     flags.keyframe.store(true, Ordering::SeqCst);
     let thread = {
-        let (flags, frame_tx, stats) = (Arc::clone(&flags), frame_tx.clone(), Arc::clone(stats));
+        let (flags, frame_tx, stats, notify) = (
+            Arc::clone(&flags),
+            frame_tx.clone(),
+            Arc::clone(stats),
+            notify.clone(),
+        );
         let max_inflight = config.max_inflight;
         std::thread::Builder::new()
             .name(format!("encode-{index}"))
@@ -408,6 +453,7 @@ fn start_video(
                     frame_tx,
                     max_inflight,
                     stats,
+                    notify,
                 )
             })
             .map_err(|e| MediaError::Protocol(format!("spawning encode thread: {e}")))?
@@ -458,13 +504,28 @@ fn encode_loop(
     frame_tx: mpsc::Sender<OutFrame>,
     max_inflight: u32,
     stats: Arc<TargetStats>,
+    notify: mpsc::UnboundedSender<ControlMessage>,
 ) {
     let mut seq: u32 = 0;
     let mut last_seq: u32 = 0;
     let mut last_encode = Instant::now() - Duration::from_secs(1);
     let mut pending: Option<Frame> = None;
-    let (enc_w, enc_h) = (encoder.config().width, encoder.config().height);
+    // Native (even) size of the screen; the ladder scales relative to this.
+    let native = (
+        capturer.monitor().width & !1,
+        capturer.monitor().height & !1,
+    );
+    let mut ladder = QualityLadder::new(native, flags.fps.load(Ordering::Relaxed));
+    let mut classifier = ContentClassifier::default();
+    let mut content = Content::Text;
+    let mut cur_scale = 100u32;
+    let mut cur_fps = flags.fps.load(Ordering::Relaxed).max(1);
     let mut current_bitrate = encoder.config().bitrate_bps;
+    stats.fps_now.store(cur_fps, Ordering::Relaxed);
+    stats.scale_now.store(100, Ordering::Relaxed);
+    stats.bitrate_now.store(current_bitrate, Ordering::Relaxed);
+    let mut last_plan = Instant::now();
+    let mut planned_for = current_bitrate;
 
     while !flags.stop.load(Ordering::Relaxed) {
         // Pick up the newest picture (waiting a bit if there is nothing to send yet).
@@ -474,7 +535,10 @@ fn encode_loop(
             CAPTURE_TICK
         };
         match capturer.next_frame(wait) {
-            Ok(Some(f)) => pending = Some(merge(pending.take(), f)),
+            Ok(Some(f)) => {
+                classifier.frame(dirty_fraction(&f));
+                pending = Some(merge(pending.take(), f));
+            }
             Ok(None) => {}
             Err(e) => {
                 warn!(error = %e, "capture failed; ending video");
@@ -485,9 +549,84 @@ fn encode_loop(
             continue;
         }
 
+        // Re-plan quality when the bitrate moved, and periodically (content may have changed).
+        let target_bitrate = flags.bitrate.load(Ordering::Relaxed).max(50_000);
+        if target_bitrate != planned_for || last_plan.elapsed() > Duration::from_millis(500) {
+            planned_for = target_bitrate;
+            last_plan = Instant::now();
+            content = classifier.class(content);
+            let ceiling = flags.fps.load(Ordering::Relaxed).max(1);
+            ladder = rebuild_ladder(ladder, native, ceiling);
+            let rung = {
+                ladder.plan(target_bitrate, content);
+                ladder.current()
+            };
+            let pin_fps = flags.pin_fps.load(Ordering::Relaxed);
+            let pin_scale = flags.pin_scale.load(Ordering::Relaxed);
+            let want_fps = if pin_fps != 0 { pin_fps } else { rung.fps }
+                .min(ceiling)
+                .max(1);
+            let want_scale = if pin_scale != 0 {
+                pin_scale
+            } else {
+                rung.scale_percent
+            };
+            let (ew, eh) = ladder.size_at(want_scale);
+            let resized = want_scale != cur_scale;
+            if resized || want_fps != cur_fps {
+                let cfg = EncoderConfig {
+                    codec,
+                    width: ew,
+                    height: eh,
+                    fps: want_fps as f32,
+                    bitrate_bps: target_bitrate,
+                    screen_content: true,
+                    keyframe_interval: None,
+                };
+                match nexus_codec::create_encoder(cfg) {
+                    Ok(e) => {
+                        encoder = e;
+                        current_bitrate = target_bitrate;
+                        cur_scale = want_scale;
+                        cur_fps = want_fps;
+                        stats.fps_now.store(want_fps, Ordering::Relaxed);
+                        stats.scale_now.store(want_scale, Ordering::Relaxed);
+                        flags.keyframe.store(true, Ordering::SeqCst);
+                        info!(
+                            scale = want_scale,
+                            fps = want_fps,
+                            w = ew,
+                            h = eh,
+                            bitrate = target_bitrate,
+                            ?content,
+                            "quality changed"
+                        );
+                        let _ = notify.send(ControlMessage {
+                            body: Some(Body::VideoStarted(VideoStarted {
+                                monitor: u32::from(monitor),
+                                codec: codec as i32,
+                                width: ew,
+                                height: eh,
+                                fps: want_fps,
+                                bitrate_bps: target_bitrate,
+                                encoder: encoder.name().to_owned(),
+                            })),
+                            ..Default::default()
+                        });
+                    }
+                    Err(e) => warn!(error = %e, "could not apply a quality change"),
+                }
+            } else if target_bitrate != current_bitrate {
+                if let Err(e) = encoder.set_bitrate(target_bitrate) {
+                    warn!(error = %e, "bitrate change failed");
+                }
+                current_bitrate = target_bitrate;
+                stats.bitrate_now.store(target_bitrate, Ordering::Relaxed);
+            }
+        }
+
         // Respect the frame-rate cap, but never drop the change itself: keep it pending.
-        let fps = flags.fps.load(Ordering::Relaxed).max(1);
-        let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
+        let interval = Duration::from_secs_f64(1.0 / f64::from(cur_fps));
         let due = last_encode + interval;
         let now = Instant::now();
         if now < due {
@@ -501,18 +640,22 @@ fn encode_loop(
         }
 
         let requested = flags.keyframe.swap(false, Ordering::SeqCst);
-        let target_bitrate = flags.bitrate.load(Ordering::Relaxed);
-        if target_bitrate != current_bitrate && target_bitrate >= 50_000 {
-            if let Err(e) = encoder.set_bitrate(target_bitrate) {
-                warn!(error = %e, "bitrate change failed");
-            }
-            current_bitrate = target_bitrate;
-        }
-
         let Some(frame) = pending.take() else {
             continue;
         };
-        let frame = crop_even(frame, enc_w, enc_h);
+        let (enc_w, enc_h) = (encoder.config().width, encoder.config().height);
+        let frame = crop_even(frame, native.0, native.1);
+        let frame = if (enc_w, enc_h) == (frame.width, frame.height) {
+            frame
+        } else {
+            match nexus_codec::scale::downscale_bgra(&frame, enc_w, enc_h) {
+                Ok(f) => f,
+                Err(e) => {
+                    warn!(error = %e, "downscale failed");
+                    continue;
+                }
+            }
+        };
         match encoder.encode(&frame, requested) {
             Ok(Some(enc)) => {
                 last_encode = Instant::now();
@@ -578,6 +721,29 @@ fn encode_loop(
     }
 }
 
+/// Fraction of the screen covered by a frame's damage (1.0 when unknown).
+fn dirty_fraction(frame: &Frame) -> f64 {
+    if frame.dirty.is_empty() {
+        return 1.0;
+    }
+    let total = f64::from(frame.width) * f64::from(frame.height);
+    let area: f64 = frame
+        .dirty
+        .iter()
+        .map(|r| f64::from(r.w) * f64::from(r.h))
+        .sum();
+    (area / total.max(1.0)).min(1.0)
+}
+
+/// Keeps the ladder's frame-rate ceiling in step with the (possibly changed) requested ceiling.
+fn rebuild_ladder(ladder: QualityLadder, native: (u32, u32), ceiling: u32) -> QualityLadder {
+    if ladder.max_fps() == QualityLadder::new(native, ceiling).max_fps() {
+        ladder
+    } else {
+        QualityLadder::new(native, ceiling)
+    }
+}
+
 /// Combines two pictures: the newer pixels with the union of both damage lists.
 fn merge(old: Option<Frame>, mut new: Frame) -> Frame {
     if let Some(old) = old {
@@ -601,14 +767,30 @@ fn crop_even(mut frame: Frame, w: u32, h: u32) -> Frame {
 }
 
 /// Opens one QUIC unidirectional stream per frame and writes header + payload.
-async fn send_frames(session: Session, mut rx: mpsc::Receiver<OutFrame>) {
+async fn send_frames(
+    session: Session,
+    mut rx: mpsc::Receiver<OutFrame>,
+    shaper: Option<EgressShaper>,
+) {
+    let mut link_free = tokio::time::Instant::now();
     while let Some(frame) = rx.recv().await {
         let OutFrame {
             mut header,
             payload,
             flags,
         } = frame;
+        // Stamped before any shaping: queueing at a bottleneck is exactly what the receiver's
+        // delay-gradient estimator is meant to see.
         header.send_us = now_us();
+        // The virtual bottleneck queue: when this frame finishes crossing the shaped link.
+        let released_at = shaper.map(|sh| {
+            let bits = (header.wire_len() + payload.len()) as f64 * 8.0;
+            let start = link_free.max(tokio::time::Instant::now());
+            #[allow(clippy::cast_precision_loss)]
+            let serialisation = Duration::from_secs_f64(bits / sh.rate_bps.max(1) as f64);
+            link_free = start + serialisation;
+            link_free + sh.delay
+        });
         let mut head = BytesMut::with_capacity(header.wire_len());
         if header.encode(&mut head).is_err() {
             flags.inflight.fetch_sub(1, Ordering::SeqCst);
@@ -623,6 +805,9 @@ async fn send_frames(session: Session, mut rx: mpsc::Receiver<OutFrame>) {
             }
         };
         tokio::spawn(async move {
+            if let Some(at) = released_at {
+                tokio::time::sleep_until(at).await;
+            }
             if stream.write_all(&head).await.is_ok() && stream.write_all(&payload).await.is_ok() {
                 let _ = stream.finish();
                 let _ = stream.stopped().await;

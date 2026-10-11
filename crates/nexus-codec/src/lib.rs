@@ -19,6 +19,7 @@ mod convert;
 mod error;
 #[cfg(feature = "software")]
 pub mod h264;
+pub mod scale;
 mod types;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;

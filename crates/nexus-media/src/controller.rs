@@ -28,6 +28,7 @@ use tracing::{debug, warn};
 
 use crate::MediaError;
 use crate::input_wire;
+use crate::rate::{FrameArrival, RateConfig, RateController};
 use crate::reorder::{Action, Reorder, Sequenced};
 
 /// How often the controller reports what it received.
@@ -54,6 +55,12 @@ pub struct ControllerOptions {
     pub reorder_wait: Duration,
     /// Request video at all (false = control-only session, e.g. terminal).
     pub want_video: bool,
+    /// Let the receiver steer the sender's bitrate from observed delay and loss.
+    pub adaptive: bool,
+    /// Lowest bitrate adaptation may choose.
+    pub min_bitrate_bps: u32,
+    /// Highest bitrate adaptation may choose.
+    pub max_bitrate_bps: u32,
 }
 
 impl Default for ControllerOptions {
@@ -65,6 +72,9 @@ impl Default for ControllerOptions {
             codecs: nexus_codec::supported_decode(),
             reorder_wait: Duration::from_millis(60),
             want_video: true,
+            adaptive: true,
+            min_bitrate_bps: 300_000,
+            max_bitrate_bps: 50_000_000,
         }
     }
 }
@@ -146,6 +156,8 @@ pub struct ControllerStats {
     pub network: LatencyRecorder,
     /// Cursor updates received.
     pub cursor_updates: AtomicU32,
+    /// The bitrate the receiver last asked the sender for (0 until adaptation starts).
+    pub target_bitrate_bps: AtomicU32,
 }
 
 impl ControllerStats {
@@ -192,6 +204,7 @@ impl ControllerSession {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (frames_tx, frames_rx) = mpsc::unbounded_channel::<VideoFrame>();
         let (desync_tx, desync_rx) = mpsc::unbounded_channel::<()>();
+        let (arrivals_tx, arrivals_rx) = mpsc::unbounded_channel::<FrameArrival>();
 
         if options.want_video {
             let _ = commands_tx.send(Command::Control(ControlMessage {
@@ -208,17 +221,23 @@ impl ControllerSession {
             }));
         }
 
+        let rate_cfg = options
+            .adaptive
+            .then_some((options.min_bitrate_bps, options.max_bitrate_bps));
         tokio::spawn(control_task(
             control,
             commands_rx,
+            arrivals_rx,
             events_tx.clone(),
             Arc::clone(&stats),
             options.monitor,
             session.clone(),
+            rate_cfg,
         ));
         tokio::spawn(video_receiver(
             session.clone(),
             frames_tx,
+            arrivals_tx,
             Arc::clone(&stats),
         ));
         tokio::spawn(reorder_task(
@@ -317,14 +336,20 @@ impl ControllerSession {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn control_task(
     mut control: FramedStream,
     mut commands: mpsc::UnboundedReceiver<Command>,
+    mut arrivals: mpsc::UnboundedReceiver<FrameArrival>,
     events: mpsc::Sender<MediaEvent>,
     stats: Arc<ControllerStats>,
     monitor: u32,
     session: Session,
+    rate_limits: Option<(u32, u32)>,
 ) {
+    // Created when the target announces its starting bitrate.
+    let mut rate: Option<RateController> = None;
+    let mut last_loss = (0u64, 0u64);
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut report = tokio::time::interval(REPORT_INTERVAL);
     let mut samples: VecDeque<(u64, i64)> = VecDeque::with_capacity(10); // (rtt, offset)
@@ -340,7 +365,14 @@ async fn control_task(
                 };
                 match msg.body {
                     Some(Body::MonitorList(l)) => { let _ = events.send(MediaEvent::Monitors(l.monitors)).await; }
-                    Some(Body::VideoStarted(v)) => { let _ = events.send(MediaEvent::Started(v)).await; }
+                    Some(Body::VideoStarted(v)) => {
+                        if let (Some((min_bps, max_bps)), None) = (rate_limits, &rate) {
+                            rate = Some(RateController::new(RateConfig {
+                                min_bps,
+                                max_bps,
+                                start_bps: v.bitrate_bps.clamp(min_bps, max_bps),
+                            }));
+                        } let _ = events.send(MediaEvent::Started(v)).await; }
                     Some(Body::CursorShape(c)) => { let _ = events.send(MediaEvent::CursorShape(c)).await; }
                     Some(Body::Error(e)) => { let _ = events.send(MediaEvent::Refused { code: e.code, message: e.message }).await; }
                     Some(Body::Pong(p)) => {
@@ -361,6 +393,19 @@ async fn control_task(
                     _ => {}
                 }
             }
+            Some(arrival) = arrivals.recv() => {
+                if let Some(rc) = rate.as_mut() {
+                    rc.on_frame(arrival);
+                    stats.target_bitrate_bps.store(rc.target_bps(), Ordering::Relaxed);
+                    if let Some(bps) = rc.poll() {
+                        let msg = ControlMessage {
+                            body: Some(Body::SetQuality(SetQuality { monitor, bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            ..Default::default()
+                        };
+                        if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+                    }
+                }
+            }
             Some(cmd) = commands.recv() => {
                 let Command::Control(msg) = cmd;
                 if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
@@ -370,6 +415,22 @@ async fn control_task(
                 if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
             }
             _ = report.tick() => {
+                if let Some(rc) = rate.as_mut() {
+                    let received = stats.frames_received.load(Ordering::Relaxed);
+                    let lost = stats.losses.load(Ordering::Relaxed);
+                    let (d_recv, d_lost) = (received - last_loss.0, lost.saturating_sub(last_loss.1));
+                    last_loss = (received, lost);
+                    #[allow(clippy::cast_precision_loss)]
+                    let now_ms = nexus_core::clock::now_us() as f64 / 1000.0;
+                    rc.on_loss(u32::try_from(d_lost).unwrap_or(u32::MAX), u32::try_from(d_recv + d_lost).unwrap_or(u32::MAX), now_ms);
+                    if let Some(bps) = rc.poll() {
+                        let msg = ControlMessage {
+                            body: Some(Body::SetQuality(SetQuality { monitor, bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            ..Default::default()
+                        };
+                        if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+                    }
+                }
                 if let Some(r) = last_report.build(&stats, monitor) {
                     let msg = ControlMessage { body: Some(Body::ReceiverReport(r)), ..Default::default() };
                     if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
@@ -426,6 +487,7 @@ impl ReportState {
 async fn video_receiver(
     session: Session,
     frames: mpsc::UnboundedSender<VideoFrame>,
+    arrivals: mpsc::UnboundedSender<FrameArrival>,
     stats: Arc<ControllerStats>,
 ) {
     loop {
@@ -437,7 +499,7 @@ async fn video_receiver(
             debug!(?kind, "ignoring unexpected unidirectional stream");
             continue;
         }
-        let (frames, stats) = (frames.clone(), Arc::clone(&stats));
+        let (frames, arrivals, stats) = (frames.clone(), arrivals.clone(), Arc::clone(&stats));
         tokio::spawn(async move {
             match tokio::time::timeout(FRAME_TIMEOUT, read_frame(recv)).await {
                 Ok(Ok(frame)) => {
@@ -457,6 +519,12 @@ async fn video_receiver(
                             .network
                             .record_us((frame.recv_us as i64 - local_send).max(0) as u64);
                     }
+                    let _ = arrivals.send(FrameArrival {
+                        send_us: frame.header.send_us,
+                        recv_us: frame.recv_us,
+                        bytes: frame.payload.len(),
+                        is_key: frame.header.kind == FrameKind::Key,
+                    });
                     let _ = frames.send(frame);
                 }
                 Ok(Err(e)) => debug!(error = %e, "discarding a damaged video frame"),

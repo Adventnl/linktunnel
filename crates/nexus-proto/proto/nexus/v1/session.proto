@@ -174,7 +174,8 @@ message RequestKeyframe {
 
 message SetQuality {
   uint32 monitor = 1;
-  // 0 = leave unchanged for each field.
+  // 0 = leave unchanged for each field. For `fps` and `scale_percent`, 0xFFFFFFFF returns the
+  // field to automatic (the quality ladder chooses); any other value pins it.
   uint32 bitrate_bps = 2;
   uint32 fps = 3;
   // Resolution scale in percent of native (100 = native).

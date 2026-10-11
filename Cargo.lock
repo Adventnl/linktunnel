@@ -3325,6 +3325,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-video-toolbox",
  "openh264",
+ "openh264-sys2",
  "proptest",
  "thiserror 2.0.21",
  "tracing",
@@ -3409,6 +3410,7 @@ name = "nexus-media"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "iroh",
  "nexus-capture",
  "nexus-codec",
  "nexus-core",
