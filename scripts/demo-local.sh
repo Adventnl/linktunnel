@@ -26,20 +26,34 @@ say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 say "Building"
 (cd "$ROOT" && cargo build -q -p nexus-signal -p nexus-agent -p nexus-cli)
 
-say "Starting the signaling server on 127.0.0.1:$PORT"
-"$BIN/nexus-signal" --listen "127.0.0.1:$PORT" --audience "127.0.0.1:$PORT" >"$WORK/signal.log" 2>&1 &
-PIDS+=($!)
+# Set NEXUS_DEMO_SIGNAL_URL (e.g. ws://127.0.0.1:18444/v1/ws) to use an already running server,
+# such as the Docker Compose stack, instead of starting one here.
+if [[ -n "${NEXUS_DEMO_SIGNAL_URL:-}" ]]; then
+  SIGNAL_URL="$NEXUS_DEMO_SIGNAL_URL"
+  say "Using the existing signaling server at $SIGNAL_URL"
+else
+  say "Starting the signaling server on 127.0.0.1:$PORT"
+  "$BIN/nexus-signal" --listen "127.0.0.1:$PORT" --audience "127.0.0.1:$PORT" >"$WORK/signal.log" 2>&1 &
+  PIDS+=($!)
+  SIGNAL_URL="ws://127.0.0.1:$PORT/v1/ws"
+fi
 
 A="$WORK/mac"; B="$WORK/pc"
 for pair in "mac:MacBook" "pc:Windows PC"; do
   dir="${pair%%:*}"; name="${pair#*:}"
   say "Starting agent '$name'"
   "$BIN/nexus-agent" --home "$WORK/$dir" --name "$name" --file-store \
-      --signal-url "ws://127.0.0.1:$PORT/v1/ws" >"$WORK/$dir.log" 2>&1 &
+      --signal-url "$SIGNAL_URL" >"$WORK/$dir.log" 2>&1 &
   PIDS+=($!)
 done
-sleep 2
 cli() { local home="$1"; shift; "$BIN/nexus" --home "$home" "$@"; }
+# Wait until both agents answer on IPC *and* are connected to the signaling server.
+for home in "$A" "$B"; do
+  for _ in $(seq 1 100); do
+    if cli "$home" status 2>/dev/null | grep -q "Signaling .*connected (" ; then break; fi
+    sleep 0.2
+  done
+done
 
 say "Agent status (MacBook)"
 cli "$A" status

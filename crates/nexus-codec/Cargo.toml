@@ -1,0 +1,22 @@
+[package]
+name = "nexus-codec"
+description = "Video encode/decode backends behind small traits: OpenH264 (software), VideoToolbox (macOS)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes.workspace = true
+nexus-core.workspace = true
+nexus-proto.workspace = true
+openh264.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+yuv.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

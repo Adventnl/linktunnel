@@ -59,6 +59,8 @@ nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }
 nexus-ipc = { path = "crates/nexus-ipc" }
+nexus-codec = { path = "crates/nexus-codec" }
+nexus-capture = { path = "crates/nexus-capture" }
 nexus-agent = { path = "crates/nexus-agent" }
 
 # --- errors, logging, config -----------------------------------------------
@@ -107,6 +109,10 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "stream", "rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
+
+# --- video ---------------------------------------------------------------------
+openh264 = { version = "0.9", default-features = false, features = ["source"] }
+yuv = { version = "0.8", default-features = false, features = ["sse", "avx", "rdm"] }
 
 # --- storage (nexus-signal) ----------------------------------------------------
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring"] }
