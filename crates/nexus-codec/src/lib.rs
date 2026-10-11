@@ -3,7 +3,7 @@
 //! Backends:
 //! * [`h264`]: OpenH264, software, everywhere. Tuned for screen content and low latency. This is
 //!   the fallback and the reference the other backends are tested against.
-//! * `videotoolbox` (macOS only): the Apple hardware encoder/decoder.
+//! * `videotoolbox` (macOS only): the Apple hardware encoder. Decoding on macOS uses OpenH264.
 //!
 //! Hardware backends for other platforms (NVENC, AMF, QuickSync, VAAPI, Media Foundation) plug
 //! into the same traits; they are not implemented because they can only be validated on matching
@@ -17,6 +17,7 @@
 
 mod convert;
 mod error;
+#[cfg(feature = "software")]
 pub mod h264;
 mod types;
 #[cfg(target_os = "macos")]
@@ -24,7 +25,11 @@ pub mod videotoolbox;
 
 pub use convert::{bgra_to_i420, i420_to_bgra, psnr_bgra};
 pub use error::CodecError;
+#[cfg(feature = "software")]
+pub use h264::{H264Decoder, H264Encoder};
 pub use types::{
     DecodedFrame, Decoder, EncodedFrame, Encoder, EncoderConfig, Frame, FrameFormat, I420Planes,
     Rect,
 };
+#[cfg(target_os = "macos")]
+pub use videotoolbox::VideoToolboxEncoder;

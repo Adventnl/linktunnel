@@ -9,14 +9,26 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["software"]
+# OpenH264, a C++ library. Turn it off to type-check the platform backends on a host without a
+# C toolchain for the target.
+software = ["dep:openh264"]
+
 [dependencies]
 bytes.workspace = true
 nexus-core.workspace = true
 nexus-proto.workspace = true
-openh264.workspace = true
+openh264 = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 yuv.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-video-toolbox = "0.3"

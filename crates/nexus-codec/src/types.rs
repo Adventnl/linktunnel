@@ -39,7 +39,10 @@ impl Frame {
             return Err(CodecError::Invalid("zero-sized frame".into()));
         }
         if self.stride < min_stride {
-            return Err(CodecError::Invalid(format!("stride {} < {}", self.stride, min_stride)));
+            return Err(CodecError::Invalid(format!(
+                "stride {} < {}",
+                self.stride, min_stride
+            )));
         }
         let needed = self.stride * (self.height as usize - 1) + min_stride;
         if self.data.len() < needed {
@@ -90,17 +93,26 @@ impl EncoderConfig {
 
     /// Validates the constraints all backends share.
     pub fn validate(&self) -> Result<(), CodecError> {
-        if self.width == 0 || self.height == 0 || self.width % 2 != 0 || self.height % 2 != 0 {
+        if self.width == 0
+            || self.height == 0
+            || !self.width.is_multiple_of(2)
+            || !self.height.is_multiple_of(2)
+        {
             return Err(CodecError::Invalid(format!(
                 "dimensions must be positive and even, got {}x{}",
                 self.width, self.height
             )));
         }
         if self.width > 8192 || self.height > 8192 {
-            return Err(CodecError::Invalid("dimensions above 8192 are not supported".into()));
+            return Err(CodecError::Invalid(
+                "dimensions above 8192 are not supported".into(),
+            ));
         }
         if !(1.0..=240.0).contains(&self.fps) {
-            return Err(CodecError::Invalid(format!("fps {} out of range 1..=240", self.fps)));
+            return Err(CodecError::Invalid(format!(
+                "fps {} out of range 1..=240",
+                self.fps
+            )));
         }
         if self.bitrate_bps < 50_000 {
             return Err(CodecError::Invalid("bitrate below 50 kbit/s".into()));
@@ -138,7 +150,11 @@ pub trait Encoder: Send {
 
     /// Encodes one frame. `force_keyframe` makes this frame a keyframe. Returns `None` if the
     /// backend chose to skip the frame.
-    fn encode(&mut self, frame: &Frame, force_keyframe: bool) -> Result<Option<EncodedFrame>, CodecError>;
+    fn encode(
+        &mut self,
+        frame: &Frame,
+        force_keyframe: bool,
+    ) -> Result<Option<EncodedFrame>, CodecError>;
 
     /// Changes the target bitrate without restarting the stream.
     fn set_bitrate(&mut self, bitrate_bps: u32) -> Result<(), CodecError>;
