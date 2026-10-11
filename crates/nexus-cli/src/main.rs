@@ -12,6 +12,7 @@ mod files_cmds;
 mod identity_cmd;
 mod power_cmds;
 mod remote_cmds;
+mod shell_cmds;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -115,6 +116,20 @@ enum Command {
         /// Also delete a directory's contents.
         #[arg(short, long)]
         recursive: bool,
+    },
+    /// Open a terminal on a paired device (`--name` keeps it running when you disconnect).
+    Shell {
+        /// Device name or ID.
+        device: String,
+        /// Persistent session name: detach with Ctrl-] . and come back with the same name.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Program to run instead of the device's default shell.
+        #[arg(long)]
+        program: Option<String>,
+        /// Only re-attach to an existing named session.
+        #[arg(long)]
+        attach_only: bool,
     },
     /// Lock, sleep, restart or shut down a paired device.
     Power {
@@ -223,6 +238,12 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Shell {
+            device,
+            name,
+            program,
+            attach_only,
+        } => shell_cmds::shell(&ctx, &device, name, program, attach_only).await,
         Command::Power {
             device,
             action,

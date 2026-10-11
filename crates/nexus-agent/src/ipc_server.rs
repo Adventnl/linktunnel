@@ -23,6 +23,7 @@ use crate::pairing;
 use crate::power_bridge;
 use crate::sessions;
 use crate::state::Shared;
+use crate::terminal_bridge;
 use crate::viewer_bridge::{self, ConnCtx};
 
 /// Limits on what a client may ask the diagnostics to do.
@@ -116,6 +117,7 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
             }
         }
     }
+    terminal_bridge::close_all(&shared, &ctx);
     viewer_bridge::close_all(&shared, &ctx).await;
     debug!(client = %name, "IPC client disconnected");
 }
@@ -224,6 +226,21 @@ async fn dispatch(
         }
         Req::WakeDevice(w) => {
             power_bridge::wake(shared, &w.device_id, &w.via_device_id).await?;
+            Ok(ack)
+        }
+        Req::OpenTerminal(t) => terminal_bridge::open(shared, ctx, t)
+            .await
+            .map(Resp::TerminalStarted),
+        Req::TerminalInput(i) => {
+            terminal_bridge::input(shared, ctx, i)?;
+            Ok(ack)
+        }
+        Req::TerminalResize(r) => {
+            terminal_bridge::resize(shared, ctx, &r)?;
+            Ok(ack)
+        }
+        Req::CloseTerminal(c) => {
+            terminal_bridge::close(shared, ctx, &c)?;
             Ok(ack)
         }
         Req::Shutdown(_) => {

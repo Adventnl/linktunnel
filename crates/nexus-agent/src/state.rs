@@ -49,6 +49,8 @@ pub struct Shared {
     pub(crate) viewers: Mutex<std::collections::HashMap<u64, crate::viewer_bridge::ViewerEntry>>,
     pub(crate) next_viewer_id: AtomicU64,
     pub(crate) policy: Mutex<crate::policy::PolicyStore>,
+    pub(crate) terminals:
+        Mutex<std::collections::HashMap<u64, crate::terminal_bridge::TerminalEntry>>,
     pub(crate) wakebook: Mutex<crate::wakebook::WakeBook>,
     pub(crate) consents: Mutex<std::collections::HashMap<u64, crate::consent::Pending>>,
     pub(crate) next_consent_id: AtomicU64,

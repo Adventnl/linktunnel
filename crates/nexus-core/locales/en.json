@@ -98,5 +98,9 @@
   "cli.power.cancelled": "Cancelled.",
   "cli.power.done": "{name}: {action} requested.",
   "cli.wake.sent": "Wake-on-LAN packets sent for {name}. It can take up to a minute to start.",
-  "cli.wake.relayed": "Asked {via} to wake {name}."
+  "cli.wake.relayed": "Asked {via} to wake {name}.",
+  "cli.shell.hint": "Connected to {name}. Press Ctrl-] then . to detach (a named shell keeps running), or Ctrl-] then k to end it.",
+  "cli.shell.detached": "[detached]",
+  "cli.shell.reattached": "[re-attached to the running shell {name}]",
+  "cli.shell.ended": "[shell ended: {reason}]"
 }

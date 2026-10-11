@@ -27,6 +27,7 @@ pub struct RemoteHandler {
     clipboard: Option<ClipboardSetup>,
     power: Option<Arc<dyn PowerBackend>>,
     wake_relay: bool,
+    terminal: Option<Arc<nexus_terminal::TerminalHost>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -58,6 +59,7 @@ impl RemoteHandler {
             clipboard: None,
             power: None,
             wake_relay: false,
+            terminal: None,
         }
     }
 
@@ -77,6 +79,13 @@ impl RemoteHandler {
         self
     }
 
+    /// Lets controllers holding the `terminal` grant open shells on this machine.
+    #[must_use]
+    pub fn with_terminal(mut self, host: Arc<nexus_terminal::TerminalHost>) -> Self {
+        self.terminal = Some(host);
+        self
+    }
+
     /// Lets controllers holding the `wake` grant use this machine to wake others on its LAN.
     #[must_use]
     pub fn with_wake_relay(mut self, on: bool) -> Self {
@@ -87,7 +96,11 @@ impl RemoteHandler {
     /// Does this handler offer anything besides video (so a screenless machine is still worth a
     /// full session rather than just diagnostics)?
     fn serves_without_a_screen(&self) -> bool {
-        self.files.is_some() || self.power.is_some() || self.wake_relay || self.clipboard.is_some()
+        self.files.is_some()
+            || self.power.is_some()
+            || self.wake_relay
+            || self.clipboard.is_some()
+            || self.terminal.is_some()
     }
 
     /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
@@ -176,6 +189,9 @@ impl SessionHandler for RemoteHandler {
         if self.power.is_some() {
             features_list.push(features::POWER_ACTIONS.to_owned());
         }
+        if self.terminal.is_some() {
+            features_list.push(features::TERMINAL_PTY.to_owned());
+        }
         caps.features = features_list;
         caps
     }
@@ -205,6 +221,7 @@ impl SessionHandler for RemoteHandler {
             consent: crate::consent::gate(&ctx.shared, &ctx.peer, ctx.session.path().kind),
             power: self.power.clone(),
             wake_relay: self.wake_relay,
+            terminal: self.terminal.clone(),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "ipc.proto",
         "files.proto",
         "clipboard.proto",
+        "terminal.proto",
     ]
     .iter()
     .map(|f| proto_root.join("nexus/v1").join(f))

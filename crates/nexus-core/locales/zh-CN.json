@@ -98,5 +98,9 @@
   "cli.power.cancelled": "已取消。",
   "cli.power.done": "{name}：已请求“{action}”。",
   "cli.wake.sent": "已为 {name} 发送局域网唤醒数据包，启动最多可能需要一分钟。",
-  "cli.wake.relayed": "已请 {via} 唤醒 {name}。"
+  "cli.wake.relayed": "已请 {via} 唤醒 {name}。",
+  "cli.shell.hint": "已连接到 {name}。按 Ctrl-] 再按 . 断开（具名终端会继续运行），按 Ctrl-] 再按 k 结束终端。",
+  "cli.shell.detached": "[已断开]",
+  "cli.shell.reattached": "[已重新连接到正在运行的终端 {name}]",
+  "cli.shell.ended": "[终端已结束：{reason}]"
 }

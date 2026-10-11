@@ -21,6 +21,7 @@ pub mod ladder;
 pub mod rate;
 pub mod reorder;
 pub mod target;
+pub mod terminal_io;
 pub mod viewer;
 
 pub use error::MediaError;

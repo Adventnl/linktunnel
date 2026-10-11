@@ -18,6 +18,7 @@ mod sessions;
 mod state;
 mod supervisor;
 pub mod sysinfo;
+mod terminal_bridge;
 mod viewer_bridge;
 mod wakebook;
 
@@ -113,6 +114,7 @@ impl Agent {
             viewers: Mutex::default(),
             next_viewer_id: AtomicU64::new(1),
             policy: Mutex::new(policy::PolicyStore::load(policy_file, default_consent)),
+            terminals: Mutex::default(),
             wakebook: Mutex::new(wakebook::WakeBook::load(wake_file)),
             consents: Mutex::default(),
             next_consent_id: AtomicU64::new(1),

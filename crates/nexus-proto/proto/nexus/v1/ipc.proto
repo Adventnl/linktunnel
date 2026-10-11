@@ -64,6 +64,10 @@ message IpcRequest {
     SetUnattended set_unattended = 41;
     PowerCommand power_command = 42;
     WakeDevice wake_device = 43;
+    OpenTerminal open_terminal = 44;
+    TerminalInput terminal_input = 45;
+    TerminalResize terminal_resize = 46;
+    CloseTerminal close_terminal = 47;
   }
 }
 
@@ -128,6 +132,7 @@ message IpcResponse {
     DirListing file_listing = 30;
     FileEntry file_entry = 31;
     TransferStarted transfer_started = 32;
+    TerminalStarted terminal_started = 33;
   }
 }
 
@@ -232,6 +237,9 @@ message IpcEvent {
     SessionMonitorChanged session_monitor_changed = 12;
     ConsentRequest consent_request = 13;
     ConsentResolved consent_resolved = 14;
+    TerminalReady terminal_ready = 15;
+    TerminalOutput terminal_output = 16;
+    TerminalEnded terminal_ended = 17;
   }
 }
 
@@ -463,4 +471,60 @@ message PowerCommand {
 message WakeDevice {
   bytes device_id = 1;
   bytes via_device_id = 2;
+}
+
+// ----- terminals (over an open session; a control-only session is enough) ------------------
+
+message OpenTerminal {
+  uint64 session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  // Empty = the target's default shell.
+  string shell = 4;
+  string cwd = 5;
+  // Persistent session name; empty = ephemeral.
+  string name = 6;
+  bool reattach_only = 7;
+}
+
+message TerminalStarted {
+  uint64 terminal_id = 1;
+}
+
+// The target accepted the terminal (follows OpenTerminal's response).
+message TerminalReady {
+  uint64 terminal_id = 1;
+  string name = 2;
+  bool reattached = 3;
+  string shell = 4;
+}
+
+message TerminalInput {
+  uint64 terminal_id = 1;
+  bytes data = 2;
+}
+
+message TerminalResize {
+  uint64 terminal_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+// Stop using the terminal. `kill` also ends a persistent shell; otherwise it keeps running.
+message CloseTerminal {
+  uint64 terminal_id = 1;
+  bool kill = 2;
+}
+
+message TerminalOutput {
+  uint64 terminal_id = 1;
+  bytes data = 2;
+}
+
+message TerminalEnded {
+  uint64 terminal_id = 1;
+  bool exited = 2;
+  int32 exit_code = 3;
+  // Why it ended when it did not exit (refused, connection lost, taken over, ...).
+  string reason = 4;
 }

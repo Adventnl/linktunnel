@@ -1,0 +1,19 @@
+[package]
+name = "nexus-terminal"
+description = "Remote terminal sessions: PTY hosting with persistent, re-attachable shells."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes.workspace = true
+nexus-proto.workspace = true
+parking_lot = "0.12"
+portable-pty = "0.9"
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

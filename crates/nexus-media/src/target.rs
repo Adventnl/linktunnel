@@ -76,6 +76,8 @@ pub struct TargetConfig {
     /// How to lock / sleep / restart this machine for controllers holding the `power` grant;
     /// `None` refuses power requests.
     pub power: Option<Arc<dyn nexus_power::PowerBackend>>,
+    /// Hosts terminals for controllers holding the `terminal` grant; `None` refuses them.
+    pub terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     /// Send Wake-on-LAN packets from this machine's network on behalf of controllers holding the
     /// `wake` grant (a device that is always on can wake the ones that sleep).
     pub wake_relay: bool,
@@ -239,6 +241,7 @@ pub async fn serve(
     let can_input = config.grants.contains(grants::INPUT) && config.injector.is_some();
     let can_files = config.grants.contains(grants::FILES) && config.files.is_some();
     let can_clipboard = config.grants.contains(grants::CLIPBOARD) && config.clipboard.is_some();
+    let can_terminal = config.grants.contains(grants::TERMINAL) && config.terminal.is_some();
     let consent = SessionConsent::new(config.consent.clone());
     info!(
         can_view,
@@ -282,6 +285,7 @@ pub async fn serve(
             input: can_input,
             files: can_files,
             clipboard: can_clipboard,
+            terminal: can_terminal,
         },
         consent.clone(),
     )));
@@ -1155,6 +1159,7 @@ struct StreamAccess {
     input: bool,
     files: bool,
     clipboard: bool,
+    terminal: bool,
 }
 
 /// Accepts streams the controller opens until the session ends: input (each stream gets its own
@@ -1172,6 +1177,7 @@ async fn accept_streams(
         input: can_input,
         files: can_files,
         clipboard: can_clipboard,
+        terminal: can_terminal,
     } = access;
     loop {
         let Ok((kind, stream)) = session.accept_stream().await else {
@@ -1223,6 +1229,21 @@ async fn accept_streams(
                     let mut io = nexus_files::framed(stream);
                     if let Err(e) = server.serve(&mut io).await {
                         debug!(error = %e, "file operation ended with an error");
+                    }
+                });
+            }
+            StreamKind::Terminal if can_terminal => {
+                let Some(host) = config.terminal.clone() else {
+                    continue;
+                };
+                let consent = consent.clone();
+                tokio::spawn(async move {
+                    if consent.check().await != Consent::Allowed {
+                        return;
+                    }
+                    let mut io = crate::terminal_io::QuicTerm::new(stream);
+                    if let Err(e) = nexus_terminal::serve(&host, &mut io).await {
+                        debug!(error = %e, "terminal ended");
                     }
                 });
             }

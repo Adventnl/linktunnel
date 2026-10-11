@@ -1144,3 +1144,91 @@ async fn power_requests_reach_the_other_agent_and_wake_needs_a_known_address() {
         assert!(mac.client.wake_device(pc.id(), vec![]).await.is_err());
     }
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_named_terminal_survives_a_disconnect_through_the_agents() {
+    use nexus_terminal::{HostConfig, TerminalHost};
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = TerminalHost::new(HostConfig {
+        default_shell: Some("/bin/sh".into()),
+        ..Default::default()
+    });
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60).with_terminal(host);
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let open = |sid| nexus_proto::v1::OpenTerminal {
+        session_id: sid,
+        cols: 90,
+        rows: 25,
+        name: "work".into(),
+        ..Default::default()
+    };
+    let session = || async {
+        mac.client
+            .open_session(nexus_proto::v1::OpenSession {
+                device_id: pc.id().into(),
+                want_video: false,
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .session_id
+    };
+
+    let sid = session().await;
+    let term = mac.client.open_terminal(open(sid)).await.unwrap().terminal_id;
+    mac.client
+        .terminal_input(term, b"echo via-the-agents; stty size\n".to_vec())
+        .await
+        .unwrap();
+    let mut seen = String::new();
+    while !(seen.contains("via-the-agents") && seen.contains("25 90")) {
+        let ev = tokio::time::timeout(Duration::from_secs(10), mac.events.next())
+            .await
+            .expect("terminal output")
+            .expect("events");
+        if let Some(Ev::TerminalOutput(o)) = ev.body {
+            seen.push_str(&String::from_utf8_lossy(&o.data));
+        }
+    }
+    // Leave without killing the shell.
+    mac.client.close_terminal(term, false).await.unwrap();
+    mac.client.close_session(sid).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Another client may not touch a terminal it does not own.
+    let (other, _ev, _) = IpcClient::connect(mac.agent.ipc_paths(), "other").await.unwrap();
+    assert!(other.terminal_input(term, b"x".to_vec()).await.is_err());
+
+    let sid = session().await;
+    let term2 = mac.client.open_terminal(open(sid)).await.unwrap().terminal_id;
+    let ready = next_matching(&mut mac.events, |ev| match &ev.body {
+        Some(Ev::TerminalReady(r)) if r.terminal_id == term2 => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(ready.reattached, "the shell should have kept running");
+    mac.client.close_terminal(term2, true).await.unwrap();
+    let ended = next_matching(&mut mac.events, |ev| match &ev.body {
+        Some(Ev::TerminalEnded(e)) if e.terminal_id == term2 => Some(e.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(ended.exited || !ended.reason.is_empty());
+    mac.client.close_session(sid).await.unwrap();
+}

@@ -146,6 +146,20 @@ async fn main() -> Result<()> {
             let base = base
                 .with_files(roots, max_upload)
                 .with_wake_relay(nexus.power.wake_relay);
+            let base = if nexus.terminal.enabled {
+                let host = nexus_terminal::TerminalHost::new(nexus_terminal::HostConfig {
+                    allowed_shells: nexus.terminal.shells.clone(),
+                    default_shell: None,
+                    detached_ttl: std::time::Duration::from_secs(
+                        u64::from(nexus.terminal.detached_ttl_hours) * 3600,
+                    ),
+                    max_sessions: nexus.terminal.max_sessions as usize,
+                });
+                host.spawn_reaper();
+                base.with_terminal(host)
+            } else {
+                base
+            };
             let base = if nexus.power.accept_requests {
                 base.with_power(Arc::new(nexus_power::SystemPower))
             } else {

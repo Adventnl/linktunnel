@@ -324,6 +324,32 @@ impl ControllerSession {
         nexus_files::FilesClient::new(self.session.clone())
     }
 
+    /// Opens a terminal on the target (needs the `terminal` grant). Commands go in through the
+    /// returned sender, output and the exit status come out of the receiver.
+    pub async fn terminal(
+        &self,
+        open: nexus_proto::v1::TermOpen,
+    ) -> Result<
+        (
+            mpsc::UnboundedSender<nexus_terminal::TermCmd>,
+            mpsc::Receiver<nexus_terminal::TermEvent>,
+        ),
+        MediaError,
+    > {
+        let stream = self.session.open_stream(StreamKind::Terminal).await?;
+        let io = crate::terminal_io::QuicTerm::new(stream);
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let (ev_tx, ev_rx) = mpsc::channel(256);
+        tokio::spawn(async move {
+            if let Err(e) = nexus_terminal::run_client(io, open, cmd_rx, ev_tx.clone()).await {
+                let _ = ev_tx
+                    .send(nexus_terminal::TermEvent::Failed(e.to_string()))
+                    .await;
+            }
+        });
+        Ok((cmd_tx, ev_rx))
+    }
+
     /// Queues input events, in order. Cheap and non-blocking; the input task batches them.
     pub fn send_input(&self, events: impl IntoIterator<Item = InputEvent>) {
         let now = now_us();

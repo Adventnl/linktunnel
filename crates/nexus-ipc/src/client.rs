@@ -4,14 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use nexus_proto::v1::{
-    CloseSession, ConsentDecision, DeviceList, DirListing, FileEntry, FileList, FileMkdir,
-    FileRemove, FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame,
-    IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel,
-    PairingConfirm, PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport,
-    PowerCommand, SessionInput, SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality,
-    SetLockdown, SetUnattended, Shutdown, Status, TransferStarted, Unpair, WakeDevice,
-    ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
-    ipc_response::Body as Resp,
+    CloseSession, CloseTerminal, ConsentDecision, DeviceList, DirListing, FileEntry, FileList,
+    FileMkdir, FileRemove, FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent,
+    IpcFrame, IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession,
+    OpenTerminal, PairingCancel, PairingConfirm, PairingJoin, PairingOffer, PairingStarted,
+    PingDevice, PingReport, PowerCommand, SessionInput, SessionKeyframe, SessionMonitor,
+    SessionOpened, SessionQuality, SetLockdown, SetUnattended, Shutdown, Status, TerminalInput,
+    TerminalResize, TerminalStarted, TransferStarted, Unpair, WakeDevice, ipc_event::Body as Ev,
+    ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -152,6 +152,12 @@ impl IpcClient {
                                 Ev::SessionVideo(_)
                                     | Ev::SessionCursorShape(_)
                                     | Ev::SessionEnded(_)
+                                    | Ev::TerminalOutput(_)
+                                    | Ev::TerminalReady(_)
+                                    | Ev::TerminalEnded(_)
+                                    | Ev::TransferFinished(_)
+                                    | Ev::ConsentRequest(_)
+                                    | Ev::ConsentResolved(_)
                             )
                         ) {
                             if events_tx.send(e).await.is_err() {
@@ -489,5 +495,46 @@ impl IpcClient {
             via_device_id: via_device_id.into(),
         }))
         .await
+    }
+
+    /// Opens a terminal on the device at the other end of a session. Output arrives as events.
+    pub async fn open_terminal(&self, request: OpenTerminal) -> Result<TerminalStarted, IpcError> {
+        match self
+            .request_with_timeout(Req::OpenTerminal(request), Duration::from_secs(150))
+            .await?
+        {
+            Resp::TerminalStarted(t) => Ok(t),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Keystrokes for a terminal.
+    pub async fn terminal_input(&self, terminal_id: u64, data: Vec<u8>) -> Result<(), IpcError> {
+        self.expect_ack(Req::TerminalInput(TerminalInput {
+            terminal_id,
+            data: data.into(),
+        }))
+        .await
+    }
+
+    /// The terminal window changed size.
+    pub async fn terminal_resize(
+        &self,
+        terminal_id: u64,
+        cols: u32,
+        rows: u32,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::TerminalResize(TerminalResize {
+            terminal_id,
+            cols,
+            rows,
+        }))
+        .await
+    }
+
+    /// Stops using a terminal; with `kill` the shell is ended even if it is persistent.
+    pub async fn close_terminal(&self, terminal_id: u64, kill: bool) -> Result<(), IpcError> {
+        self.expect_ack(Req::CloseTerminal(CloseTerminal { terminal_id, kill }))
+            .await
     }
 }

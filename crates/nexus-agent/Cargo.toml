@@ -23,6 +23,7 @@ getrandom.workspace = true
 hostname = "0.4"
 mac_address = "1"
 nexus-power.workspace = true
+nexus-terminal.workspace = true
 nexus-capture.workspace = true
 nexus-clipboard.workspace = true
 nexus-files.workspace = true

@@ -57,6 +57,34 @@ pub struct NexusConfig {
     pub clipboard: ClipboardConfig,
     /// Remote power control and Wake-on-LAN.
     pub power: PowerConfig,
+    /// Remote terminals.
+    pub terminal: TerminalConfig,
+}
+
+/// Remote shells. Using one also needs the `terminal` grant from the pairing and, unless the
+/// device is pre-authorised, a person's approval.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct TerminalConfig {
+    /// Offer terminals at all.
+    pub enabled: bool,
+    /// Programs a controller may ask for besides the default shell (full paths).
+    pub shells: Vec<String>,
+    /// Hours a persistent terminal is kept after its controller disconnects.
+    pub detached_ttl_hours: u32,
+    /// Most terminals at once.
+    pub max_sessions: u32,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shells: Vec::new(),
+            detached_ttl_hours: 24,
+            max_sessions: 16,
+        }
+    }
 }
 
 /// What other devices may do to this machine's power state, and whether this machine helps wake
@@ -275,6 +303,12 @@ impl NexusConfig {
             return Err(ConfigError::Invalid {
                 key: "security.consent_timeout_secs",
                 reason: "must be between 1 and 600".into(),
+            });
+        }
+        if self.terminal.max_sessions == 0 || self.terminal.detached_ttl_hours == 0 {
+            return Err(ConfigError::Invalid {
+                key: "terminal",
+                reason: "max_sessions and detached_ttl_hours must be at least 1".into(),
             });
         }
         if self.files.max_upload_mib == 0 {
