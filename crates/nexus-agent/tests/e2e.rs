@@ -85,6 +85,10 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         reconnect_max: Duration::from_millis(500),
         publish_loopback_hints: true,
         start_locked_down: false,
+        // The scenarios below are about transport and policy, not prompts; the attended flow
+        // has its own tests.
+        default_consent: nexus_core::config::ConsentMode::Unattended,
+        consent_timeout: Duration::from_secs(30),
     }
 }
 
@@ -99,9 +103,20 @@ async fn start_device_with(
     signal: Option<Url>,
     handler: Arc<dyn nexus_agent::SessionHandler>,
 ) -> Device {
-    let agent = Agent::start(config(name, home, signal), identity(seed), handler)
-        .await
-        .unwrap();
+    start_device_cfg(name, seed, home, signal, handler, |_| {}).await
+}
+
+async fn start_device_cfg(
+    name: &str,
+    seed: u8,
+    home: &std::path::Path,
+    signal: Option<Url>,
+    handler: Arc<dyn nexus_agent::SessionHandler>,
+    tweak: impl FnOnce(&mut AgentConfig),
+) -> Device {
+    let mut cfg = config(name, home, signal);
+    tweak(&mut cfg);
+    let agent = Agent::start(cfg, identity(seed), handler).await.unwrap();
     let (client, events, _welcome) = IpcClient::connect(agent.ipc_paths(), "test").await.unwrap();
     Device {
         agent,
@@ -865,4 +880,204 @@ async fn a_viewer_can_switch_monitors_through_the_agent() {
         })
     ));
     mac.client.close_session(opened.session_id).await.unwrap();
+}
+
+/// A paired MacBook (controller) and a headless PC (target) that shares a folder and asks first.
+async fn attended_pair(
+    dir: &std::path::Path,
+    timeout: Duration,
+) -> (Server, Device, Device, std::path::PathBuf) {
+    use nexus_files::{FileRoots, SharedRoot};
+    let server = Server::start().await;
+    let share = dir.join("share");
+    std::fs::create_dir_all(&share).unwrap();
+    std::fs::write(share.join("a.txt"), b"hello").unwrap();
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60).with_files(
+        FileRoots::new(vec![SharedRoot {
+            path: share.clone(),
+            writable: true,
+        }]),
+        1 << 30,
+    );
+    let mac = start_device("MacBook", 1, &dir.join("a"), Some(server.url())).await;
+    let pc = start_device_cfg(
+        "Windows PC",
+        2,
+        &dir.join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+        |c| {
+            c.default_consent = nexus_core::config::ConsentMode::Attended;
+            c.consent_timeout = timeout;
+        },
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    let (mut mac, mut pc) = (mac, pc);
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+    (server, mac, pc, share)
+}
+
+async fn open_files_session(mac: &Device, pc: &Device) -> u64 {
+    mac.client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .session_id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attended_access_waits_for_a_person_and_honours_yes_and_no() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_server, mac, mut pc, share) = attended_pair(dir.path(), Duration::from_secs(30)).await;
+    let sid = open_files_session(&mac, &pc).await;
+    let want = share.to_str().unwrap().to_owned();
+
+    // Connecting and pinging need no approval.
+    mac.client.ping(ping_request(&pc)).await.unwrap();
+
+    // Listing files does. The PC's local client sees the prompt, says yes.
+    let list = {
+        let (client, want) = (mac.client.clone(), want.clone());
+        tokio::spawn(async move { client.file_list(sid, &want).await })
+    };
+    let req = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(req.peer_name, "MacBook");
+    assert!(req.grants.iter().any(|g| g == "files"));
+    assert!(!list.is_finished(), "the request must wait for the person");
+    pc.client
+        .consent_decision(req.request_id, true, false)
+        .await
+        .unwrap();
+    let listing = list.await.unwrap().unwrap();
+    assert_eq!(listing.entries.len(), 1);
+    // Answering twice is an error, not a second approval.
+    assert!(
+        pc.client
+            .consent_decision(req.request_id, true, false)
+            .await
+            .is_err()
+    );
+
+    // The answer holds for the rest of that session without asking again.
+    mac.client.file_list(sid, &want).await.unwrap();
+    mac.client.close_session(sid).await.unwrap();
+
+    // A new session asks again, and "no" is final for it.
+    let sid = open_files_session(&mac, &pc).await;
+    let list = {
+        let (client, want) = (mac.client.clone(), want.clone());
+        tokio::spawn(async move { client.file_list(sid, &want).await })
+    };
+    let req = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    pc.client
+        .consent_decision(req.request_id, false, false)
+        .await
+        .unwrap();
+    assert!(list.await.unwrap().is_err(), "a refused request must fail");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn always_allow_pre_authorises_the_device_until_it_is_switched_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_server, mac, mut pc, share) = attended_pair(dir.path(), Duration::from_secs(30)).await;
+    let want = share.to_str().unwrap().to_owned();
+    let sid = open_files_session(&mac, &pc).await;
+    let list = {
+        let (client, want) = (mac.client.clone(), want.clone());
+        tokio::spawn(async move { client.file_list(sid, &want).await })
+    };
+    let req = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::ConsentRequest(r)) => Some(r.clone()),
+        _ => None,
+    })
+    .await;
+    pc.client
+        .consent_decision(req.request_id, true, true)
+        .await
+        .unwrap();
+    list.await.unwrap().unwrap();
+    mac.client.close_session(sid).await.unwrap();
+
+    let devices = pc.client.list_devices().await.unwrap().devices;
+    assert!(devices[0].unattended);
+
+    // No prompt any more: nobody answers anything and it still works.
+    let sid = open_files_session(&mac, &pc).await;
+    tokio::time::timeout(Duration::from_secs(5), mac.client.file_list(sid, &want))
+        .await
+        .expect("no prompt expected")
+        .unwrap();
+    mac.client.close_session(sid).await.unwrap();
+
+    // Switching back restores the prompt (and the choice survives in the list view).
+    pc.client.set_unattended(mac.id(), false).await.unwrap();
+    assert!(!pc.client.list_devices().await.unwrap().devices[0].unattended);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unanswered_prompt_expires_and_an_unwatched_machine_refuses_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_server, mac, mut pc, share) = attended_pair(dir.path(), Duration::from_secs(1)).await;
+    let want = share.to_str().unwrap().to_owned();
+
+    // Nobody answers: refused when the timeout passes, and the prompt is withdrawn.
+    let sid = open_files_session(&mac, &pc).await;
+    let started = std::time::Instant::now();
+    let r = mac.client.file_list(sid, &want).await;
+    assert!(r.is_err());
+    assert!(
+        started.elapsed() >= Duration::from_millis(900),
+        "{:?}",
+        started.elapsed()
+    );
+    let resolved = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::ConsentResolved(r)) => Some(*r),
+        _ => None,
+    })
+    .await;
+    assert!(resolved.timed_out && !resolved.allowed);
+    mac.client.close_session(sid).await.ok();
+
+    // With no client connected at the target nobody *can* approve: refuse immediately.
+    let pc_id = pc.id();
+    let Device { client, events, .. } = pc;
+    drop(client);
+    drop(events);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let opened = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc_id.into(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        mac.client
+            .file_list(opened.session_id, &want)
+            .await
+            .is_err()
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(900),
+        "{:?}",
+        started.elapsed()
+    );
 }

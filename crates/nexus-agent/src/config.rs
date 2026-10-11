@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use nexus_core::NexusConfig;
+use nexus_core::config::ConsentMode;
 use nexus_core::paths::Paths;
 use nexus_net::NodeConfig;
 use url::Url;
@@ -25,6 +26,11 @@ pub struct AgentConfig {
     pub publish_loopback_hints: bool,
     /// Start in lockdown regardless of the persisted flag (tests).
     pub start_locked_down: bool,
+    /// Whether a person must approve each session of a paired device that has not been
+    /// pre-authorised (the default for new pairings).
+    pub default_consent: ConsentMode,
+    /// How long that prompt waits before the request is refused.
+    pub consent_timeout: Duration,
 }
 
 impl AgentConfig {
@@ -42,6 +48,8 @@ impl AgentConfig {
             reconnect_max: Duration::from_secs(30),
             publish_loopback_hints: false,
             start_locked_down: cfg.security.lockdown,
+            default_consent: cfg.security.consent,
+            consent_timeout: Duration::from_secs(u64::from(cfg.security.consent_timeout_secs)),
         })
     }
 
@@ -49,6 +57,12 @@ impl AgentConfig {
     #[must_use]
     pub fn trust_file(&self) -> PathBuf {
         self.paths.data_dir.join("trust.json")
+    }
+
+    /// Per-device consent overrides.
+    #[must_use]
+    pub fn policy_file(&self) -> PathBuf {
+        self.paths.data_dir.join("policy.json")
     }
 
     /// Marker file whose presence means "lockdown is on" (survives restarts).

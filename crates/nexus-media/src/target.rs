@@ -70,6 +70,8 @@ pub struct TargetConfig {
     pub files: Option<Arc<nexus_files::FileServer>>,
     /// Clipboard sync for controllers holding the `clipboard` grant; `None` disables it.
     pub clipboard: Option<nexus_clipboard::ClipboardSetup>,
+    /// Consent prompt for attended access; `None` means access is pre-authorised.
+    pub consent: Option<ConsentGate>,
 }
 
 /// A serial bottleneck applied to outgoing video frames.
@@ -110,6 +112,47 @@ pub struct TargetStats {
     pub bitrate_now: AtomicU32,
 }
 
+/// The local person's answer to "may this device use this machine?".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Consent {
+    /// Go ahead.
+    Allowed,
+    /// Someone said no (or nobody was there to say yes).
+    Denied,
+    /// Nobody answered in time.
+    TimedOut,
+}
+
+/// Asked once per session, the first time the controller does something that needs consent
+/// (viewing the screen, sending input, opening a file/clipboard stream). Diagnostics such as
+/// `nexus ping` never trigger it. `None` in the config means "always allowed".
+pub type ConsentGate = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Consent> + Send>> + Send + Sync,
+>;
+
+/// A gate plus its memoised answer for one session.
+#[derive(Clone)]
+struct SessionConsent {
+    gate: Option<ConsentGate>,
+    answer: Arc<tokio::sync::OnceCell<Consent>>,
+}
+
+impl SessionConsent {
+    fn new(gate: Option<ConsentGate>) -> Self {
+        Self {
+            gate,
+            answer: Arc::default(),
+        }
+    }
+
+    async fn check(&self) -> Consent {
+        let Some(gate) = &self.gate else {
+            return Consent::Allowed;
+        };
+        *self.answer.get_or_init(|| gate()).await
+    }
+}
+
 /// Why a target session ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EndReason {
@@ -119,6 +162,8 @@ pub enum EndReason {
     ConnectionLost(String),
     /// Told to stop by the local side.
     Stopped,
+    /// The person at this machine refused (or did not answer).
+    ConsentRefused(Consent),
 }
 
 /// A running video pipeline for one monitor.
@@ -187,6 +232,7 @@ pub async fn serve(
     let can_input = config.grants.contains(grants::INPUT) && config.injector.is_some();
     let can_files = config.grants.contains(grants::FILES) && config.files.is_some();
     let can_clipboard = config.grants.contains(grants::CLIPBOARD) && config.clipboard.is_some();
+    let consent = SessionConsent::new(config.consent.clone());
     info!(
         can_view,
         can_input, can_files, can_clipboard, "remote desktop session started"
@@ -225,9 +271,12 @@ pub async fn serve(
         config.clone(),
         monitors.clone(),
         Arc::clone(&stats),
-        can_input,
-        can_files,
-        can_clipboard,
+        StreamAccess {
+            input: can_input,
+            files: can_files,
+            clipboard: can_clipboard,
+        },
+        consent.clone(),
     )));
     // Diagnostics datagram echo, until video starts (after that datagrams carry the cursor).
     let video_active = Arc::new(AtomicBool::new(false));
@@ -251,6 +300,9 @@ pub async fn serve(
                     Some(Body::StartVideo(req)) if !can_view => {
                         let _ = out_tx.send(error_reply(msg.id, ErrorCode::PermissionDenied, "screen viewing is not granted"));
                         debug!(?req.monitor, "StartVideo refused: no screen grant");
+                    }
+                    Some(Body::StartVideo(_)) if consent.check().await != Consent::Allowed => {
+                        break EndReason::ConsentRefused(consent.check().await);
                     }
                     Some(Body::StartVideo(req)) => {
                         let id = msg.id;
@@ -333,9 +385,23 @@ pub async fn serve(
     if let Some(t) = cursor_task {
         t.abort();
     }
-    let _ = control
-        .send(&goodbye(GoodbyeReason::Unspecified, "session ended"))
-        .await;
+    let bye = match &reason {
+        EndReason::ConsentRefused(Consent::TimedOut) => goodbye(
+            GoodbyeReason::ConsentTimeout,
+            "nobody approved the request in time",
+        ),
+        EndReason::ConsentRefused(_) => {
+            goodbye(GoodbyeReason::ConsentDenied, "the request was not approved")
+        }
+        _ => goodbye(GoodbyeReason::Unspecified, "session ended"),
+    };
+    let _ = control.send(&bye).await;
+    let _ = control.finish();
+    if !matches!(reason, EndReason::ConnectionLost(_)) {
+        // Dropping the session closes the connection at once and would discard the goodbye still
+        // in flight: give the peer a moment to read it and close first.
+        let _ = tokio::time::timeout(Duration::from_millis(500), &mut closed).await;
+    }
     for t in tasks {
         t.abort();
     }
@@ -945,6 +1011,14 @@ async fn cursor_loop(
     stop.store(true, Ordering::Relaxed);
 }
 
+/// Which stream kinds the controller's grants allow.
+#[derive(Debug, Clone, Copy)]
+struct StreamAccess {
+    input: bool,
+    files: bool,
+    clipboard: bool,
+}
+
 /// Accepts streams the controller opens until the session ends: input (each stream gets its own
 /// injector so a reconnecting controller never inherits another connection's held keys) and
 /// diagnostics. Anything else is closed unread.
@@ -953,10 +1027,14 @@ async fn accept_streams(
     config: TargetConfig,
     monitors: Vec<MonitorInfo>,
     stats: Arc<TargetStats>,
-    can_input: bool,
-    can_files: bool,
-    can_clipboard: bool,
+    access: StreamAccess,
+    consent: SessionConsent,
 ) {
+    let StreamAccess {
+        input: can_input,
+        files: can_files,
+        clipboard: can_clipboard,
+    } = access;
     loop {
         let Ok((kind, stream)) = session.accept_stream().await else {
             return;
@@ -969,13 +1047,6 @@ async fn accept_streams(
                 let Some(factory) = config.injector.clone() else {
                     continue;
                 };
-                let injector = match factory() {
-                    Ok(i) => i,
-                    Err(e) => {
-                        warn!(error = %e, "input injection unavailable; session is view-only");
-                        continue;
-                    }
-                };
                 let rects: Vec<MonitorRect> = monitors
                     .iter()
                     .map(|m| MonitorRect {
@@ -987,18 +1058,30 @@ async fn accept_streams(
                         scale: m.scale,
                     })
                     .collect();
-                tokio::spawn(run_input_stream(
-                    stream,
-                    injector,
-                    rects,
-                    Arc::clone(&stats),
-                ));
+                let (consent, stats) = (consent.clone(), Arc::clone(&stats));
+                tokio::spawn(async move {
+                    if consent.check().await != Consent::Allowed {
+                        return;
+                    }
+                    // Each stream gets its own injector so a reconnecting controller never
+                    // inherits another connection's held keys.
+                    match factory() {
+                        Ok(injector) => run_input_stream(stream, injector, rects, stats).await,
+                        Err(e) => {
+                            warn!(error = %e, "input injection unavailable; session is view-only");
+                        }
+                    }
+                });
             }
             StreamKind::Files if can_files => {
                 let Some(server) = config.files.clone() else {
                     continue;
                 };
+                let consent = consent.clone();
                 tokio::spawn(async move {
+                    if consent.check().await != Consent::Allowed {
+                        return;
+                    }
                     let mut io = nexus_files::framed(stream);
                     if let Err(e) = server.serve(&mut io).await {
                         debug!(error = %e, "file operation ended with an error");
@@ -1016,7 +1099,11 @@ async fn accept_streams(
                         continue;
                     }
                 };
+                let consent = consent.clone();
                 tokio::spawn(async move {
+                    if consent.check().await != Consent::Allowed {
+                        return;
+                    }
                     let io = FramedStream::new(stream, nexus_proto::framing::MAX_BULK_FRAME);
                     if let Err(e) = nexus_clipboard::run(backend, io, setup.policy).await {
                         debug!(error = %e, "clipboard sync ended");

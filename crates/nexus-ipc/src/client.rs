@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use nexus_proto::v1::{
-    CloseSession, DeviceList, DirListing, FileEntry, FileList, FileMkdir, FileRemove,
-    FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello,
-    IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel, PairingConfirm,
-    PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport, SessionInput,
-    SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality, SetLockdown, Shutdown, Status,
-    TransferStarted, Unpair, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
-    ipc_response::Body as Resp,
+    CloseSession, ConsentDecision, DeviceList, DirListing, FileEntry, FileList, FileMkdir,
+    FileRemove, FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame,
+    IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel,
+    PairingConfirm, PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport,
+    SessionInput, SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality, SetLockdown,
+    SetUnattended, Shutdown, Status, TransferStarted, Unpair, ipc_event::Body as Ev,
+    ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -27,9 +27,14 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 type Pending = Arc<SyncMutex<HashMap<u64, oneshot::Sender<IpcResponse>>>>;
 
+/// Held by every [`IpcClient`] clone and the [`EventReceiver`]; when the last one is dropped the
+/// connection is closed, so a forgotten client does not stay "connected" to the agent (which
+/// would, for instance, make it believe someone is there to answer an access prompt).
+type Alive = mpsc::Sender<()>;
+
 /// Receiver of pushed [`IpcEvent`]s.
 #[derive(Debug)]
-pub struct EventReceiver(mpsc::Receiver<IpcEvent>);
+pub struct EventReceiver(mpsc::Receiver<IpcEvent>, #[allow(dead_code)] Alive);
 
 impl EventReceiver {
     /// Next event; `None` once the agent connection is gone.
@@ -41,6 +46,7 @@ impl EventReceiver {
 /// A connection to the local agent.
 #[derive(Clone)]
 pub struct IpcClient {
+    _alive: Alive,
     writer: Arc<Mutex<IpcWriter>>,
     pending: Pending,
     next_id: Arc<AtomicU64>,
@@ -116,9 +122,18 @@ impl IpcClient {
         let (mut reader, writer) = conn.split();
         let pending: Pending = Arc::default();
         let (events_tx, events_rx) = mpsc::channel(256);
+        let (alive_tx, mut alive_rx) = mpsc::channel::<()>(1);
         let pending_for_reader = Arc::clone(&pending);
         tokio::spawn(async move {
-            while let Ok(Some(frame)) = reader.recv().await {
+            loop {
+                let frame = tokio::select! {
+                    frame = reader.recv() => match frame {
+                        Ok(Some(f)) => f,
+                        _ => break,
+                    },
+                    // Every handle was dropped: hang up.
+                    None = alive_rx.recv() => break,
+                };
                 match frame.body {
                     Some(F::Response(r)) => {
                         if let Some(tx) = pending_for_reader.lock().remove(&r.in_reply_to) {
@@ -155,11 +170,12 @@ impl IpcClient {
 
         Ok((
             Self {
+                _alive: alive_tx.clone(),
                 writer: Arc::new(Mutex::new(writer)),
                 pending,
                 next_id: Arc::new(AtomicU64::new(1)),
             },
-            EventReceiver(events_rx),
+            EventReceiver(events_rx, alive_tx),
             welcome,
         ))
     }
@@ -408,6 +424,34 @@ impl IpcClient {
         self.expect_ack(Req::SessionMonitor(SessionMonitor {
             session_id,
             monitor,
+        }))
+        .await
+    }
+
+    /// Answers an attended-access prompt.
+    pub async fn consent_decision(
+        &self,
+        request_id: u64,
+        allow: bool,
+        remember: bool,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::ConsentDecision(ConsentDecision {
+            request_id,
+            allow,
+            remember,
+        }))
+        .await
+    }
+
+    /// Pre-authorises (or stops pre-authorising) a paired device.
+    pub async fn set_unattended(
+        &self,
+        device_id: Vec<u8>,
+        unattended: bool,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::SetUnattended(SetUnattended {
+            device_id: device_id.into(),
+            unattended,
         }))
         .await
     }

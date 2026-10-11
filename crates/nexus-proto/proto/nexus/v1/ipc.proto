@@ -60,6 +60,8 @@ message IpcRequest {
     FileMkdir file_mkdir = 32;
     FileRemove file_remove = 33;
     FileTransfer file_transfer = 34;
+    ConsentDecision consent_decision = 40;
+    SetUnattended set_unattended = 41;
   }
 }
 
@@ -175,6 +177,8 @@ message DeviceView {
   string active_user = 10;
   uint32 battery_percent = 11;
   string fingerprint = 12;
+  // True if this device may use this one without a person approving each session.
+  bool unattended = 13;
 }
 
 message DeviceList {
@@ -224,6 +228,8 @@ message IpcEvent {
     TransferProgress transfer_progress = 10;
     TransferFinished transfer_finished = 11;
     SessionMonitorChanged session_monitor_changed = 12;
+    ConsentRequest consent_request = 13;
+    ConsentResolved consent_resolved = 14;
   }
 }
 
@@ -402,4 +408,41 @@ message TransferFinished {
   bytes blake3 = 6;
   // Non-zero if a partial copy was continued.
   uint64 resumed_from = 7;
+}
+
+// ----- attended access ---------------------------------------------------------------------
+//
+// When a paired device starts using this one (first screen/input/file/clipboard request of a
+// session) and it is not pre-authorised, every connected IPC client receives a ConsentRequest.
+// Any one of them answers with ConsentDecision; the rest get ConsentResolved so they can dismiss
+// their prompt. No answer within the timeout, or nobody connected to answer, means "no".
+
+message ConsentRequest {
+  uint64 request_id = 1;
+  bytes peer_device_id = 2;
+  string peer_name = 3;
+  string peer_fingerprint = 4;
+  // What the peer is allowed to do on this device if you say yes.
+  repeated string grants = 5;
+  uint32 timeout_secs = 6;
+  PathKind path = 7;
+}
+
+message ConsentDecision {
+  uint64 request_id = 1;
+  bool allow = 2;
+  // Also stop asking for this device in future ("always allow").
+  bool remember = 3;
+}
+
+message ConsentResolved {
+  uint64 request_id = 1;
+  bool allowed = 2;
+  bool timed_out = 3;
+}
+
+// Pre-authorise (or stop pre-authorising) one paired device.
+message SetUnattended {
+  bytes device_id = 1;
+  bool unattended = 2;
 }

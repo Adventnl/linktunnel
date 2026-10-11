@@ -7,6 +7,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod agent_cmds;
+mod consent_cmds;
 mod files_cmds;
 mod identity_cmd;
 mod remote_cmds;
@@ -114,6 +115,11 @@ enum Command {
         #[arg(short, long)]
         recursive: bool,
     },
+    /// Answer "may this device use me?" prompts in this terminal.
+    Consent,
+    /// Choose which paired devices may use this one without asking.
+    #[command(subcommand)]
+    Trust(consent_cmds::TrustCommand),
     /// Turn the emergency lockdown switch on or off.
     #[command(subcommand)]
     Lockdown(agent_cmds::LockdownCommand),
@@ -196,6 +202,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Consent => consent_cmds::watch(&ctx).await,
+        Command::Trust(cmd) => consent_cmds::trust(&ctx, cmd).await,
         Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,
         Command::Stop => agent_cmds::stop(&ctx).await,
     }

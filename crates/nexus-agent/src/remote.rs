@@ -173,6 +173,7 @@ impl SessionHandler for RemoteHandler {
             egress: None,
             files: self.files.clone(),
             clipboard: self.clipboard.clone(),
+            consent: crate::consent::gate(&ctx.shared, &ctx.peer, ctx.session.path().kind),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

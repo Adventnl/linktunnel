@@ -196,18 +196,27 @@ pub async fn devices(ctx: &AppContext) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
     println!(
-        "{:<22} {:<26} {:<10} {}",
+        "{:<22} {:<26} {:<10} {:<12} {}",
         tr(l, "cli.devices.col_name"),
         tr(l, "cli.devices.col_state"),
         tr(l, "cli.devices.col_path"),
+        tr(l, "cli.devices.col_access"),
         tr(l, "cli.devices.col_id")
     );
     for d in &list.devices {
         println!(
-            "{:<22} {:<26} {:<10} {}",
+            "{:<22} {:<26} {:<10} {:<12} {}",
             d.name,
             state_label(l, d.state, d.online),
             path_label(l, d.path),
+            tr(
+                l,
+                if d.unattended {
+                    "cli.devices.unattended"
+                } else {
+                    "cli.devices.attended"
+                }
+            ),
             short_id(&d.device_id)
         );
     }

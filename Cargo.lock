@@ -3350,6 +3350,8 @@ dependencies = [
  "nexus-trust",
  "os_info",
  "parking_lot",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

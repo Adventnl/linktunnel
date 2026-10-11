@@ -5,11 +5,13 @@
 #![forbid(unsafe_code)]
 
 mod config;
+mod consent;
 mod devices;
 mod error;
 mod files_bridge;
 mod ipc_server;
 mod pairing;
+mod policy;
 mod remote;
 mod sessions;
 mod state;
@@ -87,6 +89,8 @@ impl Agent {
         let ipc_paths = IpcPaths::in_dir(&config.paths.runtime_dir);
         let ipc = IpcServer::bind(ipc_paths.clone()).await?;
 
+        let policy_file = config.policy_file();
+        let default_consent = config.default_consent;
         let (events, _) = broadcast::channel(256);
         let (shutdown, _) = watch::channel(false);
         let shared = Arc::new(Shared {
@@ -105,6 +109,9 @@ impl Agent {
             next_pairing_id: AtomicU64::new(1),
             viewers: Mutex::default(),
             next_viewer_id: AtomicU64::new(1),
+            policy: Mutex::new(policy::PolicyStore::load(policy_file, default_consent)),
+            consents: Mutex::default(),
+            next_consent_id: AtomicU64::new(1),
             started: Instant::now(),
         });
         info!(device = %shared.identity.device_id(), locked, "agent starting");

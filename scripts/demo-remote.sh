@@ -54,6 +54,9 @@ CODE="$(sed -n 's/.*nexus pair join "\(.*\)".*/\1/p' "$WORK/offer.out" | head -n
 cli "$A" pair join "$CODE" --assume-words-match
 sleep 2
 
+say "The demo PC has nobody at it, so it pre-authorises the Mac (otherwise it would ask first)"
+cli "$B" trust unattended "MacBook"
+
 say "Monitors on the PC, as the Mac sees them"
 cli "$A" remote monitors "Windows PC"
 

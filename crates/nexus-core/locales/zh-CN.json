@@ -82,5 +82,16 @@
   "cli.files.failed": "传输失败：{reason}",
   "cli.files.need_remote": "必须恰有一端位于设备上，写作 设备:路径",
   "cli.files.removed": "已删除。",
-  "cli.files.created": "已创建。"
+  "cli.files.created": "已创建。",
+  "cli.devices.col_access": "访问",
+  "cli.devices.unattended": "免确认",
+  "cli.devices.attended": "需确认",
+  "cli.consent.waiting": "正在等待访问请求。按 Ctrl-C 停止。",
+  "cli.consent.prompt": "{name}（{fingerprint}）请求使用本设备：{grants}。\\n是否允许？[y] 仅此次 / [a] 始终允许 / [n] 拒绝（{secs} 秒后自动拒绝）：",
+  "cli.consent.allowed": "已允许。",
+  "cli.consent.denied": "已拒绝。",
+  "cli.consent.remembered": "已允许，今后不再询问 {name}。",
+  "cli.consent.expired": "该请求已被处理或已超时。",
+  "cli.trust.unattended_on": "{name} 今后可无需确认直接使用本设备。",
+  "cli.trust.unattended_off": "今后 {name} 使用本设备前需先经你确认。"
 }

@@ -48,6 +48,9 @@ pub struct Shared {
     pub(crate) next_pairing_id: AtomicU64,
     pub(crate) viewers: Mutex<std::collections::HashMap<u64, crate::viewer_bridge::ViewerEntry>>,
     pub(crate) next_viewer_id: AtomicU64,
+    pub(crate) policy: Mutex<crate::policy::PolicyStore>,
+    pub(crate) consents: Mutex<std::collections::HashMap<u64, crate::consent::Pending>>,
+    pub(crate) next_consent_id: AtomicU64,
     pub(crate) started: Instant,
 }
 
@@ -83,7 +86,15 @@ impl Shared {
     pub(crate) fn device_views(&self) -> Vec<DeviceView> {
         let trust = self.trust.lock();
         let devices = self.devices.lock();
-        let mut views: Vec<DeviceView> = trust.peers().map(|p| devices.view(p)).collect();
+        let policy = self.policy.lock();
+        let mut views: Vec<DeviceView> = trust
+            .peers()
+            .map(|p| {
+                let mut v = devices.view(p);
+                v.unattended = policy.is_unattended(&p.identity.ed25519_bytes());
+                v
+            })
+            .collect();
         views.sort_by_key(|v| v.name.to_lowercase());
         views
     }
@@ -93,7 +104,12 @@ impl Shared {
         let view = {
             let trust = self.trust.lock();
             let devices = self.devices.lock();
-            trust.get(key).map(|p| devices.view(p))
+            let unattended = self.policy.lock().is_unattended(key);
+            trust.get(key).map(|p| {
+                let mut v = devices.view(p);
+                v.unattended = unattended;
+                v
+            })
         };
         if let Some(device) = view {
             self.emit(Ev::DeviceChanged(nexus_proto::v1::DeviceChanged {

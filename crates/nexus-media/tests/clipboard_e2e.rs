@@ -55,6 +55,7 @@ async fn rig(
         egress: None,
         files: None,
         clipboard: Some(setup(target_clip)),
+        consent: None,
     };
     tokio::spawn(target::serve(
         b_session,

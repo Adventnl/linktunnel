@@ -82,5 +82,16 @@
   "cli.files.failed": "Transfer failed: {reason}",
   "cli.files.need_remote": "Exactly one side must be on a device, written as DEVICE:PATH",
   "cli.files.removed": "Removed.",
-  "cli.files.created": "Created."
+  "cli.files.created": "Created.",
+  "cli.devices.col_access": "ACCESS",
+  "cli.devices.unattended": "unattended",
+  "cli.devices.attended": "asks first",
+  "cli.consent.waiting": "Waiting for access requests. Press Ctrl-C to stop.",
+  "cli.consent.prompt": "{name} ({fingerprint}) wants to use this device: {grants}.\\nAllow? [y]es once / [a]lways / [n]o (auto-deny in {secs}s): ",
+  "cli.consent.allowed": "Allowed.",
+  "cli.consent.denied": "Denied.",
+  "cli.consent.remembered": "Allowed, and {name} will not be asked again.",
+  "cli.consent.expired": "That request has already been answered or timed out.",
+  "cli.trust.unattended_on": "{name} can now use this device without asking.",
+  "cli.trust.unattended_off": "{name} will be asked about first from now on."
 }

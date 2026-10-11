@@ -36,6 +36,8 @@ nexus-signal-client.workspace = true
 nexus-trust.workspace = true
 os_info = { version = "3", default-features = false }
 parking_lot = "0.12"
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

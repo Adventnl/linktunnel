@@ -16,6 +16,7 @@ use nexus_trust::revocation;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
 
+use crate::consent;
 use crate::error::AgentError;
 use crate::files_bridge;
 use crate::pairing;
@@ -208,6 +209,14 @@ async fn dispatch(
             Ok(ack)
         }
         Req::FileTransfer(r) => files_bridge::transfer(shared, ctx, r).map(Resp::TransferStarted),
+        Req::ConsentDecision(d) => {
+            consent::decide(shared, d)?;
+            Ok(ack)
+        }
+        Req::SetUnattended(s) => {
+            consent::set_unattended(shared, &s.device_id, s.unattended)?;
+            Ok(ack)
+        }
         Req::Shutdown(_) => {
             info!("shutdown requested over IPC");
             let _ = shared.shutdown.send(true);
@@ -226,6 +235,7 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
     shared.trust.lock().revoke(&key, now)?;
     shared.node.allow_list().revoke(&key); // closes live sessions with that device
     shared.devices.lock().remove(&key);
+    shared.policy.lock().forget(&key);
     shared.emit(Ev::DeviceRemoved(nexus_proto::v1::DeviceRemoved {
         device_id: device_id.to_vec().into(),
     }));

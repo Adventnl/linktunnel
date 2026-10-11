@@ -93,6 +93,7 @@ impl DeviceTable {
             active_user: info.map(|i| i.active_user.clone()).unwrap_or_default(),
             battery_percent: info.map_or(255, |i| i.battery_percent),
             fingerprint: peer.identity.fingerprint().to_string(),
+            unattended: false,
         }
     }
 }
