@@ -60,6 +60,9 @@ pub enum RemoteCommand {
         /// Do not share the clipboard with the device.
         #[arg(long)]
         no_clipboard: bool,
+        /// Do not swap ⌘ and Ctrl between a Mac and a PC.
+        #[arg(long)]
+        no_key_remap: bool,
     },
     /// List a paired device's monitors.
     Monitors {
@@ -174,7 +177,18 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
             mbps,
             view_only,
             no_clipboard,
-        } => view(ctx, &device, monitor, fps, mbps, view_only, !no_clipboard).await,
+            no_key_remap,
+        } => {
+            let flags = ViewFlags {
+                monitor,
+                fps,
+                mbps,
+                view_only,
+                clipboard: !no_clipboard,
+                key_remap: !no_key_remap,
+            };
+            view(ctx, &device, flags).await
+        }
         RemoteCommand::Monitors { device } => monitors(ctx, &device).await,
         RemoteCommand::Type { device, text } => {
             let live = open(ctx, &device, 0, false).await?;
@@ -243,15 +257,17 @@ async fn finish(ctx: &AppContext, live: Live) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-async fn view(
-    ctx: &AppContext,
-    query: &str,
+/// What `nexus remote view` was asked for.
+struct ViewFlags {
     monitor: u32,
     fps: u32,
     mbps: u32,
     view_only: bool,
     clipboard: bool,
-) -> Result<ExitCode> {
+    key_remap: bool,
+}
+
+async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCode> {
     let client = crate::agent_cmds::connect(ctx).await?;
     let devices = client.list_devices().await?.devices;
     let device = resolve(ctx.locale, &devices, query)?;
@@ -260,11 +276,12 @@ async fn view(
         ipc: nexus_ipc::IpcPaths::in_dir(&ctx.paths.runtime_dir),
         device_id: device.device_id.to_vec(),
         device_name: device.name.clone(),
-        monitor,
-        max_fps: fps,
-        bitrate_bps: mbps.saturating_mul(1_000_000),
-        view_only,
-        clipboard,
+        monitor: flags.monitor,
+        max_fps: flags.fps,
+        bitrate_bps: flags.mbps.saturating_mul(1_000_000),
+        view_only: flags.view_only,
+        clipboard: flags.clipboard,
+        key_remap: flags.key_remap,
     };
     // The window owns the main thread; it runs its own network thread.
     let reason = tokio::task::block_in_place(|| nexus_render::run(options))

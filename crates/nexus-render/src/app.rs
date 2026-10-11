@@ -42,6 +42,9 @@ struct App {
     last_pos: Option<PhysicalPosition<f64>>,
     /// Native size of the viewed monitor (pointer coordinates are in these pixels).
     native: Option<(u32, u32)>,
+    /// The monitor being viewed, and how many there are.
+    monitor: u32,
+    monitor_count: u32,
 }
 
 /// Opens the viewer window and runs until it closes. Returns why the session ended.
@@ -54,6 +57,7 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
     let handle = spawn(options.clone(), move |ev| {
         let _ = proxy.send_event(ev);
     });
+    let initial_monitor = options.monitor;
     let mut app = App {
         options,
         commands: handle.commands,
@@ -75,6 +79,8 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         exit_reason: None,
         last_pos: None,
         native: None,
+        monitor: initial_monitor,
+        monitor_count: 1,
     };
     event_loop
         .run_app(&mut app)
@@ -215,8 +221,10 @@ impl ApplicationHandler<UiEvent> for App {
                 height,
                 encoder,
                 native,
+                monitors,
             } => {
                 self.native = Some(native);
+                self.monitor_count = monitors.max(1);
                 tracing::info!(width, height, %encoder, "viewer connected");
                 if let Some(w) = &self.window {
                     // Open at the remote size when it fits a typical display, else a sensible window.
@@ -225,6 +233,12 @@ impl ApplicationHandler<UiEvent> for App {
                         f64::from(height.min(1000)),
                     ));
                 }
+            }
+            UiEvent::MonitorChanged { monitor, native } => {
+                self.monitor = monitor;
+                self.native = Some(native);
+                // The previous monitor's cursor bitmap and picture are meaningless now.
+                self.picture = None;
             }
             UiEvent::Picture(pic) => {
                 self.picture = Some(*pic);
@@ -312,8 +326,14 @@ impl ApplicationHandler<UiEvent> for App {
                 // Local hotkeys (Ctrl+Alt+Shift+…): never forwarded.
                 let local = self.mods.control_key() && self.mods.alt_key() && self.mods.shift_key();
                 if pressed && local {
-                    use winit::keyboard::KeyCode::{KeyF, KeyP, KeyQ};
+                    use winit::keyboard::KeyCode::{KeyF, KeyM, KeyP, KeyQ};
                     match code {
+                        KeyM if self.monitor_count > 1 => {
+                            self.send(InputEvent::ReleaseAll);
+                            let next = (self.monitor + 1) % self.monitor_count;
+                            let _ = self.commands.send(Command::SwitchMonitor(next));
+                            return;
+                        }
                         KeyQ => {
                             self.send(InputEvent::ReleaseAll);
                             let _ = self.commands.send(Command::Quit);
@@ -382,7 +402,7 @@ impl ApplicationHandler<UiEvent> for App {
                     {
                         // The picture may be a scaled-down version of the monitor.
                         let (x, y) = layout::to_native((px, py), size, self.native);
-                        let monitor = u8::try_from(self.options.monitor).unwrap_or(0);
+                        let monitor = u8::try_from(self.monitor).unwrap_or(0);
                         self.send(InputEvent::MouseMoveAbs { monitor, x, y });
                     }
                 }

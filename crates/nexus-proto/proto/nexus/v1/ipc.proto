@@ -54,6 +54,7 @@ message IpcRequest {
     SessionInput session_input = 22;
     SessionKeyframe session_keyframe = 23;
     SessionQuality session_quality = 24;
+    SessionMonitor session_monitor = 25;
     FileList file_list = 30;
     FileStatRequest file_stat = 31;
     FileMkdir file_mkdir = 32;
@@ -222,6 +223,7 @@ message IpcEvent {
     SessionEnded session_ended = 9;
     TransferProgress transfer_progress = 10;
     TransferFinished transfer_finished = 11;
+    SessionMonitorChanged session_monitor_changed = 12;
   }
 }
 
@@ -271,6 +273,9 @@ message OpenSession {
   bool want_video = 5;
   // Keep the two clipboards in sync for this session (needs the `clipboard` grant on the peer).
   bool clipboard = 6;
+  // "auto" swaps Command and Ctrl between a Mac and a PC (for a person typing on this machine);
+  // empty sends keys exactly as given (scripted use).
+  string key_remap = 7;
 }
 
 message CloseSession {
@@ -292,6 +297,24 @@ message SessionQuality {
   uint32 bitrate_bps = 2;
   uint32 fps = 3;
   uint32 scale_percent = 4;
+}
+
+// Switch which monitor of the target a session shows.
+message SessionMonitor {
+  uint64 session_id = 1;
+  uint32 monitor = 2;
+}
+
+// The target started streaming a monitor (at session start, or after `SessionMonitor`).
+message SessionMonitorChanged {
+  uint64 session_id = 1;
+  uint32 monitor = 2;
+  // Size of the video that follows (may be scaled down by the quality ladder).
+  uint32 width = 3;
+  uint32 height = 4;
+  // The monitor's real size: pointer coordinates are in these pixels.
+  uint32 native_width = 5;
+  uint32 native_height = 6;
 }
 
 message SessionOpened {

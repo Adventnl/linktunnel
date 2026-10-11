@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use nexus_proto::wire::input::{InputEvent, PAGE_KEYBOARD};
+use nexus_proto::v1::OsFamily;
+use nexus_proto::wire::input::{InputEvent, Modifiers, PAGE_KEYBOARD};
 
 const CTRL_L: u16 = 0xE0;
 const ALT_L: u16 = 0xE2;
@@ -74,22 +75,60 @@ impl KeyRemap {
         self
     }
 
+    /// The sensible default for a controller running `controller` driving a `target`: a Mac
+    /// keyboard on a PC (or the reverse) swaps ⌘ and Ctrl so shortcuts keep their muscle memory;
+    /// every other pairing is left alone.
+    #[must_use]
+    pub fn auto(controller: OsFamily, target: OsFamily) -> Self {
+        use OsFamily::{Linux, Macos, Windows};
+        match (controller, target) {
+            (Macos, Windows | Linux) => Self::mac_to_pc(),
+            (Windows | Linux, Macos) => Self::pc_to_mac(),
+            _ => Self::identity(),
+        }
+    }
+
     /// The usage to send for `usage`.
     #[must_use]
     pub fn apply_usage(&self, usage: u16) -> u16 {
         self.map.get(&usage).copied().unwrap_or(usage)
     }
 
-    /// Rewrites keyboard events in place.
+    /// Rewrites keyboard events in place: the key itself and the modifier state it carries.
     pub fn apply(&self, event: &mut InputEvent) {
         if let InputEvent::Key {
             page: PAGE_KEYBOARD,
             usage,
+            modifiers,
             ..
         } = event
         {
             *usage = self.apply_usage(*usage);
+            *modifiers = self.apply_modifiers(*modifiers);
         }
+    }
+
+    /// Maps a modifier set through the table (Ctrl→Meta etc.).
+    #[must_use]
+    pub fn apply_modifiers(&self, m: Modifiers) -> Modifiers {
+        // Each logical modifier goes where its left key goes.
+        let target_bit = |usage: u16| match self.apply_usage(usage) {
+            CTRL_L | CTRL_R => Modifiers::CTRL,
+            ALT_L | ALT_R => Modifiers::ALT,
+            META_L | META_R => Modifiers::META,
+            _ => Modifiers(0),
+        };
+        let mut out = Modifiers(m.0 & !(Modifiers::CTRL.0 | Modifiers::ALT.0 | Modifiers::META.0));
+        for (bit, usage) in [
+            (Modifiers::CTRL, CTRL_L),
+            (Modifiers::ALT, ALT_L),
+            (Modifiers::META, META_L),
+        ] {
+            if m.contains(bit) {
+                out = out.with(target_bit(usage));
+            }
+        }
+        out
     }
 
     /// True when nothing is remapped.
@@ -132,6 +171,46 @@ mod tests {
         let mut kb = key(PAGE_KEYBOARD, META_L);
         r.apply(&mut kb);
         assert_eq!(kb, key(PAGE_KEYBOARD, CTRL_L));
+    }
+
+    #[test]
+    fn modifier_state_follows_the_keys() {
+        let r = KeyRemap::mac_to_pc();
+        let mut e = InputEvent::Key {
+            page: PAGE_KEYBOARD,
+            usage: 0x06, // C
+            state: KeyState::Down,
+            modifiers: Modifiers::META.with(Modifiers::SHIFT),
+        };
+        r.apply(&mut e);
+        assert_eq!(
+            e,
+            InputEvent::Key {
+                page: PAGE_KEYBOARD,
+                usage: 0x06,
+                state: KeyState::Down,
+                modifiers: Modifiers::CTRL.with(Modifiers::SHIFT),
+            }
+        );
+        assert_eq!(
+            r.apply_modifiers(Modifiers::CTRL.with(Modifiers::ALT)),
+            Modifiers::META.with(Modifiers::ALT)
+        );
+        assert_eq!(
+            KeyRemap::identity().apply_modifiers(Modifiers::CTRL),
+            Modifiers::CTRL
+        );
+    }
+
+    #[test]
+    fn the_default_depends_on_the_os_pair() {
+        use OsFamily::{Linux, Macos, Windows};
+        assert_eq!(KeyRemap::auto(Macos, Windows), KeyRemap::mac_to_pc());
+        assert_eq!(KeyRemap::auto(Macos, Linux), KeyRemap::mac_to_pc());
+        assert_eq!(KeyRemap::auto(Windows, Macos), KeyRemap::pc_to_mac());
+        assert!(KeyRemap::auto(Windows, Linux).is_identity());
+        assert!(KeyRemap::auto(Macos, Macos).is_identity());
+        assert!(KeyRemap::auto(Linux, Windows).is_identity());
     }
 
     #[test]

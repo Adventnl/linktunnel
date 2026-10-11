@@ -63,6 +63,8 @@ pub struct ControllerOptions {
     pub max_bitrate_bps: u32,
     /// Keep this side's clipboard in sync with the target's (needs the `clipboard` grant).
     pub clipboard: Option<nexus_clipboard::ClipboardSetup>,
+    /// Key substitution applied to input before it is sent (⌘ ↔ Ctrl between a Mac and a PC).
+    pub key_remap: nexus_input::remap::KeyRemap,
 }
 
 impl Default for ControllerOptions {
@@ -78,6 +80,7 @@ impl Default for ControllerOptions {
             min_bitrate_bps: 300_000,
             max_bitrate_bps: 50_000_000,
             clipboard: None,
+            key_remap: nexus_input::remap::KeyRemap::identity(),
         }
     }
 }
@@ -181,15 +184,28 @@ enum Command {
     Control(ControlMessage),
 }
 
+/// Tells the reorder task why it should forget what it has.
+#[derive(Debug, Clone, Copy)]
+enum Resync {
+    /// The decoder choked: skip to the next keyframe.
+    Desync,
+    /// A different monitor is being streamed: sequence numbers start over.
+    NewMonitor,
+}
+
 /// A live controller session.
 #[derive(Debug, Clone)]
 pub struct ControllerSession {
     session: Session,
     commands: mpsc::UnboundedSender<Command>,
-    desync: mpsc::UnboundedSender<()>,
+    desync: mpsc::UnboundedSender<Resync>,
     input: mpsc::UnboundedSender<(u64, InputEvent)>,
     stats: Arc<ControllerStats>,
-    monitor: u32,
+    /// The monitor being viewed; changes with [`switch_monitor`](Self::switch_monitor).
+    monitor: Arc<AtomicU32>,
+    /// What video was asked for, repeated when the monitor changes.
+    video: Option<StartVideo>,
+    key_remap: Arc<nexus_input::remap::KeyRemap>,
 }
 
 impl ControllerSession {
@@ -206,20 +222,22 @@ impl ControllerSession {
         let (commands_tx, commands_rx) = mpsc::unbounded_channel();
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (frames_tx, frames_rx) = mpsc::unbounded_channel::<VideoFrame>();
-        let (desync_tx, desync_rx) = mpsc::unbounded_channel::<()>();
+        let (desync_tx, desync_rx) = mpsc::unbounded_channel::<Resync>();
+        let monitor = Arc::new(AtomicU32::new(options.monitor));
         let (arrivals_tx, arrivals_rx) = mpsc::unbounded_channel::<FrameArrival>();
 
-        if options.want_video {
+        let video = options.want_video.then(|| StartVideo {
+            monitor: options.monitor,
+            codecs: options.codecs.iter().map(|c| *c as i32).collect(),
+            max_fps: options.max_fps,
+            bitrate_bps: options.bitrate_bps,
+            max_width: 0,
+            max_height: 0,
+        });
+        if let Some(start) = video.clone() {
             let _ = commands_tx.send(Command::Control(ControlMessage {
                 id: 1,
-                body: Some(Body::StartVideo(StartVideo {
-                    monitor: options.monitor,
-                    codecs: options.codecs.iter().map(|c| *c as i32).collect(),
-                    max_fps: options.max_fps,
-                    bitrate_bps: options.bitrate_bps,
-                    max_width: 0,
-                    max_height: 0,
-                })),
+                body: Some(Body::StartVideo(start)),
                 ..Default::default()
             }));
         }
@@ -233,7 +251,7 @@ impl ControllerSession {
             arrivals_rx,
             events_tx.clone(),
             Arc::clone(&stats),
-            options.monitor,
+            Arc::clone(&monitor),
             session.clone(),
             rate_cfg,
         ));
@@ -249,7 +267,7 @@ impl ControllerSession {
             events_tx.clone(),
             commands_tx.clone(),
             Arc::clone(&stats),
-            options.monitor,
+            Arc::clone(&monitor),
             options.reorder_wait,
         ));
         tokio::spawn(cursor_receiver(
@@ -269,7 +287,9 @@ impl ControllerSession {
                 desync: desync_tx,
                 input: input_tx,
                 stats,
-                monitor: options.monitor,
+                monitor,
+                video,
+                key_remap: Arc::new(options.key_remap),
             },
             Streams {
                 events: events_rx,
@@ -299,21 +319,54 @@ impl ControllerSession {
     /// Queues input events, in order. Cheap and non-blocking; the input task batches them.
     pub fn send_input(&self, events: impl IntoIterator<Item = InputEvent>) {
         let now = now_us();
-        for e in events {
+        for mut e in events {
+            self.key_remap.apply(&mut e);
             let _ = self.input.send((now, e));
         }
     }
 
     /// Asks the target for a recovery frame (the decoder choked) and drops frames until it arrives.
     pub fn request_keyframe(&self) {
-        let _ = self.desync.send(());
+        let _ = self.desync.send(Resync::Desync);
+    }
+
+    /// The monitor currently being viewed.
+    #[must_use]
+    pub fn monitor(&self) -> u32 {
+        self.monitor.load(Ordering::Relaxed)
+    }
+
+    /// Switches the stream to another monitor without ending the session. The target answers
+    /// with a [`MediaEvent::Started`] describing the new picture; frames of the old monitor that
+    /// are still in flight are discarded.
+    pub fn switch_monitor(&self, monitor: u32) {
+        let Some(template) = self.video.clone() else {
+            return;
+        };
+        let old = self.monitor.swap(monitor, Ordering::Relaxed);
+        if old == monitor {
+            return;
+        }
+        let _ = self.desync.send(Resync::NewMonitor);
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::StopVideo(StopVideo { monitor: old })),
+            ..Default::default()
+        }));
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            id: 2,
+            body: Some(Body::StartVideo(StartVideo {
+                monitor,
+                ..template
+            })),
+            ..Default::default()
+        }));
     }
 
     /// Changes quality settings (0 = unchanged).
     pub fn set_quality(&self, bitrate_bps: u32, fps: u32, scale_percent: u32) {
         let _ = self.commands.send(Command::Control(ControlMessage {
             body: Some(Body::SetQuality(SetQuality {
-                monitor: self.monitor,
+                monitor: self.monitor.load(Ordering::Relaxed),
                 bitrate_bps,
                 fps,
                 scale_percent,
@@ -326,7 +379,7 @@ impl ControllerSession {
     pub fn stop_video(&self) {
         let _ = self.commands.send(Command::Control(ControlMessage {
             body: Some(Body::StopVideo(StopVideo {
-                monitor: self.monitor,
+                monitor: self.monitor.load(Ordering::Relaxed),
             })),
             ..Default::default()
         }));
@@ -355,7 +408,7 @@ async fn control_task(
     mut arrivals: mpsc::UnboundedReceiver<FrameArrival>,
     events: mpsc::Sender<MediaEvent>,
     stats: Arc<ControllerStats>,
-    monitor: u32,
+    monitor: Arc<AtomicU32>,
     session: Session,
     rate_limits: Option<(u32, u32)>,
 ) {
@@ -411,7 +464,7 @@ async fn control_task(
                     stats.target_bitrate_bps.store(rc.target_bps(), Ordering::Relaxed);
                     if let Some(bps) = rc.poll() {
                         let msg = ControlMessage {
-                            body: Some(Body::SetQuality(SetQuality { monitor, bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            body: Some(Body::SetQuality(SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 })),
                             ..Default::default()
                         };
                         if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
@@ -437,13 +490,13 @@ async fn control_task(
                     rc.on_loss(u32::try_from(d_lost).unwrap_or(u32::MAX), u32::try_from(d_recv + d_lost).unwrap_or(u32::MAX), now_ms);
                     if let Some(bps) = rc.poll() {
                         let msg = ControlMessage {
-                            body: Some(Body::SetQuality(SetQuality { monitor, bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            body: Some(Body::SetQuality(SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 })),
                             ..Default::default()
                         };
                         if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
                     }
                 }
-                if let Some(r) = last_report.build(&stats, monitor) {
+                if let Some(r) = last_report.build(&stats, monitor.load(Ordering::Relaxed)) {
                     let msg = ControlMessage { body: Some(Body::ReceiverReport(r)), ..Default::default() };
                     if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
                 }
@@ -576,11 +629,11 @@ async fn read_frame(mut recv: nexus_net::RecvStream) -> Result<VideoFrame, Media
 
 async fn reorder_task(
     mut frames: mpsc::UnboundedReceiver<VideoFrame>,
-    mut desync_rx: mpsc::UnboundedReceiver<()>,
+    mut desync_rx: mpsc::UnboundedReceiver<Resync>,
     events: mpsc::Sender<MediaEvent>,
     commands: mpsc::UnboundedSender<Command>,
     stats: Arc<ControllerStats>,
-    monitor: u32,
+    monitor: Arc<AtomicU32>,
     max_wait: Duration,
 ) {
     let mut reorder: Reorder<VideoFrame> = Reorder::new(max_wait);
@@ -593,12 +646,19 @@ async fn reorder_task(
         let mut need_desync = false;
         let actions = tokio::select! {
             frame = frames.recv() => match frame {
+                Some(f) if u32::from(f.header.monitor) != monitor.load(Ordering::Relaxed) => {
+                    // A straggler from the monitor we just left.
+                    Vec::new()
+                }
                 Some(f) => reorder.push(f, Instant::now()),
                 None => return,
             },
-            Some(()) = desync_rx.recv() => {
-                // The decoder choked: drop everything until a keyframe and ask for one.
-                need_desync = true;
+            Some(why) = desync_rx.recv() => {
+                match why {
+                    // The decoder choked: drop everything until a keyframe and ask for one.
+                    Resync::Desync => need_desync = true,
+                    Resync::NewMonitor => reorder = Reorder::new(max_wait),
+                }
                 Vec::new()
             }
             () = tokio::time::sleep(sleep_for) => reorder.poll(Instant::now()),
@@ -619,7 +679,7 @@ async fn reorder_task(
                     stats.keyframe_requests.fetch_add(1, Ordering::Relaxed);
                     let _ = commands.send(Command::Control(ControlMessage {
                         body: Some(Body::RequestKeyframe(RequestKeyframe {
-                            monitor,
+                            monitor: monitor.load(Ordering::Relaxed),
                             last_good_seq: last_good,
                         })),
                         ..Default::default()
@@ -633,7 +693,7 @@ async fn reorder_task(
                     stats.keyframe_requests.fetch_add(1, Ordering::Relaxed);
                     let _ = commands.send(Command::Control(ControlMessage {
                         body: Some(Body::RequestKeyframe(RequestKeyframe {
-                            monitor,
+                            monitor: monitor.load(Ordering::Relaxed),
                             last_good_seq: last_good,
                         })),
                         ..Default::default()

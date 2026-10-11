@@ -809,3 +809,60 @@ async fn files_move_between_paired_devices_through_the_agents_even_when_the_targ
     ));
     mac.client.close_session(sid).await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_viewer_can_switch_monitors_through_the_agent() {
+    use nexus_capture::synthetic::{SyntheticBackend, SyntheticConfig};
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (backend, _probe) = SyntheticBackend::new(SyntheticConfig {
+        monitors: 2,
+        width: 320,
+        height: 200,
+        ..Default::default()
+    });
+    let handler = nexus_agent::RemoteHandler::new(Some(Arc::new(backend)), None, 30);
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let opened = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(opened.monitors.len(), 2);
+    mac.client
+        .session_monitor(opened.session_id, 1)
+        .await
+        .unwrap();
+    let changed = next_matching(&mut mac.events, |ev| match &ev.body {
+        Some(Ev::SessionMonitorChanged(m)) if m.monitor == 1 => Some(*m),
+        _ => None,
+    })
+    .await;
+    assert_eq!((changed.native_width, changed.native_height), (320, 200));
+    assert!(matches!(
+        mac.client.session_monitor(opened.session_id, 999).await,
+        Err(IpcError::Agent {
+            code: IpcErrorCode::InvalidRequest,
+            ..
+        })
+    ));
+    mac.client.close_session(opened.session_id).await.unwrap();
+}

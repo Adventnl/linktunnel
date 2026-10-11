@@ -32,6 +32,23 @@ struct Rig {
 }
 
 async fn rig(grant_list: &[&str], width: u32, height: u32) -> Rig {
+    rig_with(
+        grant_list,
+        SyntheticConfig {
+            width,
+            height,
+            ..Default::default()
+        },
+        ControllerOptions::default(),
+    )
+    .await
+}
+
+async fn rig_with(
+    grant_list: &[&str],
+    synthetic: SyntheticConfig,
+    options: ControllerOptions,
+) -> Rig {
     let (ia, ib) = (identity(1), identity(2));
     let a = loopback_node(&ia, &[key(&ib)]).await; // controller
     let b = loopback_node(&ib, &[key(&ia)]).await; // target
@@ -43,11 +60,7 @@ async fn rig(grant_list: &[&str], width: u32, height: u32) -> Rig {
     );
     let (ea, eb) = (ea.unwrap(), eb.unwrap());
 
-    let (backend, probe) = SyntheticBackend::new(SyntheticConfig {
-        width,
-        height,
-        ..Default::default()
-    });
+    let (backend, probe) = SyntheticBackend::new(synthetic);
     let (injector, recorded) = RecordingInjector::new();
     let injector = std::sync::Mutex::new(Some(injector));
     let config = TargetConfig {
@@ -76,10 +89,9 @@ async fn rig(grant_list: &[&str], width: u32, height: u32) -> Rig {
         config,
         Arc::clone(&stats),
     ));
-    let (controller, streams) =
-        ControllerSession::start(a_session, ea.control, ControllerOptions::default())
-            .await
-            .unwrap();
+    let (controller, streams) = ControllerSession::start(a_session, ea.control, options)
+        .await
+        .unwrap();
     // Keep the nodes alive for the duration of the test.
     std::mem::forget(a);
     std::mem::forget(b);
@@ -418,4 +430,105 @@ async fn a_keyframe_request_is_answered() {
             .load(Ordering::Relaxed)
             >= 1
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_viewed_monitor_can_be_switched_mid_session() {
+    let mut r = rig_with(
+        &[grants::SCREEN],
+        SyntheticConfig {
+            monitors: 2,
+            ..Default::default()
+        },
+        ControllerOptions::default(),
+    )
+    .await;
+    let mut dec = VideoDecoder::new();
+    // First monitor 0 …
+    let mut seen0 = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !seen0 {
+        if let Ok(Some(MediaEvent::Frame(f))) =
+            tokio::time::timeout(Duration::from_millis(300), r.streams.events.recv()).await
+        {
+            assert_eq!(f.header.monitor, 0);
+            seen0 = matches!(dec.decode(&f), Ok(Some(_)));
+        }
+    }
+    assert!(seen0, "monitor 0 never produced a picture");
+
+    r.controller.switch_monitor(1);
+    assert_eq!(r.controller.monitor(), 1);
+    // … then monitor 1; nothing of monitor 0 may be delivered after the first monitor-1 frame.
+    let mut seen1 = false;
+    let mut late_zero = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !seen1 {
+        if let Ok(Some(MediaEvent::Frame(f))) =
+            tokio::time::timeout(Duration::from_millis(300), r.streams.events.recv()).await
+        {
+            if f.header.monitor == 1 {
+                match dec.decode(&f) {
+                    Ok(Some(_)) => seen1 = true,
+                    Ok(None) => {}
+                    Err(_) => r.controller.request_keyframe(),
+                }
+            } else if seen1 {
+                late_zero = true;
+            }
+        }
+    }
+    assert!(seen1, "monitor 1 never produced a picture");
+    assert!(!late_zero);
+    // And back.
+    r.controller.switch_monitor(0);
+    let mut back = false;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !back {
+        if let Ok(Some(MediaEvent::Frame(f))) =
+            tokio::time::timeout(Duration::from_millis(300), r.streams.events.recv()).await
+            && f.header.monitor == 0
+        {
+            back = matches!(dec.decode(&f), Ok(Some(_)));
+        }
+    }
+    assert!(back, "could not switch back to monitor 0");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mac_keyboard_gets_pc_shortcuts_when_the_remap_is_on() {
+    let r = rig_with(
+        &[grants::SCREEN, grants::INPUT],
+        SyntheticConfig::default(),
+        ControllerOptions {
+            want_video: false,
+            key_remap: nexus_input::remap::KeyRemap::mac_to_pc(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let key = |usage, state, modifiers| InputEvent::Key {
+        page: 7,
+        usage,
+        state,
+        modifiers,
+    };
+    // ⌘C as a Mac types it: Command down, C down, C up, Command up.
+    r.controller.send_input([
+        key(0xE3, KeyState::Down, Modifiers::META),
+        key(0x06, KeyState::Down, Modifiers::META),
+        key(0x06, KeyState::Up, Modifiers::META),
+        key(0xE3, KeyState::Up, Modifiers::default()),
+    ]);
+    let expected = vec![
+        key(0xE0, KeyState::Down, Modifiers::CTRL),
+        key(0x06, KeyState::Down, Modifiers::CTRL),
+        key(0x06, KeyState::Up, Modifiers::CTRL),
+        key(0xE0, KeyState::Up, Modifiers::default()),
+    ];
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && r.recorded.events() != expected {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(r.recorded.events(), expected);
 }

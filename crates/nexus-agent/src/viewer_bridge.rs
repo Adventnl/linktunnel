@@ -13,8 +13,9 @@ use std::time::Duration;
 use bytes::BytesMut;
 use nexus_media::controller::{ControllerOptions, ControllerSession, MediaEvent, Streams};
 use nexus_proto::v1::{
-    IpcEvent, MonitorInfo, OpenSession, SessionCursorPos, SessionCursorShape, SessionEnded,
-    SessionOpened, SessionQuality, SessionVideo, VideoStarted, ipc_event::Body as Ev,
+    IpcEvent, MonitorInfo, OpenSession, OsFamily, SessionCursorPos, SessionCursorShape,
+    SessionEnded, SessionMonitor, SessionMonitorChanged, SessionOpened, SessionQuality,
+    SessionVideo, VideoStarted, ipc_event::Body as Ev,
 };
 use nexus_proto::wire::cursor::CursorUpdate;
 use nexus_proto::wire::input::InputPacket;
@@ -25,6 +26,7 @@ use tracing::{debug, info};
 use crate::error::AgentError;
 use crate::sessions;
 use crate::state::Shared;
+use crate::sysinfo;
 
 /// How long a target gets to start streaming.
 const START_TIMEOUT: Duration = Duration::from_secs(15);
@@ -69,7 +71,18 @@ pub(crate) async fn open(
     let id = shared.next_viewer_id.fetch_add(1, Ordering::Relaxed);
     let (session, established) = sessions::dial(shared, &req.device_id).await?;
     let path = session.path().kind;
+    let key_remap = if req.key_remap == "auto" {
+        let controller_os = sysinfo::os_info().family;
+        let target_os = established.peer_hello.os.as_ref().map_or(0, |o| o.family);
+        nexus_input::remap::KeyRemap::auto(
+            OsFamily::try_from(controller_os).unwrap_or(OsFamily::Unspecified),
+            OsFamily::try_from(target_os).unwrap_or(OsFamily::Unspecified),
+        )
+    } else {
+        nexus_input::remap::KeyRemap::identity()
+    };
     let options = ControllerOptions {
+        key_remap,
         monitor: req.monitor,
         max_fps: req.max_fps,
         bitrate_bps: req.bitrate_bps,
@@ -171,6 +184,7 @@ async fn pump_events(
     mut streams: Streams,
 ) {
     let stats = Arc::clone(controller.stats());
+    let mut monitors: Vec<MonitorInfo> = Vec::new();
     let reason = loop {
         tokio::select! {
             ev = streams.events.recv() => {
@@ -188,7 +202,19 @@ async fn pump_events(
                     MediaEvent::CursorShape(shape) => Ev::SessionCursorShape(SessionCursorShape { session_id: id, shape: Some(shape) }),
                     MediaEvent::Closed(reason) => break reason,
                     MediaEvent::Refused { message, .. } => { debug!(%message, "target refused a request"); continue; }
-                    MediaEvent::Monitors(_) | MediaEvent::Started(_) => continue,
+                    MediaEvent::Monitors(list) => { monitors = list; continue }
+                    MediaEvent::Started(v) => {
+                        // Sent again after a monitor switch: the viewer needs the new geometry.
+                        let native = monitors.iter().find(|m| m.index == v.monitor).map_or((v.width, v.height), |m| (m.width, m.height));
+                        Ev::SessionMonitorChanged(SessionMonitorChanged {
+                            session_id: id,
+                            monitor: v.monitor,
+                            width: v.width,
+                            height: v.height,
+                            native_width: native.0,
+                            native_height: native.1,
+                        })
+                    }
                 };
                 // Blocking send is the back-pressure path: a slow viewer slows this task, the
                 // controller's event queue fills, and it drops frames and asks for a keyframe.
@@ -251,6 +277,18 @@ pub(crate) fn input(
     let packet = InputPacket::decode(packet)
         .map_err(|e| AgentError::Invalid(format!("input packet: {e}")))?;
     controller.send_input(packet.events.into_iter().map(|t| t.event));
+    Ok(())
+}
+
+pub(crate) fn switch_monitor(
+    shared: &Shared,
+    ctx: &Arc<ConnCtx>,
+    req: &SessionMonitor,
+) -> Result<(), AgentError> {
+    if req.monitor > 255 {
+        return Err(AgentError::Invalid("monitor index out of range".into()));
+    }
+    controller_for(shared, ctx, req.session_id)?.switch_monitor(req.monitor);
     Ok(())
 }
 

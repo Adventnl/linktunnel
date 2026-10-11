@@ -33,6 +33,8 @@ pub struct ViewerOptions {
     pub view_only: bool,
     /// Keep the two clipboards in sync.
     pub clipboard: bool,
+    /// Swap ⌘ and Ctrl between a Mac and a PC so shortcuts keep working.
+    pub key_remap: bool,
 }
 
 /// Messages from the network thread to the window.
@@ -48,6 +50,15 @@ pub enum UiEvent {
         encoder: String,
         /// The monitor's native size: pointer positions are in these pixels even when the video
         /// has been scaled down by the quality ladder.
+        native: (u32, u32),
+        /// How many monitors the device has.
+        monitors: u32,
+    },
+    /// The device switched to streaming another monitor.
+    MonitorChanged {
+        /// Monitor index.
+        monitor: u32,
+        /// The monitor's native size.
         native: (u32, u32),
     },
     /// A new picture to show.
@@ -67,6 +78,8 @@ pub enum UiEvent {
 pub enum Command {
     /// Send this input.
     Input(InputEvent),
+    /// Show another monitor.
+    SwitchMonitor(u32),
     /// Close the session.
     Quit,
 }
@@ -134,6 +147,11 @@ async fn run(
             bitrate_bps: options.bitrate_bps,
             want_video: true,
             clipboard: options.clipboard,
+            key_remap: if options.key_remap {
+                "auto".into()
+            } else {
+                String::new()
+            },
         })
         .await
     {
@@ -153,6 +171,7 @@ async fn run(
             height: v.height,
             encoder: v.encoder.clone(),
             native,
+            monitors: u32::try_from(opened.monitors.len()).unwrap_or(1),
         });
     }
 
@@ -189,6 +208,9 @@ async fn run(
                     Some(Ev::SessionCursorPos(c)) if c.session_id == id => {
                         if let Ok(u) = CursorUpdate::decode(&c.update) { notify(UiEvent::Cursor(u)); }
                     }
+                    Some(Ev::SessionMonitorChanged(m)) if m.session_id == id => {
+                        notify(UiEvent::MonitorChanged { monitor: m.monitor, native: (m.native_width, m.native_height) });
+                    }
                     Some(Ev::SessionEnded(e)) if e.session_id == id => break e.reason,
                     _ => {}
                 }
@@ -197,12 +219,18 @@ async fn run(
                 let Some(cmd) = cmd else { break "closed".to_owned() };
                 match cmd {
                     Command::Quit => break "closed".to_owned(),
+                    Command::SwitchMonitor(n) => {
+                        if let Err(e) = client.session_monitor(id, n).await {
+                            warn!(error = %e, "switching monitor failed");
+                        }
+                    }
                     Command::Input(first) => {
                         if options.view_only { continue; }
                         input_buf.push(first);
                         while input_buf.len() < MAX_EVENTS {
                             match commands.try_recv() {
                                 Ok(Command::Input(e)) => input_buf.push(e),
+                                Ok(Command::SwitchMonitor(n)) => { let _ = client.session_monitor(id, n).await; }
                                 Ok(Command::Quit) => { let _ = client.close_session(id).await; return "closed".to_owned(); }
                                 Err(_) => break,
                             }

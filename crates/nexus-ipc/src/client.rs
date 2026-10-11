@@ -8,8 +8,8 @@ use nexus_proto::v1::{
     FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame, IpcHello,
     IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel, PairingConfirm,
     PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport, SessionInput,
-    SessionKeyframe, SessionOpened, SessionQuality, SetLockdown, Shutdown, Status, TransferStarted,
-    Unpair, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
+    SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality, SetLockdown, Shutdown, Status,
+    TransferStarted, Unpair, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
     ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
@@ -401,5 +401,14 @@ impl IpcClient {
             Resp::TransferStarted(t) => Ok(t),
             _ => Err(IpcError::Protocol("unexpected response")),
         }
+    }
+
+    /// Switches which monitor of the target a session shows.
+    pub async fn session_monitor(&self, session_id: u64, monitor: u32) -> Result<(), IpcError> {
+        self.expect_ack(Req::SessionMonitor(SessionMonitor {
+            session_id,
+            monitor,
+        }))
+        .await
     }
 }

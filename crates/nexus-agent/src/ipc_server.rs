@@ -185,6 +185,10 @@ async fn dispatch(
             viewer_bridge::keyframe(shared, ctx, k.session_id)?;
             Ok(ack)
         }
+        Req::SessionMonitor(m) => {
+            viewer_bridge::switch_monitor(shared, ctx, &m)?;
+            Ok(ack)
+        }
         Req::SessionQuality(q) => {
             viewer_bridge::quality(shared, ctx, &q)?;
             Ok(ack)
