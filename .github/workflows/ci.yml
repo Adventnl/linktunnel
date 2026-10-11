@@ -48,6 +48,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+      - name: X server for the capture/input/end-to-end tests (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libxkbcommon-x11-0
       - run: cargo test --workspace --locked
 
   docs:
@@ -77,6 +80,38 @@ jobs:
           cargo check --locked --target ${{ matrix.target }}
           -p nexus-core -p nexus-proto -p nexus-crypto -p nexus-trust -p nexus-ipc
           --features nexus-crypto/pure-blake3
+
+  platform-check:
+    # Capture, input and codec backends for macOS and Windows are written without access to those
+    # machines; this job at least proves they compile for the real target triples.
+    name: platform backends type-check (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-pc-windows-msvc, aarch64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target }}
+      - run: >-
+          cargo clippy --locked --target ${{ matrix.target }} --all-targets
+          -p nexus-capture -p nexus-input -p nexus-codec --no-default-features -- -D warnings
+
+  bench-gate:
+    # Fails the PR if a gated p95 latency regressed by more than 10 % against the base branch,
+    # both measured on this runner.
+    name: latency regression gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: ./scripts/bench-gate.sh origin/${{ github.base_ref }}
 
   traceability:
     name: threat-model traceability

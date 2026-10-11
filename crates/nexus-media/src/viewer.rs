@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use nexus_codec::{Decoder, Rect, i420_to_bgra};
+use nexus_codec::{Decoder, Rect, i420_to_bgra, i420_to_bgra_region};
 use nexus_core::clock::now_us;
 use nexus_core::telemetry::LatencyRecorder;
 use nexus_proto::v1::{CursorShape, VideoCodec};
@@ -17,6 +17,9 @@ use nexus_proto::wire::video::FrameKind;
 
 use crate::MediaError;
 use crate::controller::VideoFrame;
+
+/// Frames between forced full colour conversions (≈ one per second at 60 fps).
+const FULL_CONVERT_EVERY: u32 = 60;
 
 /// A decoded screen picture.
 #[derive(Debug, Clone)]
@@ -71,6 +74,8 @@ pub struct VideoDecoder {
     current: Vec<u8>,
     size: (u32, u32),
     needs_keyframe: bool,
+    /// Frames since the whole picture was last colour-converted.
+    since_full_convert: u32,
     /// Decode + convert time of recent frames.
     pub decode_time: LatencyRecorder,
 }
@@ -100,6 +105,7 @@ impl VideoDecoder {
             current: Vec::new(),
             size: (0, 0),
             needs_keyframe: true,
+            since_full_convert: 0,
             decode_time: LatencyRecorder::new(),
         }
     }
@@ -136,15 +142,37 @@ impl VideoDecoder {
                 return Err(e.into());
             }
         };
-        let bgra = match i420_to_bgra(pic.width, pic.height, &pic.planes) {
-            Ok(b) => b,
-            Err(e) => {
-                self.needs_keyframe = true;
-                return Err(e.into());
-            }
+        // Colour-convert only what changed: the decoder reconstructs the whole picture, but the
+        // BGRA copy is the expensive part on a large, mostly static screen. A full conversion is
+        // still done on keyframes, size changes, when most of the picture changed anyway, and
+        // about once a second so slow refinement of static areas by the encoder shows up.
+        let area: u64 = h
+            .dirty
+            .iter()
+            .map(|r| u64::from(r.w) * u64::from(r.h))
+            .sum();
+        let total = u64::from(pic.width) * u64::from(pic.height);
+        let partial = h.kind != FrameKind::Key
+            && !h.dirty.is_empty()
+            && self.size == (pic.width, pic.height)
+            && self.current.len() == total as usize * 4
+            && area * 4 < total
+            && self.since_full_convert < FULL_CONVERT_EVERY;
+        let converted = if partial {
+            self.since_full_convert += 1;
+            h.dirty.iter().try_for_each(|r| {
+                i420_to_bgra_region(pic.width, pic.height, &pic.planes, *r, &mut self.current)
+            })
+        } else {
+            self.since_full_convert = 0;
+            i420_to_bgra(pic.width, pic.height, &pic.planes).map(|full| self.current = full)
         };
+        if let Err(e) = converted {
+            self.needs_keyframe = true;
+            self.since_full_convert = 0;
+            return Err(e.into());
+        }
         self.size = (pic.width, pic.height);
-        self.current = bgra;
         if h.kind == FrameKind::Key {
             self.needs_keyframe = false;
         }
@@ -374,6 +402,50 @@ mod tests {
         let k2 = enc.encode(&screen(w, h, 24), true).unwrap().unwrap();
         assert!(dec.decode(&wrap(5, &k2)).unwrap().is_some());
         assert!(!dec.needs_keyframe());
+    }
+
+    #[test]
+    fn partial_conversion_matches_a_full_conversion_where_it_matters() {
+        let (w, h) = (192, 128);
+        let mut enc = H264Encoder::new(EncoderConfig::screen(w, h, 60.0, 3_000_000)).unwrap();
+        let mut partial = VideoDecoder::new();
+        let mut full = VideoDecoder::new();
+        for i in 0..20u32 {
+            let mut f = screen(w, h, i * 4);
+            // Damage = where the moving block was and where it is now.
+            f.dirty = if i == 0 {
+                vec![]
+            } else {
+                vec![Rect {
+                    x: u16::try_from(i * 4 - 4).unwrap(),
+                    y: 20,
+                    w: 32,
+                    h: 24,
+                }]
+            };
+            let enc_frame = enc.encode(&f, false).unwrap().unwrap();
+            let mut vf = wrap(i + 1, &enc_frame);
+            vf.header.dirty = f.dirty.clone();
+            let a = partial.decode(&vf).unwrap().unwrap();
+            vf.header.dirty = vec![]; // unknown damage forces the full path
+            let b = full.decode(&vf).unwrap().unwrap();
+            let dirty = f.dirty.first().copied();
+            // Inside the damaged rectangle the two paths agree exactly.
+            if let Some(r) = dirty {
+                for y in usize::from(r.y)..usize::from(r.y + r.h) {
+                    let (lo, hi) = (
+                        (y * w as usize + usize::from(r.x)) * 4,
+                        (y * w as usize + usize::from(r.x + r.w)) * 4,
+                    );
+                    assert_eq!(a.bgra[lo..hi], b.bgra[lo..hi], "frame {i} row {y}");
+                }
+            }
+            // Overall the picture stays close to the truth.
+            assert!(
+                psnr_bgra(&a.bgra, &screen(w, h, i * 4).data) > 26.0,
+                "frame {i}"
+            );
+        }
     }
 
     #[test]

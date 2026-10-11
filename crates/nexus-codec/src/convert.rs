@@ -6,7 +6,7 @@ use yuv::{
 };
 
 use crate::CodecError;
-use crate::types::{Frame, I420Planes};
+use crate::types::{Frame, I420Planes, Rect};
 
 const RANGE: YuvRange = YuvRange::Limited;
 const MATRIX: YuvStandardMatrix = YuvStandardMatrix::Bt709;
@@ -66,6 +66,67 @@ pub fn i420_to_bgra(width: u32, height: u32, planes: &I420Planes) -> Result<Vec<
     let mut out = vec![0u8; width as usize * height as usize * 4];
     yuv::yuv420_to_bgra(&image, &mut out, width * 4, RANGE, MATRIX).map_err(yuv_err)?;
     Ok(out)
+}
+
+/// Converts only `rect` of a planar picture into the matching region of a packed BGRA buffer
+/// (`out`, `width * 4` bytes per row). The rectangle is widened to even coordinates because
+/// chroma is shared between 2×2 pixel blocks, so the result is bit-identical to converting the
+/// whole picture and copying that region.
+pub fn i420_to_bgra_region(
+    width: u32,
+    height: u32,
+    planes: &I420Planes,
+    rect: Rect,
+    out: &mut [u8],
+) -> Result<(), CodecError> {
+    if width == 0 || height == 0 {
+        return Err(CodecError::Invalid("zero-sized picture".into()));
+    }
+    let out_stride = width as usize * 4;
+    if out.len() < out_stride * height as usize {
+        return Err(CodecError::Invalid("output buffer too small".into()));
+    }
+    let x0 = u32::from(rect.x) & !1;
+    let y0 = u32::from(rect.y) & !1;
+    let x1 = (u32::from(rect.x) + u32::from(rect.w)).min(width);
+    let y1 = (u32::from(rect.y) + u32::from(rect.h)).min(height);
+    if x1 <= x0 || y1 <= y0 {
+        return Ok(()); // empty or fully outside
+    }
+    let (rw, rh) = (x1 - x0, y1 - y0);
+    let (ys, cs) = (planes.y_stride, planes.uv_stride);
+    let y_off = y0 as usize * ys + x0 as usize;
+    let c_off = (y0 / 2) as usize * cs + (x0 / 2) as usize;
+    let (y, u, v) = (
+        planes.y.get(y_off..),
+        planes.u.get(c_off..),
+        planes.v.get(c_off..),
+    );
+    let (Some(y), Some(u), Some(v)) = (y, u, v) else {
+        return Err(CodecError::Invalid("rectangle outside the planes".into()));
+    };
+    let image = YuvPlanarImage {
+        y_plane: y,
+        y_stride: u32::try_from(ys).map_err(|_| CodecError::Invalid("stride".into()))?,
+        u_plane: u,
+        u_stride: u32::try_from(cs).map_err(|_| CodecError::Invalid("stride".into()))?,
+        v_plane: v,
+        v_stride: u32::try_from(cs).map_err(|_| CodecError::Invalid("stride".into()))?,
+        width: rw,
+        height: rh,
+    };
+    image
+        .check_constraints(YuvChromaSubsampling::Yuv420)
+        .map_err(yuv_err)?;
+    let dst_off = y0 as usize * out_stride + x0 as usize * 4;
+    yuv::yuv420_to_bgra(
+        &image,
+        &mut out[dst_off..],
+        u32::try_from(out_stride).map_err(|_| CodecError::Invalid("stride".into()))?,
+        RANGE,
+        MATRIX,
+    )
+    .map_err(yuv_err)
 }
 
 /// Peak signal-to-noise ratio between two tightly packed BGRA images, in dB, over the colour
@@ -169,6 +230,76 @@ mod tests {
         assert!(
             i420_to_bgra(64, 64, &planes).is_err(),
             "claimed size larger than the planes"
+        );
+    }
+
+    #[test]
+    fn region_conversion_is_bit_identical_to_full_conversion() {
+        let (w, h) = (96u32, 64u32);
+        let f = gradient(w, h);
+        let planes = bgra_to_i420(&f).unwrap();
+        let full = i420_to_bgra(w, h, &planes).unwrap();
+        for rect in [
+            Rect {
+                x: 0,
+                y: 0,
+                w: 96,
+                h: 64,
+            },
+            Rect {
+                x: 10,
+                y: 7,
+                w: 33,
+                h: 21,
+            },
+            Rect {
+                x: 1,
+                y: 1,
+                w: 2,
+                h: 2,
+            },
+            Rect {
+                x: 90,
+                y: 60,
+                w: 50,
+                h: 50,
+            }, // overhangs the picture
+        ] {
+            let mut out = vec![0u8; full.len()];
+            i420_to_bgra_region(w, h, &planes, rect, &mut out).unwrap();
+            let (x0, y0) = (usize::from(rect.x) & !1, usize::from(rect.y) & !1);
+            let x1 = (usize::from(rect.x) + usize::from(rect.w)).min(w as usize);
+            let y1 = (usize::from(rect.y) + usize::from(rect.h)).min(h as usize);
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let i = (y * w as usize + x) * 4;
+                    if (x0..x1).contains(&x) && (y0..y1).contains(&y) {
+                        assert_eq!(out[i..i + 3], full[i..i + 3], "{rect:?} at ({x},{y})");
+                    } else {
+                        assert_eq!(
+                            out[i..i + 4],
+                            [0, 0, 0, 0],
+                            "{rect:?} must not touch ({x},{y})"
+                        );
+                    }
+                }
+            }
+        }
+        let mut small = vec![0u8; 16];
+        assert!(
+            i420_to_bgra_region(
+                w,
+                h,
+                &planes,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 4,
+                    h: 4
+                },
+                &mut small
+            )
+            .is_err()
         );
     }
 

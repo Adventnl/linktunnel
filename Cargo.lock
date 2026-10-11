@@ -3267,6 +3267,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "nexus-capture",
+ "nexus-codec",
+ "nexus-core",
+ "nexus-crypto",
+ "nexus-input",
+ "nexus-media",
+ "nexus-net",
+ "nexus-proto",
+ "nexus-testkit",
+ "nexus-trust",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "nexus-capture"
 version = "0.1.0"
 dependencies = [

@@ -20,7 +20,7 @@ use winit::keyboard::{ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, CustomCursor, Fullscreen, Window, WindowId};
 
 use crate::keymap::hid_for;
-use crate::layout::{Rect, ScaleMode, dest_rect, window_to_picture};
+use crate::layout::{self, Rect, ScaleMode, dest_rect, window_to_picture};
 use crate::session::{Command, UiEvent, ViewerOptions, spawn};
 
 type Surf = Surface<Arc<Window>, Arc<Window>>;
@@ -40,6 +40,8 @@ struct App {
     title_stats: String,
     exit_reason: Option<String>,
     last_pos: Option<PhysicalPosition<f64>>,
+    /// Native size of the viewed monitor (pointer coordinates are in these pixels).
+    native: Option<(u32, u32)>,
 }
 
 /// Opens the viewer window and runs until it closes. Returns why the session ended.
@@ -72,6 +74,7 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         title_stats: String::new(),
         exit_reason: None,
         last_pos: None,
+        native: None,
     };
     event_loop
         .run_app(&mut app)
@@ -211,7 +214,9 @@ impl ApplicationHandler<UiEvent> for App {
                 width,
                 height,
                 encoder,
+                native,
             } => {
+                self.native = Some(native);
                 tracing::info!(width, height, %encoder, "viewer connected");
                 if let Some(w) = &self.window {
                     // Open at the remote size when it fits a typical display, else a sensible window.
@@ -373,7 +378,10 @@ impl ApplicationHandler<UiEvent> for App {
                 if let (Some(size), Some(window)) = (self.picture_size(), &self.window) {
                     let win = window.inner_size();
                     let dest = dest_rect(size, (win.width, win.height), self.scale);
-                    if let Some((x, y)) = window_to_picture((position.x, position.y), size, dest) {
+                    if let Some((px, py)) = window_to_picture((position.x, position.y), size, dest)
+                    {
+                        // The picture may be a scaled-down version of the monitor.
+                        let (x, y) = layout::to_native((px, py), size, self.native);
                         let monitor = u8::try_from(self.options.monitor).unwrap_or(0);
                         self.send(InputEvent::MouseMoveAbs { monitor, x, y });
                     }

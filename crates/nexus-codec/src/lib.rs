@@ -24,7 +24,7 @@ mod types;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
 
-pub use convert::{bgra_to_i420, i420_to_bgra, psnr_bgra};
+pub use convert::{bgra_to_i420, i420_to_bgra, i420_to_bgra_region, psnr_bgra};
 pub use error::CodecError;
 #[cfg(feature = "software")]
 pub use h264::{H264Decoder, H264Encoder};

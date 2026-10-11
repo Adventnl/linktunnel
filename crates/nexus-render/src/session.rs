@@ -44,6 +44,9 @@ pub enum UiEvent {
         height: u32,
         /// Encoder in use on the target.
         encoder: String,
+        /// The monitor's native size: pointer positions are in these pixels even when the video
+        /// has been scaled down by the quality ladder.
+        native: (u32, u32),
     },
     /// A new picture to show.
     Picture(Box<Picture>),
@@ -137,10 +140,16 @@ async fn run(
     let id = opened.session_id;
     let path = format!("{:?}", opened.path());
     if let Some(v) = &opened.video {
+        let native = opened
+            .monitors
+            .iter()
+            .find(|m| m.index == options.monitor)
+            .map_or((v.width, v.height), |m| (m.width, m.height));
         notify(UiEvent::Opened {
             width: v.width,
             height: v.height,
             encoder: v.encoder.clone(),
+            native,
         });
     }
 

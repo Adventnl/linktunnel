@@ -1,0 +1,80 @@
+{
+  "commit": "168c4ec",
+  "host": {
+    "os": "linux",
+    "arch": "x86_64",
+    "cpus": 4,
+    "profile": "release"
+  },
+  "glass": {
+    "n": 120,
+    "p50_ms": 7.94421,
+    "p95_ms": 10.844334,
+    "p99_ms": 11.712233000000001,
+    "max_ms": 11.824951,
+    "stage_encode_p50_ms": 5.544,
+    "stage_network_p50_ms": 0.165,
+    "stage_decode_p50_ms": 1.079
+  },
+  "x11": {
+    "n": 120,
+    "p50_ms": 9.080339,
+    "p95_ms": 11.904895,
+    "p99_ms": 16.353866,
+    "max_ms": 17.794472,
+    "stage_encode_p50_ms": 5.521,
+    "stage_network_p50_ms": 0.173,
+    "stage_decode_p50_ms": 1.149
+  },
+  "shaped": {
+    "link": "4 Mbit/s uplink, 25 ms one-way delay, source wants 6 Mbit/s",
+    "fixed": {
+      "goodput_mbps": 3.9612463809789187,
+      "p50_ms": 858.623,
+      "p95_ms": 877.055
+    },
+    "adaptive": {
+      "goodput_mbps": 3.370556296829979,
+      "p50_ms": 114.175,
+      "p95_ms": 230.527
+    }
+  },
+  "codec": [
+    {
+      "resolution": "1280x720",
+      "encode_p50_ms": 3.576283,
+      "encode_p95_ms": 4.048805,
+      "decode_convert_p50_ms": 1.017539,
+      "keyframe_kib": 165.0185546875,
+      "delta_kib_typing": 0.052834535256410256,
+      "max_fps_encode": 279.6199294071526
+    },
+    {
+      "resolution": "1920x1080",
+      "encode_p50_ms": 12.351582,
+      "encode_p95_ms": 14.316332,
+      "decode_convert_p50_ms": 4.352447,
+      "keyframe_kib": 372.703125,
+      "delta_kib_typing": 0.06431749131944445,
+      "max_fps_encode": 80.96128900735144
+    },
+    {
+      "resolution": "2560x1440",
+      "encode_p50_ms": 26.182572,
+      "encode_p95_ms": 28.750468,
+      "decode_convert_p50_ms": 7.457326999999999,
+      "keyframe_kib": 613.8623046875,
+      "delta_kib_typing": 0.041900634765625,
+      "max_fps_encode": 38.19334479439224
+    },
+    {
+      "resolution": "3840x2160",
+      "encode_p50_ms": 56.987966,
+      "encode_p95_ms": 81.176894,
+      "decode_convert_p50_ms": 25.85012,
+      "keyframe_kib": 1314.15234375,
+      "delta_kib_typing": 5.011807528409091,
+      "max_fps_encode": 17.547564340162623
+    }
+  ]
+}

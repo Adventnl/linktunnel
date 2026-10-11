@@ -70,6 +70,19 @@ pub fn window_to_picture(pos: (f64, f64), pic: (u32, u32), dest: Rect) -> Option
     ))
 }
 
+/// Converts a position in the (possibly scaled) picture to the monitor's native pixels.
+#[must_use]
+pub fn to_native(pos: (i32, i32), picture: (u32, u32), native: Option<(u32, u32)>) -> (i32, i32) {
+    let Some((nw, nh)) = native else { return pos };
+    let scale = |v: i32, from: u32, to: u32| {
+        if from == 0 {
+            return v;
+        }
+        i32::try_from(i64::from(v) * i64::from(to) / i64::from(from)).unwrap_or(v)
+    };
+    (scale(pos.0, picture.0, nw), scale(pos.1, picture.1, nh))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +130,25 @@ mod tests {
         );
         // Degenerate sizes never divide by zero.
         let _ = dest_rect((0, 0), (0, 0), ScaleMode::Fit);
+    }
+
+    #[test]
+    fn scaled_pictures_map_back_to_native_pixels() {
+        // Stream scaled to 50 %: picture pixel (480, 270) is native (960, 540).
+        assert_eq!(
+            to_native((480, 270), (960, 540), Some((1920, 1080))),
+            (960, 540)
+        );
+        assert_eq!(
+            to_native((10, 10), (1920, 1080), Some((1920, 1080))),
+            (10, 10)
+        );
+        assert_eq!(to_native((10, 10), (1920, 1080), None), (10, 10));
+        assert_eq!(
+            to_native((5, 5), (0, 0), Some((100, 100))),
+            (5, 5),
+            "degenerate input is passed through"
+        );
     }
 
     #[test]

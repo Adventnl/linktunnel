@@ -1,0 +1,34 @@
+[package]
+name = "nexus-bench"
+description = "Latency and throughput benchmarks for the remote-desktop pipeline; also the CI regression gate's data source."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "nexus-bench"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+clap.workspace = true
+nexus-capture.workspace = true
+nexus-codec = { workspace = true, features = ["software"] }
+nexus-core.workspace = true
+nexus-crypto.workspace = true
+nexus-media.workspace = true
+nexus-net.workspace = true
+nexus-proto.workspace = true
+nexus-trust.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nexus-input.workspace = true
+nexus-testkit.workspace = true
