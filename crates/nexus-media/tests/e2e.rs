@@ -82,6 +82,8 @@ async fn rig_with(
         files: None,
         clipboard: None,
         consent: None,
+        power: None,
+        wake_relay: false,
     };
     let stats = Arc::new(TargetStats::default());
     let target_task = tokio::spawn(target::serve(

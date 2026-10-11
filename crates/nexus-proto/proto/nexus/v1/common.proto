@@ -35,6 +35,9 @@ message OsInfo {
   string arch = 3;
   string hostname = 4;
   DeviceClass class = 5;
+  // Hardware addresses of this machine's network adapters, so another device can wake it with
+  // Wake-on-LAN while it sleeps.
+  repeated string mac_addresses = 6;
 }
 
 // Device availability as seen by the dashboard (spec §9).

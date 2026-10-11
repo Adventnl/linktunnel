@@ -93,5 +93,10 @@
   "cli.consent.remembered": "已允许，今后不再询问 {name}。",
   "cli.consent.expired": "该请求已被处理或已超时。",
   "cli.trust.unattended_on": "{name} 今后可无需确认直接使用本设备。",
-  "cli.trust.unattended_off": "今后 {name} 使用本设备前需先经你确认。"
+  "cli.trust.unattended_off": "今后 {name} 使用本设备前需先经你确认。",
+  "cli.power.confirm": "对 {name} 执行“{action}”？这会中断你的连接。请输入设备名称确认：",
+  "cli.power.cancelled": "已取消。",
+  "cli.power.done": "{name}：已请求“{action}”。",
+  "cli.wake.sent": "已为 {name} 发送局域网唤醒数据包，启动最多可能需要一分钟。",
+  "cli.wake.relayed": "已请 {via} 唤醒 {name}。"
 }

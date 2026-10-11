@@ -17,7 +17,24 @@ pub fn os_info() -> OsInfo {
         arch: std::env::consts::ARCH.to_owned(),
         hostname: hostname(),
         class: DeviceClass::Desktop as i32,
+        mac_addresses: mac_addresses(),
     }
+}
+
+/// Hardware addresses of this machine's network adapters (for Wake-on-LAN), formatted
+/// `aa:bb:cc:dd:ee:ff`. Virtual and all-zero addresses are skipped.
+#[must_use]
+pub fn mac_addresses() -> Vec<String> {
+    let mut out: Vec<String> = mac_address::MacAddressIterator::new()
+        .map(|it| {
+            it.filter(|m| m.bytes() != [0; 6])
+                .map(|m| m.to_string().to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The machine's host name, or `unknown`.

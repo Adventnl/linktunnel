@@ -2909,6 +2909,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3d25b0e0b648a86960ac23b7ad4abb9717601dec6f66c165f5b037f3f03065f"
 
 [[package]]
+name = "mac_address"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3d0581a75c45969c63afd2bb87b1d8b25cfcc556c7a918cf9bb13b0fe8d2381"
+dependencies = [
+ "nix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3334,6 +3344,7 @@ dependencies = [
  "clap",
  "getrandom 0.4.3",
  "hostname",
+ "mac_address",
  "nexus-capture",
  "nexus-clipboard",
  "nexus-codec",
@@ -3344,6 +3355,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-media",
  "nexus-net",
+ "nexus-power",
  "nexus-proto",
  "nexus-signal",
  "nexus-signal-client",
@@ -3565,6 +3577,7 @@ dependencies = [
  "nexus-files",
  "nexus-input",
  "nexus-net",
+ "nexus-power",
  "nexus-proto",
  "nexus-testkit",
  "nexus-trust",
@@ -3594,6 +3607,15 @@ dependencies = [
  "rustls-pki-types",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nexus-power"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -3710,6 +3732,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]

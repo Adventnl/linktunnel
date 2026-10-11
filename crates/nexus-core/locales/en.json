@@ -93,5 +93,10 @@
   "cli.consent.remembered": "Allowed, and {name} will not be asked again.",
   "cli.consent.expired": "That request has already been answered or timed out.",
   "cli.trust.unattended_on": "{name} can now use this device without asking.",
-  "cli.trust.unattended_off": "{name} will be asked about first from now on."
+  "cli.trust.unattended_off": "{name} will be asked about first from now on.",
+  "cli.power.confirm": "{action} {name}? This will end your connection. Type the device name to confirm: ",
+  "cli.power.cancelled": "Cancelled.",
+  "cli.power.done": "{name}: {action} requested.",
+  "cli.wake.sent": "Wake-on-LAN packets sent for {name}. It can take up to a minute to start.",
+  "cli.wake.relayed": "Asked {via} to wake {name}."
 }

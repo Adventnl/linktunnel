@@ -62,6 +62,8 @@ message IpcRequest {
     FileTransfer file_transfer = 34;
     ConsentDecision consent_decision = 40;
     SetUnattended set_unattended = 41;
+    PowerCommand power_command = 42;
+    WakeDevice wake_device = 43;
   }
 }
 
@@ -445,4 +447,20 @@ message ConsentResolved {
 message SetUnattended {
   bytes device_id = 1;
   bool unattended = 2;
+}
+
+// ----- power and wake ------------------------------------------------------------------------
+
+// Lock / sleep / restart / shut down the device at the other end of an open session.
+message PowerCommand {
+  uint64 session_id = 1;
+  PowerActionKind action = 2;
+}
+
+// Send Wake-on-LAN packets to a paired device using the hardware addresses learned while it was
+// awake. With `via_device_id` the packets are sent from that (always-on, `wake`-granted) device's
+// network instead of this one's.
+message WakeDevice {
+  bytes device_id = 1;
+  bytes via_device_id = 2;
 }

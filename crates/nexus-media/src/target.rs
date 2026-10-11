@@ -26,7 +26,8 @@ use nexus_net::{FramedStream, Session, StreamKind};
 use nexus_proto::v1::control_message::Body;
 use nexus_proto::v1::{
     ControlMessage, CursorShape, Error as ProtoError, ErrorCode, Goodbye, GoodbyeReason,
-    MonitorInfo as ProtoMonitor, MonitorList, Pong, StartVideo, VideoCodec, VideoStarted,
+    MonitorInfo as ProtoMonitor, MonitorList, Pong, PowerActionKind, PowerResult, StartVideo,
+    VideoCodec, VideoStarted,
 };
 use nexus_proto::wire::cursor::CursorUpdate;
 use nexus_proto::wire::input::TimedInput;
@@ -72,6 +73,12 @@ pub struct TargetConfig {
     pub clipboard: Option<nexus_clipboard::ClipboardSetup>,
     /// Consent prompt for attended access; `None` means access is pre-authorised.
     pub consent: Option<ConsentGate>,
+    /// How to lock / sleep / restart this machine for controllers holding the `power` grant;
+    /// `None` refuses power requests.
+    pub power: Option<Arc<dyn nexus_power::PowerBackend>>,
+    /// Send Wake-on-LAN packets from this machine's network on behalf of controllers holding the
+    /// `wake` grant (a device that is always on can wake the ones that sleep).
+    pub wake_relay: bool,
 }
 
 /// A serial bottleneck applied to outgoing video frames.
@@ -350,6 +357,16 @@ pub async fn serve(
                             }
                         }
                     }
+                    Some(Body::Power(req)) => {
+                        let reply = handle_power(&config, &consent, msg.id, req.action).await;
+                        match reply {
+                            PowerOutcome::Reply(m) => { let _ = out_tx.send(m); }
+                            PowerOutcome::Refused(why) => break EndReason::ConsentRefused(why),
+                        }
+                    }
+                    Some(Body::Wake(req)) => {
+                        let _ = out_tx.send(handle_wake(&config, msg.id, &req.macs));
+                    }
                     Some(Body::Ping(p)) => {
                         let recv_us = now_us();
                         let _ = out_tx.send(ControlMessage {
@@ -411,6 +428,127 @@ pub async fn serve(
         "remote desktop session ended"
     );
     reason
+}
+
+#[allow(clippy::large_enum_variant)] // one value per power request, never stored
+enum PowerOutcome {
+    Reply(ControlMessage),
+    Refused(Consent),
+}
+
+fn power_reply(in_reply_to: u64, ok: bool, detail: &str) -> ControlMessage {
+    ControlMessage {
+        in_reply_to,
+        body: Some(Body::PowerResult(PowerResult {
+            ok,
+            detail: detail.to_owned(),
+        })),
+        ..Default::default()
+    }
+}
+
+fn power_action(kind: i32) -> Option<nexus_power::PowerAction> {
+    use nexus_power::PowerAction as A;
+    Some(match PowerActionKind::try_from(kind).ok()? {
+        PowerActionKind::Lock => A::Lock,
+        PowerActionKind::Sleep => A::Sleep,
+        PowerActionKind::Hibernate => A::Hibernate,
+        PowerActionKind::Restart => A::Restart,
+        PowerActionKind::Shutdown => A::Shutdown,
+        PowerActionKind::LogOff => A::LogOff,
+        PowerActionKind::Unspecified => return None,
+    })
+}
+
+/// Checks the grant and the person at the machine, then performs the action *after* the reply
+/// has had a moment to leave (the action usually ends the connection).
+async fn handle_power(
+    config: &TargetConfig,
+    consent: &SessionConsent,
+    id: u64,
+    kind: i32,
+) -> PowerOutcome {
+    if !config.grants.contains(grants::POWER) {
+        return PowerOutcome::Reply(error_reply(
+            id,
+            ErrorCode::PermissionDenied,
+            "power control is not granted",
+        ));
+    }
+    let Some(backend) = config.power.clone() else {
+        return PowerOutcome::Reply(error_reply(
+            id,
+            ErrorCode::Unsupported,
+            "this device does not accept power requests",
+        ));
+    };
+    let Some(action) = power_action(kind) else {
+        return PowerOutcome::Reply(error_reply(
+            id,
+            ErrorCode::InvalidRequest,
+            "unknown power action",
+        ));
+    };
+    if !backend.supported().contains(&action) {
+        return PowerOutcome::Reply(power_reply(id, false, "not supported on this device"));
+    }
+    let answer = consent.check().await;
+    if answer != Consent::Allowed {
+        return PowerOutcome::Refused(answer);
+    }
+    info!(?action, "power request accepted");
+    if action.drops_connection() {
+        // Report success first: the machine may be gone a moment later.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            if let Err(e) = tokio::task::spawn_blocking(move || backend.perform(action)).await {
+                warn!(error = %e, "power action task failed");
+            }
+        });
+        return PowerOutcome::Reply(power_reply(id, true, "started"));
+    }
+    match tokio::task::spawn_blocking(move || backend.perform(action)).await {
+        Ok(Ok(())) => PowerOutcome::Reply(power_reply(id, true, "done")),
+        Ok(Err(e)) => PowerOutcome::Reply(power_reply(id, false, &e.to_string())),
+        Err(e) => PowerOutcome::Reply(power_reply(id, false, &e.to_string())),
+    }
+}
+
+/// Most MACs one wake request may name (a request is not a way to flood a network).
+const MAX_WAKE_MACS: usize = 8;
+
+fn handle_wake(config: &TargetConfig, id: u64, macs: &[String]) -> ControlMessage {
+    if !config.grants.contains(grants::WAKE) {
+        return error_reply(id, ErrorCode::PermissionDenied, "wake relay is not granted");
+    }
+    if !config.wake_relay {
+        return error_reply(
+            id,
+            ErrorCode::Unsupported,
+            "this device does not relay wake requests",
+        );
+    }
+    if macs.is_empty() || macs.len() > MAX_WAKE_MACS {
+        return error_reply(
+            id,
+            ErrorCode::InvalidRequest,
+            "name between 1 and 8 MAC addresses",
+        );
+    }
+    let mut parsed = Vec::new();
+    for m in macs {
+        match nexus_power::parse_mac(m) {
+            Ok(mac) => parsed.push(mac),
+            Err(e) => return error_reply(id, ErrorCode::InvalidRequest, &e.to_string()),
+        }
+    }
+    for mac in parsed {
+        if let Err(e) = nexus_power::send_magic_packet(mac, std::net::Ipv4Addr::BROADCAST, 9) {
+            return power_reply(id, false, &e.to_string());
+        }
+    }
+    info!(count = macs.len(), "relayed Wake-on-LAN packets");
+    power_reply(id, true, "sent")
 }
 
 fn goodbye(reason: GoodbyeReason, detail: &str) -> ControlMessage {

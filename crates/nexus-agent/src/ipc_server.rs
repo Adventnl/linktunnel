@@ -20,6 +20,7 @@ use crate::consent;
 use crate::error::AgentError;
 use crate::files_bridge;
 use crate::pairing;
+use crate::power_bridge;
 use crate::sessions;
 use crate::state::Shared;
 use crate::viewer_bridge::{self, ConnCtx};
@@ -217,6 +218,14 @@ async fn dispatch(
             consent::set_unattended(shared, &s.device_id, s.unattended)?;
             Ok(ack)
         }
+        Req::PowerCommand(c) => {
+            power_bridge::power(shared, ctx, c).await?;
+            Ok(ack)
+        }
+        Req::WakeDevice(w) => {
+            power_bridge::wake(shared, &w.device_id, &w.via_device_id).await?;
+            Ok(ack)
+        }
         Req::Shutdown(_) => {
             info!("shutdown requested over IPC");
             let _ = shared.shutdown.send(true);
@@ -236,6 +245,7 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
     shared.node.allow_list().revoke(&key); // closes live sessions with that device
     shared.devices.lock().remove(&key);
     shared.policy.lock().forget(&key);
+    shared.wakebook.lock().forget(&key);
     shared.emit(Ev::DeviceRemoved(nexus_proto::v1::DeviceRemoved {
         device_id: device_id.to_vec().into(),
     }));

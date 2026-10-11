@@ -5,7 +5,7 @@
 //! Cursor *positions* arrive on a separate latest-wins channel because they must never queue
 //! behind video. Input goes the other way through [`ControllerSession::send_input`].
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -17,13 +17,14 @@ use nexus_net::{FramedStream, Session, StreamKind};
 use nexus_proto::serial::newer_u32;
 use nexus_proto::v1::control_message::Body;
 use nexus_proto::v1::{
-    ControlMessage, CursorShape, Goodbye, GoodbyeReason, MonitorInfo, Ping, ReceiverReport,
-    RequestKeyframe, SetQuality, StartVideo, StopVideo, VideoCodec, VideoStarted,
+    ControlMessage, CursorShape, Goodbye, GoodbyeReason, MonitorInfo, Ping, PowerActionKind,
+    PowerRequest, ReceiverReport, RequestKeyframe, SetQuality, StartVideo, StopVideo, VideoCodec,
+    VideoStarted, WakeRequest,
 };
 use nexus_proto::wire::cursor::CursorUpdate;
 use nexus_proto::wire::input::{InputEvent, InputPacket, MAX_EVENTS, TimedInput};
 use nexus_proto::wire::video::{FIXED_LEN, FrameKind, VideoFrameHeader};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, warn};
 
 use crate::MediaError;
@@ -182,6 +183,11 @@ impl ControllerStats {
 
 enum Command {
     Control(ControlMessage),
+    /// A request whose reply (matched by `in_reply_to`) goes back through `reply`.
+    Request {
+        msg: ControlMessage,
+        reply: oneshot::Sender<ControlMessage>,
+    },
 }
 
 /// Tells the reorder task why it should forget what it has.
@@ -206,6 +212,7 @@ pub struct ControllerSession {
     /// What video was asked for, repeated when the monitor changes.
     video: Option<StartVideo>,
     key_remap: Arc<nexus_input::remap::KeyRemap>,
+    next_request: Arc<AtomicU64>,
 }
 
 impl ControllerSession {
@@ -290,6 +297,7 @@ impl ControllerSession {
                 monitor,
                 video,
                 key_remap: Arc::new(options.key_remap),
+                next_request: Arc::new(AtomicU64::new(1000)),
             },
             Streams {
                 events: events_rx,
@@ -375,6 +383,68 @@ impl ControllerSession {
         }));
     }
 
+    /// Sends a control request and waits for the matching reply.
+    pub async fn request(&self, body: Body, wait: Duration) -> Result<ControlMessage, MediaError> {
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.commands
+            .send(Command::Request {
+                msg: ControlMessage {
+                    id,
+                    body: Some(body),
+                    ..Default::default()
+                },
+                reply: tx,
+            })
+            .map_err(|_| MediaError::Closed("the session has ended".into()))?;
+        match tokio::time::timeout(wait, rx).await {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(_)) => Err(MediaError::Closed(
+                "the session ended before a reply".into(),
+            )),
+            Err(_) => Err(MediaError::Protocol(
+                "the device did not answer in time".into(),
+            )),
+        }
+    }
+
+    /// Asks the target to lock, sleep, restart, ... (needs the `power` grant; the person at the
+    /// target may be asked). `Ok(())` means the target accepted and started it.
+    pub async fn power(&self, action: PowerActionKind) -> Result<(), MediaError> {
+        // Allow for the consent prompt's timeout.
+        let reply = self
+            .request(
+                Body::Power(PowerRequest {
+                    action: action as i32,
+                }),
+                Duration::from_secs(120),
+            )
+            .await?;
+        match reply.body {
+            Some(Body::PowerResult(r)) if r.ok => Ok(()),
+            Some(Body::PowerResult(r)) => Err(MediaError::Denied(r.detail)),
+            Some(Body::Error(e)) => Err(MediaError::Denied(e.message)),
+            _ => Err(MediaError::Protocol(
+                "unexpected reply to a power request".into(),
+            )),
+        }
+    }
+
+    /// Asks this (always-on) target to send Wake-on-LAN packets for `macs` on its network.
+    pub async fn wake_relay(&self, macs: Vec<String>) -> Result<(), MediaError> {
+        let reply = self
+            .request(Body::Wake(WakeRequest { macs }), Duration::from_secs(15))
+            .await?;
+        match reply.body {
+            Some(Body::PowerResult(r)) if r.ok => Ok(()),
+            Some(Body::PowerResult(r)) => Err(MediaError::Denied(r.detail)),
+            Some(Body::Error(e)) => Err(MediaError::Denied(e.message)),
+            _ => Err(MediaError::Protocol(
+                "unexpected reply to a wake request".into(),
+            )),
+        }
+    }
+
     /// Stops video without ending the session.
     pub fn stop_video(&self) {
         let _ = self.commands.send(Command::Control(ControlMessage {
@@ -420,6 +490,7 @@ async fn control_task(
     let mut samples: VecDeque<(u64, i64)> = VecDeque::with_capacity(10); // (rtt, offset)
     let mut last_report = ReportState::default();
     let mut closed = Box::pin(session.closed());
+    let mut waiting: HashMap<u64, oneshot::Sender<ControlMessage>> = HashMap::new();
     let reason = loop {
         tokio::select! {
             msg = control.recv::<ControlMessage>() => {
@@ -428,6 +499,10 @@ async fn control_task(
                     Ok(None) => break "target closed the control stream".to_owned(),
                     Err(e) => break e.to_string(),
                 };
+                if msg.in_reply_to != 0 && let Some(tx) = waiting.remove(&msg.in_reply_to) {
+                    let _ = tx.send(msg);
+                    continue;
+                }
                 match msg.body {
                     Some(Body::MonitorList(l)) => { let _ = events.send(MediaEvent::Monitors(l.monitors)).await; }
                     Some(Body::VideoStarted(v)) => {
@@ -472,7 +547,13 @@ async fn control_task(
                 }
             }
             Some(cmd) = commands.recv() => {
-                let Command::Control(msg) = cmd;
+                let msg = match cmd {
+                    Command::Control(msg) => msg,
+                    Command::Request { msg, reply } => {
+                        waiting.insert(msg.id, reply);
+                        msg
+                    }
+                };
                 if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
             }
             _ = ping.tick() => {

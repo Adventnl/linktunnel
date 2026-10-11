@@ -1081,3 +1081,66 @@ async fn an_unanswered_prompt_expires_and_an_unwatched_machine_refuses_at_once()
         started.elapsed()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn power_requests_reach_the_other_agent_and_wake_needs_a_known_address() {
+    use nexus_power::{PowerAction, RecordingPower};
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let rec = RecordingPower::new();
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60)
+        .with_power(Arc::new(rec.clone()))
+        .with_wake_relay(true);
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_with(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let opened = mac
+        .client
+        .open_session(nexus_proto::v1::OpenSession {
+            device_id: pc.id().into(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    mac.client
+        .power(opened.session_id, nexus_proto::v1::PowerActionKind::Lock)
+        .await
+        .unwrap();
+    mac.client
+        .power(
+            opened.session_id,
+            nexus_proto::v1::PowerActionKind::Unspecified,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(rec.actions(), [PowerAction::Lock]);
+    mac.client.close_session(opened.session_id).await.unwrap();
+
+    // The MAC addresses of this test machine may or may not be known; a made-up device id is
+    // always an error, and so is waking a device nobody has a hardware address for.
+    assert!(mac.client.wake_device(vec![1; 32], vec![]).await.is_err());
+    let known = mac
+        .client
+        .list_devices()
+        .await
+        .unwrap()
+        .devices
+        .into_iter()
+        .any(|v| v.os.is_some_and(|o| !o.mac_addresses.is_empty()));
+    if !known {
+        assert!(mac.client.wake_device(pc.id(), vec![]).await.is_err());
+    }
+}

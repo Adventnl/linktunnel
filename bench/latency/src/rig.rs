@@ -102,6 +102,8 @@ pub async fn rig(
         files: None,
         clipboard: None,
         consent: None,
+        power: None,
+        wake_relay: false,
     };
     tokio::spawn(target::serve(
         b_session,

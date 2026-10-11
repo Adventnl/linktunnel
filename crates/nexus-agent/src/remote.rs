@@ -8,6 +8,7 @@ use nexus_capture::headless::HeadlessBackend;
 use nexus_clipboard::ClipboardSetup;
 use nexus_files::{FileRoots, FileServer};
 use nexus_media::target::{self, InjectorFactory, TargetConfig, TargetStats};
+use nexus_power::PowerBackend;
 use nexus_proto::features;
 use nexus_proto::v1::Capabilities;
 use tracing::{info, warn};
@@ -24,6 +25,8 @@ pub struct RemoteHandler {
     max_fps: u32,
     files: Option<Arc<FileServer>>,
     clipboard: Option<ClipboardSetup>,
+    power: Option<Arc<dyn PowerBackend>>,
+    wake_relay: bool,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -34,6 +37,7 @@ impl std::fmt::Debug for RemoteHandler {
             .field("max_fps", &self.max_fps)
             .field("files", &self.files.is_some())
             .field("clipboard", &self.clipboard.is_some())
+            .field("power", &self.power.is_some())
             .finish()
     }
 }
@@ -52,6 +56,8 @@ impl RemoteHandler {
             max_fps: max_fps.clamp(1, 240),
             files: None,
             clipboard: None,
+            power: None,
+            wake_relay: false,
         }
     }
 
@@ -62,6 +68,26 @@ impl RemoteHandler {
         self.files =
             (!roots.is_empty()).then(|| Arc::new(FileServer::new(roots, max_upload_bytes)));
         self
+    }
+
+    /// Lets controllers holding the `power` grant lock / sleep / restart this machine.
+    #[must_use]
+    pub fn with_power(mut self, backend: Arc<dyn PowerBackend>) -> Self {
+        self.power = Some(backend);
+        self
+    }
+
+    /// Lets controllers holding the `wake` grant use this machine to wake others on its LAN.
+    #[must_use]
+    pub fn with_wake_relay(mut self, on: bool) -> Self {
+        self.wake_relay = on;
+        self
+    }
+
+    /// Does this handler offer anything besides video (so a screenless machine is still worth a
+    /// full session rather than just diagnostics)?
+    fn serves_without_a_screen(&self) -> bool {
+        self.files.is_some() || self.power.is_some() || self.wake_relay || self.clipboard.is_some()
     }
 
     /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
@@ -147,6 +173,9 @@ impl SessionHandler for RemoteHandler {
         if self.files.is_some() {
             features_list.push(features::FILES_RESUME.to_owned());
         }
+        if self.power.is_some() {
+            features_list.push(features::POWER_ACTIONS.to_owned());
+        }
         caps.features = features_list;
         caps
     }
@@ -158,7 +187,7 @@ impl SessionHandler for RemoteHandler {
     async fn handle(&self, ctx: SessionContext) {
         let capture = match self.capture.clone() {
             Some(c) => c,
-            None if self.files.is_some() => Arc::new(HeadlessBackend),
+            None if self.serves_without_a_screen() => Arc::new(HeadlessBackend),
             None => {
                 nexus_net::diag::serve(ctx.session, ctx.established.control).await;
                 return;
@@ -174,6 +203,8 @@ impl SessionHandler for RemoteHandler {
             files: self.files.clone(),
             clipboard: self.clipboard.clone(),
             consent: crate::consent::gate(&ctx.shared, &ctx.peer, ctx.session.path().kind),
+            power: self.power.clone(),
+            wake_relay: self.wake_relay,
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

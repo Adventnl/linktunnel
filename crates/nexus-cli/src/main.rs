@@ -10,6 +10,7 @@ mod agent_cmds;
 mod consent_cmds;
 mod files_cmds;
 mod identity_cmd;
+mod power_cmds;
 mod remote_cmds;
 
 use std::path::PathBuf;
@@ -115,6 +116,26 @@ enum Command {
         #[arg(short, long)]
         recursive: bool,
     },
+    /// Lock, sleep, restart or shut down a paired device.
+    Power {
+        /// Device name or ID.
+        device: String,
+        /// What to do.
+        #[arg(value_enum)]
+        action: power_cmds::Action,
+        /// Do not ask for confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Wake a sleeping paired device with Wake-on-LAN.
+    Wake {
+        /// Device name or ID.
+        device: String,
+        /// Send the packets from this other paired device's network (an always-on machine
+        /// on the sleeping device's LAN) instead of from here.
+        #[arg(long)]
+        via: Option<String>,
+    },
     /// Answer "may this device use me?" prompts in this terminal.
     Consent,
     /// Choose which paired devices may use this one without asking.
@@ -202,6 +223,12 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Power {
+            device,
+            action,
+            yes,
+        } => power_cmds::power(&ctx, &device, action, yes).await,
+        Command::Wake { device, via } => power_cmds::wake(&ctx, &device, via.as_deref()).await,
         Command::Consent => consent_cmds::watch(&ctx).await,
         Command::Trust(cmd) => consent_cmds::trust(&ctx, cmd).await,
         Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,

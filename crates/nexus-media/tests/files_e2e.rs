@@ -43,6 +43,8 @@ async fn rig(grant_list: &[&str], root: &std::path::Path) -> ControllerSession {
         files: Some(Arc::new(FileServer::new(roots, 1 << 30))),
         clipboard: None,
         consent: None,
+        power: None,
+        wake_relay: false,
     };
     tokio::spawn(target::serve(
         b_session,

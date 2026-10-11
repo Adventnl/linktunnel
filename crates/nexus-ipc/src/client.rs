@@ -8,9 +8,10 @@ use nexus_proto::v1::{
     FileRemove, FileStatRequest, FileTransfer, GetStatus, IpcErrorCode, IpcEvent, IpcFrame,
     IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession, PairingCancel,
     PairingConfirm, PairingJoin, PairingOffer, PairingStarted, PingDevice, PingReport,
-    SessionInput, SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality, SetLockdown,
-    SetUnattended, Shutdown, Status, TransferStarted, Unpair, ipc_event::Body as Ev,
-    ipc_frame::Body as F, ipc_request::Body as Req, ipc_response::Body as Resp,
+    PowerCommand, SessionInput, SessionKeyframe, SessionMonitor, SessionOpened, SessionQuality,
+    SetLockdown, SetUnattended, Shutdown, Status, TransferStarted, Unpair, WakeDevice,
+    ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
+    ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -452,6 +453,40 @@ impl IpcClient {
         self.expect_ack(Req::SetUnattended(SetUnattended {
             device_id: device_id.into(),
             unattended,
+        }))
+        .await
+    }
+
+    /// Lock / sleep / restart / shut down the device at the other end of a session.
+    pub async fn power(
+        &self,
+        session_id: u64,
+        action: nexus_proto::v1::PowerActionKind,
+    ) -> Result<(), IpcError> {
+        match self
+            .request_with_timeout(
+                Req::PowerCommand(PowerCommand {
+                    session_id,
+                    action: action as i32,
+                }),
+                Duration::from_secs(150),
+            )
+            .await?
+        {
+            Resp::Ack(_) => Ok(()),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Wakes a sleeping device with Wake-on-LAN (optionally through another device's network).
+    pub async fn wake_device(
+        &self,
+        device_id: Vec<u8>,
+        via_device_id: Vec<u8>,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::WakeDevice(WakeDevice {
+            device_id: device_id.into(),
+            via_device_id: via_device_id.into(),
         }))
         .await
     }

@@ -74,6 +74,8 @@ async fn rig_with(answer: Consent, delay: Duration, options: ControllerOptions) 
         files: None,
         clipboard: None,
         consent: Some(gate),
+        power: None,
+        wake_relay: false,
     };
     let target = tokio::spawn(target::serve(
         b_session,

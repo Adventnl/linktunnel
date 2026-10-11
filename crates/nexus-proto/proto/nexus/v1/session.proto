@@ -42,6 +42,14 @@ message ControlMessage {
     CursorShape cursor_shape = 26;
     // Controller → target: periodic receiver report driving congestion control.
     ReceiverReport receiver_report = 27;
+
+    // ---- power and wake (Phase 5/8) ----
+    // Controller → target: lock / sleep / restart / ... (needs the `power` grant and consent).
+    PowerRequest power = 30;
+    PowerResult power_result = 31;
+    // Controller → a device on the target's LAN: send Wake-on-LAN packets for these MACs
+    // (needs the `wake` grant). Answered with PowerResult.
+    WakeRequest wake = 32;
   }
 }
 
@@ -207,4 +215,28 @@ message ReceiverReport {
   uint32 decode_us = 7;
   // Receiver-observed goodput over the window, bits per second.
   uint32 goodput_bps = 8;
+}
+
+enum PowerActionKind {
+  POWER_ACTION_KIND_UNSPECIFIED = 0;
+  POWER_ACTION_KIND_LOCK = 1;
+  POWER_ACTION_KIND_SLEEP = 2;
+  POWER_ACTION_KIND_HIBERNATE = 3;
+  POWER_ACTION_KIND_RESTART = 4;
+  POWER_ACTION_KIND_SHUTDOWN = 5;
+  POWER_ACTION_KIND_LOG_OFF = 6;
+}
+
+message PowerRequest {
+  PowerActionKind action = 1;
+}
+
+message PowerResult {
+  bool ok = 1;
+  string detail = 2;
+}
+
+message WakeRequest {
+  // MAC addresses to wake, "aa:bb:cc:dd:ee:ff".
+  repeated string macs = 1;
 }

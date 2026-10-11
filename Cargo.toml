@@ -58,6 +58,7 @@ nexus-trust = { path = "crates/nexus-trust" }
 nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }
+nexus-power = { path = "crates/nexus-power" }
 nexus-ipc = { path = "crates/nexus-ipc" }
 nexus-codec = { path = "crates/nexus-codec", default-features = false }
 nexus-capture = { path = "crates/nexus-capture" }

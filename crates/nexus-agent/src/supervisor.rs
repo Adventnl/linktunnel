@@ -195,6 +195,9 @@ fn apply_presence(shared: &Shared, presence: &nexus_proto::v1::DevicePresence) {
         .map(|p| p.identity.ed25519_bytes());
     if let Some(key) = key {
         shared.devices.lock().update_presence(key, presence);
+        if let Some(os) = presence.info.as_ref().and_then(|i| i.os.as_ref()) {
+            shared.wakebook.lock().learn(&key, &os.mac_addresses);
+        }
         shared.emit_device_changed(&key);
     }
 }

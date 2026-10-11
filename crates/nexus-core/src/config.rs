@@ -55,6 +55,30 @@ pub struct NexusConfig {
     pub files: FilesConfig,
     /// Clipboard sync.
     pub clipboard: ClipboardConfig,
+    /// Remote power control and Wake-on-LAN.
+    pub power: PowerConfig,
+}
+
+/// What other devices may do to this machine's power state, and whether this machine helps wake
+/// others. Everything also needs the matching grant from the pairing and, unless the device is
+/// pre-authorised, a person's approval.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PowerConfig {
+    /// Accept lock / sleep / restart / shut down requests.
+    pub accept_requests: bool,
+    /// Send Wake-on-LAN packets for devices that hold the `wake` grant (run this on an
+    /// always-on machine such as a home server).
+    pub wake_relay: bool,
+}
+
+impl Default for PowerConfig {
+    fn default() -> Self {
+        Self {
+            accept_requests: true,
+            wake_relay: false,
+        }
+    }
 }
 
 /// Clipboard sync between paired devices that hold the `clipboard` grant. The two directions are

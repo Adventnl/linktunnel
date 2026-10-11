@@ -18,6 +18,7 @@ nexus-core.workspace = true
 nexus-files.workspace = true
 nexus-input.workspace = true
 nexus-net.workspace = true
+nexus-power.workspace = true
 nexus-proto.workspace = true
 nexus-trust.workspace = true
 parking_lot = "0.12"

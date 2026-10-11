@@ -69,6 +69,8 @@ async fn run(adaptive: bool, rate_mbps: f64, delay_ms: u64, secs: f64, window: f
         files: None,
         clipboard: None,
         consent: None,
+        power: None,
+        wake_relay: false,
         egress: Some(EgressShaper {
             rate_bps: (rate_mbps * 1e6) as u64,
             delay: Duration::from_millis(delay_ms),

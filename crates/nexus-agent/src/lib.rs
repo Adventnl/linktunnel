@@ -12,12 +12,14 @@ mod files_bridge;
 mod ipc_server;
 mod pairing;
 mod policy;
+mod power_bridge;
 mod remote;
 mod sessions;
 mod state;
 mod supervisor;
 pub mod sysinfo;
 mod viewer_bridge;
+mod wakebook;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
@@ -90,6 +92,7 @@ impl Agent {
         let ipc = IpcServer::bind(ipc_paths.clone()).await?;
 
         let policy_file = config.policy_file();
+        let wake_file = config.paths.data_dir.join("wake.json");
         let default_consent = config.default_consent;
         let (events, _) = broadcast::channel(256);
         let (shutdown, _) = watch::channel(false);
@@ -110,6 +113,7 @@ impl Agent {
             viewers: Mutex::default(),
             next_viewer_id: AtomicU64::new(1),
             policy: Mutex::new(policy::PolicyStore::load(policy_file, default_consent)),
+            wakebook: Mutex::new(wakebook::WakeBook::load(wake_file)),
             consents: Mutex::default(),
             next_consent_id: AtomicU64::new(1),
             started: Instant::now(),

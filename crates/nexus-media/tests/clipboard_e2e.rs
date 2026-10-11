@@ -56,6 +56,8 @@ async fn rig(
         files: None,
         clipboard: Some(setup(target_clip)),
         consent: None,
+        power: None,
+        wake_relay: false,
     };
     tokio::spawn(target::serve(
         b_session,
