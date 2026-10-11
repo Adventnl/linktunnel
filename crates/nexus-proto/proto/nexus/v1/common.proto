@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+// Protocol version. Two peers can talk iff they share `major` and the negotiated `minor`
+// is >= each side's `min_version.minor`. Minor bumps only ever ADD optional behaviour.
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+enum OsFamily {
+  OS_FAMILY_UNSPECIFIED = 0;
+  OS_FAMILY_WINDOWS = 1;
+  OS_FAMILY_MACOS = 2;
+  OS_FAMILY_LINUX = 3;
+}
+
+// What kind of machine this is; drives which actions the dashboard offers.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  // Interactive laptop/desktop.
+  DEVICE_CLASS_DESKTOP = 1;
+  // Server that has a desktop environment (Windows Server Desktop Experience, Linux + GUI).
+  DEVICE_CLASS_SERVER_GUI = 2;
+  // No display (Windows Server Core, headless Linux): terminal / virtual-display only.
+  DEVICE_CLASS_SERVER_HEADLESS = 3;
+}
+
+message OsInfo {
+  OsFamily family = 1;
+  // Human readable, e.g. "Windows 11 23H2", "macOS 26.6", "Ubuntu 24.04".
+  string version = 2;
+  // "x86_64" or "aarch64".
+  string arch = 3;
+  string hostname = 4;
+  DeviceClass class = 5;
+}
+
+// Device availability as seen by the dashboard (spec §9).
+enum PresenceState {
+  PRESENCE_STATE_UNSPECIFIED = 0;
+  // Awake, nobody interacting.
+  PRESENCE_STATE_ONLINE = 1;
+  // Awake, user present but idle.
+  PRESENCE_STATE_IDLE = 2;
+  // Lock screen showing.
+  PRESENCE_STATE_LOCKED = 3;
+  // Someone is using the machine locally.
+  PRESENCE_STATE_IN_USE = 4;
+  // Suspended; may be woken (Wake-on-LAN).
+  PRESENCE_STATE_SLEEPING = 5;
+  // Hibernated; may be woken from a powered-off-like state.
+  PRESENCE_STATE_HIBERNATING = 6;
+  // Not reachable.
+  PRESENCE_STATE_OFFLINE = 7;
+}
+
+enum VideoCodec {
+  VIDEO_CODEC_UNSPECIFIED = 0;
+  VIDEO_CODEC_H264 = 1;
+  VIDEO_CODEC_HEVC = 2;
+  VIDEO_CODEC_AV1 = 3;
+}
+
+// How the current session's packets reach the peer.
+enum PathKind {
+  PATH_KIND_UNSPECIFIED = 0;
+  // Direct, same local network.
+  PATH_KIND_LAN = 1;
+  // Direct over the internet (hole-punched).
+  PATH_KIND_DIRECT = 2;
+  // Forwarded by a relay (encrypted end to end; the relay sees only ciphertext).
+  PATH_KIND_RELAY = 3;
+}
+
+// What a peer can do. Feature identifiers are strings (see `nexus_proto::features`) so that
+// new features never require an enum bump and old peers simply ignore ones they don't know.
+message Capabilities {
+  // Codecs the peer can produce.
+  repeated VideoCodec video_encode = 1;
+  // Codecs the peer can consume.
+  repeated VideoCodec video_decode = 2;
+  repeated string features = 3;
+  // Largest stream the peer can encode/decode; 0 = unknown / unlimited.
+  uint32 max_width = 4;
+  uint32 max_height = 5;
+  uint32 max_fps = 6;
+}

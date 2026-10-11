@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/common.proto";
+
+// Messages on the per-session control stream. Every message is wrapped in `ControlMessage`
+// and length-delimited on the wire (see `nexus_proto::framing`).
+//
+// Rules for evolving this schema (enforced by review, see docs/PROTOCOL.md):
+//  * never reuse or renumber a field;
+//  * new behaviour = new `oneof` variant + a capability string, never a changed meaning;
+//  * a receiver must ignore unknown fields and answer unknown requests with `Error`.
+
+message ControlMessage {
+  // Correlates a response with its request. 0 for one-way notifications.
+  uint64 id = 1;
+  // Set on responses: the `id` of the request being answered.
+  uint64 in_reply_to = 2;
+
+  oneof body {
+    Hello hello = 10;
+    Goodbye goodbye = 11;
+    Ping ping = 12;
+    Pong pong = 13;
+    Error error = 14;
+  }
+}
+
+// First message each side sends on the control stream. It is carried inside the
+// authenticated, encrypted channel, so capabilities and versions cannot be downgraded by an
+// on-path attacker.
+message Hello {
+  ProtocolVersion version = 1;
+  // Oldest protocol version the sender is willing to speak (downgrade floor).
+  ProtocolVersion min_version = 2;
+  Capabilities capabilities = 3;
+  OsInfo os = 4;
+  // Semantic version of the sending binary (diagnostics only; never used for decisions).
+  string agent_version = 5;
+  // 16 random bytes, unique per session; folded into session-binding transcripts.
+  bytes session_nonce = 6;
+}
+
+enum GoodbyeReason {
+  GOODBYE_REASON_UNSPECIFIED = 0;
+  // The controller user closed the session.
+  GOODBYE_REASON_CONTROLLER_DISCONNECT = 1;
+  // The person at the target ended it (tray "Disconnect" or panic hotkey).
+  GOODBYE_REASON_TARGET_DISCONNECT = 2;
+  GOODBYE_REASON_CONSENT_DENIED = 3;
+  GOODBYE_REASON_CONSENT_TIMEOUT = 4;
+  // The target's lockdown switch is on.
+  GOODBYE_REASON_LOCKDOWN = 5;
+  // The pairing was revoked while the session was live.
+  GOODBYE_REASON_REVOKED = 6;
+  GOODBYE_REASON_POLICY = 7;
+  GOODBYE_REASON_PROTOCOL_ERROR = 8;
+  GOODBYE_REASON_IDLE_TIMEOUT = 9;
+  // Process or machine is shutting down.
+  GOODBYE_REASON_SHUTDOWN = 10;
+  // A newer session from the same controller replaced this one.
+  GOODBYE_REASON_SUPERSEDED = 11;
+}
+
+message Goodbye {
+  GoodbyeReason reason = 1;
+  // Free-form, for logs. Never shown to the user without localisation.
+  string detail = 2;
+}
+
+// Application-level liveness + clock probe. The sender's monotonic microsecond clock is used,
+// so only differences are meaningful.
+message Ping {
+  uint64 sent_us = 1;
+}
+
+// Three timestamps allow RTT and one-way clock-offset estimation (NTP style):
+//   rtt    = (now_us - echo_sent_us) - (reply_us - recv_us)
+//   offset = ((recv_us - echo_sent_us) + (reply_us - now_us)) / 2
+message Pong {
+  uint64 echo_sent_us = 1;
+  uint64 recv_us = 2;
+  uint64 reply_us = 3;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNSUPPORTED = 1;
+  ERROR_CODE_INVALID_REQUEST = 2;
+  ERROR_CODE_PERMISSION_DENIED = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  ERROR_CODE_RATE_LIMITED = 5;
+  ERROR_CODE_INTERNAL = 6;
+  ERROR_CODE_INCOMPATIBLE_VERSION = 7;
+}
+
+message Error {
+  ErrorCode code = 1;
+  // Diagnostic text for logs; the UI maps `code` to a localised message.
+  string message = 2;
+}

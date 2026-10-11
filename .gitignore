@@ -1,0 +1,33 @@
+# Build output
+/target
+/dist
+**/*.rs.bk
+*.profraw
+*.profdata
+
+# Node / frontend
+node_modules/
+apps/*/dist/
+apps/*/.vite/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Secrets and local state (never commit key material)
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.secret
+/data/
+/.nexus/
+
+# Benchmark and fuzz artifacts
+/bench/results/*.json
+/fuzz/artifacts/
+/fuzz/corpus/

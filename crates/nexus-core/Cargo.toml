@@ -1,0 +1,27 @@
+[package]
+name = "nexus-core"
+description = "Shared foundations: configuration, paths, telemetry, localisation, clocks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+directories.workspace = true
+figment.workspace = true
+hdrhistogram.workspace = true
+parking_lot = "0.12"
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+figment = { workspace = true, features = ["test"] }
+tempfile.workspace = true

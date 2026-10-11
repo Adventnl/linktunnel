@@ -1,0 +1,19 @@
+{
+  "app.name": "Nexus Remote",
+  "cli.about": "Secure, real-time remote control for your own devices",
+  "cli.identity.created": "Created a new device identity.",
+  "cli.identity.loaded": "Loaded the existing device identity.",
+  "cli.identity.missing": "No device identity exists yet. Run `nexus id create` first.",
+  "cli.identity.exists": "A device identity already exists. Refusing to overwrite it.",
+  "cli.identity.deleted": "Deleted the device identity from {store}.",
+  "cli.identity.device_id": "Device ID",
+  "cli.identity.fingerprint": "Fingerprint",
+  "cli.identity.public_key": "Public key",
+  "cli.identity.secret_store": "Secret store",
+  "cli.identity.confirm_delete": "This permanently destroys this device's identity; all pairings become invalid. Re-run with --yes to confirm.",
+  "cli.store.os": "OS secure store ({name})",
+  "cli.store.file": "Owner-only key file ({path})",
+  "cli.doctor.title": "Nexus Remote environment check",
+  "cli.doctor.ok": "ok",
+  "cli.doctor.fail": "problem"
+}

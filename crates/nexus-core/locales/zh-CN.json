@@ -1,0 +1,19 @@
+{
+  "app.name": "Nexus Remote",
+  "cli.about": "为您自己的设备提供安全、实时的远程控制",
+  "cli.identity.created": "已创建新的设备身份。",
+  "cli.identity.loaded": "已加载现有的设备身份。",
+  "cli.identity.missing": "尚未创建设备身份。请先运行 `nexus id create`。",
+  "cli.identity.exists": "设备身份已存在，拒绝覆盖。",
+  "cli.identity.deleted": "已从 {store} 中删除设备身份。",
+  "cli.identity.device_id": "设备 ID",
+  "cli.identity.fingerprint": "指纹",
+  "cli.identity.public_key": "公钥",
+  "cli.identity.secret_store": "密钥存储",
+  "cli.identity.confirm_delete": "这将永久销毁本设备的身份，所有配对都将失效。请添加 --yes 以确认。",
+  "cli.store.os": "系统安全存储（{name}）",
+  "cli.store.file": "仅限所有者访问的密钥文件（{path}）",
+  "cli.doctor.title": "Nexus Remote 环境检查",
+  "cli.doctor.ok": "正常",
+  "cli.doctor.fail": "有问题"
+}
