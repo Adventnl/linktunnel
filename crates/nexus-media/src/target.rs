@@ -68,6 +68,8 @@ pub struct TargetConfig {
     pub egress: Option<EgressShaper>,
     /// Serves the file panel to controllers holding the `files` grant; `None` disables it.
     pub files: Option<Arc<nexus_files::FileServer>>,
+    /// Clipboard sync for controllers holding the `clipboard` grant; `None` disables it.
+    pub clipboard: Option<nexus_clipboard::ClipboardSetup>,
 }
 
 /// A serial bottleneck applied to outgoing video frames.
@@ -184,9 +186,10 @@ pub async fn serve(
     let can_view = config.grants.contains(grants::SCREEN);
     let can_input = config.grants.contains(grants::INPUT) && config.injector.is_some();
     let can_files = config.grants.contains(grants::FILES) && config.files.is_some();
+    let can_clipboard = config.grants.contains(grants::CLIPBOARD) && config.clipboard.is_some();
     info!(
         can_view,
-        can_input, can_files, "remote desktop session started"
+        can_input, can_files, can_clipboard, "remote desktop session started"
     );
 
     let monitors = match config.capture.monitors() {
@@ -224,6 +227,7 @@ pub async fn serve(
         Arc::clone(&stats),
         can_input,
         can_files,
+        can_clipboard,
     )));
     // Diagnostics datagram echo, until video starts (after that datagrams carry the cursor).
     let video_active = Arc::new(AtomicBool::new(false));
@@ -951,6 +955,7 @@ async fn accept_streams(
     stats: Arc<TargetStats>,
     can_input: bool,
     can_files: bool,
+    can_clipboard: bool,
 ) {
     loop {
         let Ok((kind, stream)) = session.accept_stream().await else {
@@ -997,6 +1002,24 @@ async fn accept_streams(
                     let mut io = nexus_files::framed(stream);
                     if let Err(e) = server.serve(&mut io).await {
                         debug!(error = %e, "file operation ended with an error");
+                    }
+                });
+            }
+            StreamKind::Clipboard if can_clipboard => {
+                let Some(setup) = config.clipboard.clone() else {
+                    continue;
+                };
+                let backend = match (setup.factory)() {
+                    Ok(b) => b,
+                    Err(e) => {
+                        warn!(error = %e, "clipboard unavailable on this device");
+                        continue;
+                    }
+                };
+                tokio::spawn(async move {
+                    let io = FramedStream::new(stream, nexus_proto::framing::MAX_BULK_FRAME);
+                    if let Err(e) = nexus_clipboard::run(backend, io, setup.policy).await {
+                        debug!(error = %e, "clipboard sync ended");
                     }
                 });
             }

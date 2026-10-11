@@ -123,13 +123,32 @@ async fn main() -> Result<()> {
         );
     }
     let max_upload = nexus.files.max_upload_mib.saturating_mul(1 << 20);
-    let handler: Arc<dyn SessionHandler> = if args.no_screen && roots.is_empty() {
-        Arc::new(DiagnosticsHandler)
-    } else if args.no_screen {
-        Arc::new(RemoteHandler::new(None, None, args.max_fps).with_files(roots, max_upload))
-    } else {
-        Arc::new(RemoteHandler::detect(args.max_fps).with_files(roots, max_upload))
-    };
+    let clipboard = (nexus.clipboard.send || nexus.clipboard.receive).then(|| {
+        nexus_clipboard::ClipboardSetup {
+            factory: nexus_clipboard::os_clipboard(),
+            policy: nexus_clipboard::ClipboardPolicy {
+                send: nexus.clipboard.send,
+                receive: nexus.clipboard.receive,
+                images: nexus.clipboard.images,
+                ..Default::default()
+            },
+        }
+    });
+    let handler: Arc<dyn SessionHandler> =
+        if args.no_screen && roots.is_empty() && clipboard.is_none() {
+            Arc::new(DiagnosticsHandler)
+        } else {
+            let base = if args.no_screen {
+                RemoteHandler::new(None, None, args.max_fps)
+            } else {
+                RemoteHandler::detect(args.max_fps)
+            };
+            let base = base.with_files(roots, max_upload);
+            Arc::new(match clipboard {
+                Some(c) => base.with_clipboard(c),
+                None => base,
+            })
+        };
     let agent = Agent::start(config, Arc::new(identity), handler).await?;
     tracing::info!(device = %agent.device_id(), ipc = ?agent.ipc_paths().endpoint, "agent running; Ctrl-C to stop");
 

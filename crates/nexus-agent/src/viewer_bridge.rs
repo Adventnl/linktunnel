@@ -74,6 +74,11 @@ pub(crate) async fn open(
         max_fps: req.max_fps,
         bitrate_bps: req.bitrate_bps,
         want_video: req.want_video,
+        clipboard: if req.clipboard {
+            shared.handler.clipboard()
+        } else {
+            None
+        },
         ..Default::default()
     };
     let (controller, mut streams) = ControllerSession::start(session, established.control, options)

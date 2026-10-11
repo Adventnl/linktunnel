@@ -269,6 +269,8 @@ message OpenSession {
   uint32 bitrate_bps = 4;
   // False opens a control-only session (no screen).
   bool want_video = 5;
+  // Keep the two clipboards in sync for this session (needs the `clipboard` grant on the peer).
+  bool clipboard = 6;
 }
 
 message CloseSession {

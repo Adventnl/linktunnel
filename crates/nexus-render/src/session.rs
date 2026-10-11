@@ -31,6 +31,8 @@ pub struct ViewerOptions {
     pub bitrate_bps: u32,
     /// Do not send input.
     pub view_only: bool,
+    /// Keep the two clipboards in sync.
+    pub clipboard: bool,
 }
 
 /// Messages from the network thread to the window.
@@ -131,6 +133,7 @@ async fn run(
             max_fps: options.max_fps,
             bitrate_bps: options.bitrate_bps,
             want_video: true,
+            clipboard: options.clipboard,
         })
         .await
     {

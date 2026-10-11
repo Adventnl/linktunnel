@@ -61,6 +61,8 @@ pub struct ControllerOptions {
     pub min_bitrate_bps: u32,
     /// Highest bitrate adaptation may choose.
     pub max_bitrate_bps: u32,
+    /// Keep this side's clipboard in sync with the target's (needs the `clipboard` grant).
+    pub clipboard: Option<nexus_clipboard::ClipboardSetup>,
 }
 
 impl Default for ControllerOptions {
@@ -75,6 +77,7 @@ impl Default for ControllerOptions {
             adaptive: true,
             min_bitrate_bps: 300_000,
             max_bitrate_bps: 50_000_000,
+            clipboard: None,
         }
     }
 }
@@ -255,6 +258,9 @@ impl ControllerSession {
             Arc::clone(&stats),
         ));
         tokio::spawn(input_task(session.clone(), input_rx));
+        if let Some(setup) = options.clipboard.clone() {
+            tokio::spawn(clipboard_task(session.clone(), setup));
+        }
 
         Ok((
             Self {
@@ -713,5 +719,28 @@ async fn input_task(session: Session, mut rx: mpsc::UnboundedReceiver<(u64, Inpu
             }
             Err(e) => warn!(error = %e, "dropping an input packet that could not be encoded"),
         }
+    }
+}
+
+/// Opens the clipboard stream and syncs until the session ends. A target without the grant
+/// (or without a clipboard) just closes the stream; that is not an error worth surfacing.
+async fn clipboard_task(session: Session, setup: nexus_clipboard::ClipboardSetup) {
+    let backend = match (setup.factory)() {
+        Ok(b) => b,
+        Err(e) => {
+            debug!(error = %e, "no local clipboard; sync disabled");
+            return;
+        }
+    };
+    let stream = match session.open_stream(StreamKind::Clipboard).await {
+        Ok(s) => s,
+        Err(e) => {
+            debug!(error = %e, "could not open the clipboard stream");
+            return;
+        }
+    };
+    let io = FramedStream::new(stream, nexus_proto::framing::MAX_BULK_FRAME);
+    if let Err(e) = nexus_clipboard::run(backend, io, setup.policy).await {
+        debug!(error = %e, "clipboard sync ended");
     }
 }

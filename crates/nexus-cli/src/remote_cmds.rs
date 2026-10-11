@@ -57,6 +57,9 @@ pub enum RemoteCommand {
         /// Watch only; send no input.
         #[arg(long)]
         view_only: bool,
+        /// Do not share the clipboard with the device.
+        #[arg(long)]
+        no_clipboard: bool,
     },
     /// List a paired device's monitors.
     Monitors {
@@ -170,7 +173,8 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
             fps,
             mbps,
             view_only,
-        } => view(ctx, &device, monitor, fps, mbps, view_only).await,
+            no_clipboard,
+        } => view(ctx, &device, monitor, fps, mbps, view_only, !no_clipboard).await,
         RemoteCommand::Monitors { device } => monitors(ctx, &device).await,
         RemoteCommand::Type { device, text } => {
             let live = open(ctx, &device, 0, false).await?;
@@ -246,6 +250,7 @@ async fn view(
     fps: u32,
     mbps: u32,
     view_only: bool,
+    clipboard: bool,
 ) -> Result<ExitCode> {
     let client = crate::agent_cmds::connect(ctx).await?;
     let devices = client.list_devices().await?.devices;
@@ -259,6 +264,7 @@ async fn view(
         max_fps: fps,
         bitrate_bps: mbps.saturating_mul(1_000_000),
         view_only,
+        clipboard,
     };
     // The window owns the main thread; it runs its own network thread.
     let reason = tokio::task::block_in_place(|| nexus_render::run(options))

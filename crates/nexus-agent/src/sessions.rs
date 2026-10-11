@@ -37,6 +37,12 @@ pub trait SessionHandler: Send + Sync + 'static {
     /// What this build can do, announced in `Hello` and in presence.
     fn capabilities(&self) -> Capabilities;
 
+    /// How this device syncs its clipboard when it controls another one (and, for a target,
+    /// with whom). `None` disables clipboard sync.
+    fn clipboard(&self) -> Option<nexus_clipboard::ClipboardSetup> {
+        None
+    }
+
     /// Runs the session until it ends.
     async fn handle(&self, ctx: SessionContext);
 }

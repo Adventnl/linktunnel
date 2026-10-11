@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 bytes.workspace = true
 nexus-capture.workspace = true
+nexus-clipboard.workspace = true
 nexus-codec = { workspace = true, features = ["software"] }
 nexus-core.workspace = true
 nexus-files.workspace = true

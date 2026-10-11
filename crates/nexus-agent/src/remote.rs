@@ -5,6 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nexus_capture::CaptureBackend;
 use nexus_capture::headless::HeadlessBackend;
+use nexus_clipboard::ClipboardSetup;
 use nexus_files::{FileRoots, FileServer};
 use nexus_media::target::{self, InjectorFactory, TargetConfig, TargetStats};
 use nexus_proto::features;
@@ -22,6 +23,7 @@ pub struct RemoteHandler {
     injector: Option<InjectorFactory>,
     max_fps: u32,
     files: Option<Arc<FileServer>>,
+    clipboard: Option<ClipboardSetup>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -31,6 +33,7 @@ impl std::fmt::Debug for RemoteHandler {
             .field("input", &self.injector.is_some())
             .field("max_fps", &self.max_fps)
             .field("files", &self.files.is_some())
+            .field("clipboard", &self.clipboard.is_some())
             .finish()
     }
 }
@@ -48,6 +51,7 @@ impl RemoteHandler {
             injector,
             max_fps: max_fps.clamp(1, 240),
             files: None,
+            clipboard: None,
         }
     }
 
@@ -57,6 +61,13 @@ impl RemoteHandler {
     pub fn with_files(mut self, roots: FileRoots, max_upload_bytes: u64) -> Self {
         self.files =
             (!roots.is_empty()).then(|| Arc::new(FileServer::new(roots, max_upload_bytes)));
+        self
+    }
+
+    /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
+    #[must_use]
+    pub fn with_clipboard(mut self, setup: ClipboardSetup) -> Self {
+        self.clipboard = Some(setup);
         self
     }
 
@@ -140,6 +151,10 @@ impl SessionHandler for RemoteHandler {
         caps
     }
 
+    fn clipboard(&self) -> Option<ClipboardSetup> {
+        self.clipboard.clone()
+    }
+
     async fn handle(&self, ctx: SessionContext) {
         let capture = match self.capture.clone() {
             Some(c) => c,
@@ -157,6 +172,7 @@ impl SessionHandler for RemoteHandler {
             max_inflight: target::DEFAULT_MAX_INFLIGHT,
             egress: None,
             files: self.files.clone(),
+            clipboard: self.clipboard.clone(),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;

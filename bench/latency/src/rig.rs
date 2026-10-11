@@ -100,6 +100,7 @@ pub async fn rig(
         max_inflight: 12,
         egress,
         files: None,
+        clipboard: None,
     };
     tokio::spawn(target::serve(
         b_session,

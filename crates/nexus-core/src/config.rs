@@ -53,6 +53,31 @@ pub struct NexusConfig {
     pub security: SecurityConfig,
     /// Folders other devices may browse and copy files in and out of.
     pub files: FilesConfig,
+    /// Clipboard sync.
+    pub clipboard: ClipboardConfig,
+}
+
+/// Clipboard sync between paired devices that hold the `clipboard` grant. The two directions are
+/// separate switches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ClipboardConfig {
+    /// Send what is copied on this device to the other one.
+    pub send: bool,
+    /// Apply what is copied on the other device.
+    pub receive: bool,
+    /// Include images (text only otherwise).
+    pub images: bool,
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        Self {
+            send: true,
+            receive: true,
+            images: true,
+        }
+    }
 }
 
 /// One folder shared with paired devices that hold the `files` grant.

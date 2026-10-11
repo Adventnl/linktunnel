@@ -66,6 +66,7 @@ async fn a_real_x_desktop_is_viewed_and_controlled_over_quic() {
         max_inflight: 12,
         egress: None,
         files: None,
+        clipboard: None,
     };
     let stats = Arc::new(TargetStats::default());
     let target_task = tokio::spawn(target::serve(
