@@ -31,6 +31,10 @@ pub struct AgentConfig {
     pub default_consent: ConsentMode,
     /// How long that prompt waits before the request is refused.
     pub consent_timeout: Duration,
+    /// Reads idle / locked / battery state for presence; `None` uses the operating system's.
+    pub presence_sensor: Option<std::sync::Arc<dyn nexus_presence::Sensor>>,
+    /// How often activity (idle, locked, battery) is re-read.
+    pub presence_interval: Duration,
 }
 
 impl AgentConfig {
@@ -50,6 +54,8 @@ impl AgentConfig {
             start_locked_down: cfg.security.lockdown,
             default_consent: cfg.security.consent,
             consent_timeout: Duration::from_secs(u64::from(cfg.security.consent_timeout_secs)),
+            presence_sensor: None,
+            presence_interval: Duration::from_secs(10),
         })
     }
 

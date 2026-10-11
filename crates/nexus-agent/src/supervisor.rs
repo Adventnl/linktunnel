@@ -96,7 +96,31 @@ enum Ended {
     Shutdown,
 }
 
+/// What the presence record says about the machine's activity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Activity {
+    state: PresenceState,
+    battery_percent: u32,
+    on_ac: bool,
+    user: String,
+}
+
+fn activity(shared: &Shared) -> Activity {
+    let snap = match &shared.cfg.presence_sensor {
+        Some(s) => s.sample(),
+        None => nexus_presence::Sensor::sample(&nexus_presence::SystemSensor),
+    };
+    let remote = shared.sessions.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    Activity {
+        state: nexus_presence::classify(&snap, remote, nexus_presence::Thresholds::default()),
+        battery_percent: snap.battery_percent.map_or(255, u32::from),
+        on_ac: snap.on_ac,
+        user: snap.user.unwrap_or_default(),
+    }
+}
+
 fn presence_info(shared: &Shared, seq: u64) -> PresenceInfo {
+    let act = activity(shared);
     let reach = shared.node.reachability();
     let hints: Vec<String> = reach
         .direct
@@ -106,11 +130,12 @@ fn presence_info(shared: &Shared, seq: u64) -> PresenceInfo {
         .map(ToString::to_string)
         .collect();
     PresenceInfo {
-        state: PresenceState::Online as i32,
+        state: act.state as i32,
         name: shared.cfg.device_name.clone(),
         os: Some(sysinfo::os_info()),
-        battery_percent: 255,
-        on_ac_power: true,
+        active_user: act.user,
+        battery_percent: act.battery_percent,
+        on_ac_power: act.on_ac,
         uptime_secs: shared.started.elapsed().as_secs(),
         ip_hints: hints,
         relay_url: reach.relay.unwrap_or_default(),
@@ -149,6 +174,13 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
     let mut refresh = tokio::time::interval(Duration::from_secs(60));
     refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     refresh.tick().await;
+    // Activity changes (someone sits down, the screen locks) are published within seconds.
+    let mut sense =
+        tokio::time::interval(shared.cfg.presence_interval.max(Duration::from_millis(50)));
+    sense.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    sense.tick().await;
+    let mut last_activity = activity(shared);
+    let mut last_sense = std::time::Instant::now();
 
     loop {
         tokio::select! {
@@ -166,6 +198,17 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
                 Err(ClientError::Closed) => return Ok(Ended::Dropped),
                 Err(e) => debug!(error = %e, "heartbeat failed"),
             },
+            _ = sense.tick() => {
+                let now = activity(shared);
+                // A long gap between ticks means the machine was asleep: tell everyone it is back.
+                let woke = last_sense.elapsed() > shared.cfg.presence_interval * 4 + Duration::from_secs(5);
+                last_sense = std::time::Instant::now();
+                if now != last_activity || woke {
+                    last_activity = now;
+                    seq += 1;
+                    client.publish_presence(presence_info(shared, seq)).await?;
+                }
+            }
             _ = refresh.tick() => {
                 seq += 1;
                 client.publish_presence(presence_info(shared, seq)).await?;

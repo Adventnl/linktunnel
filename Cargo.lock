@@ -3450,6 +3450,7 @@ dependencies = [
  "nexus-net",
  "nexus-portfwd",
  "nexus-power",
+ "nexus-presence",
  "nexus-proto",
  "nexus-signal",
  "nexus-signal-client",
@@ -3743,6 +3744,17 @@ dependencies = [
  "parking_lot",
  "thiserror 2.0.21",
  "tracing",
+]
+
+[[package]]
+name = "nexus-presence"
+version = "0.1.0"
+dependencies = [
+ "nexus-proto",
+ "tempfile",
+ "tracing",
+ "windows",
+ "x11rb 0.14.0",
 ]
 
 [[package]]

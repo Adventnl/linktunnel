@@ -89,6 +89,8 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         // has its own tests.
         default_consent: nexus_core::config::ConsentMode::Unattended,
         consent_timeout: Duration::from_secs(30),
+        presence_sensor: None,
+        presence_interval: Duration::from_millis(200),
     }
 }
 
@@ -1485,4 +1487,72 @@ async fn a_device_that_keeps_being_refused_stops_getting_prompts() {
     );
     assert!(kinds.iter().any(|k| k == "consent.locked_out"), "{kinds:?}");
     mac.client.close_session(sid).await.ok();
+}
+
+#[derive(Debug)]
+struct SwitchSensor(std::sync::Mutex<nexus_presence::Snapshot>);
+
+impl nexus_presence::Sensor for SwitchSensor {
+    fn sample(&self) -> nexus_presence::Snapshot {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn presence_follows_what_the_machine_is_doing() {
+    use nexus_proto::v1::PresenceState;
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let sensor = Arc::new(SwitchSensor(std::sync::Mutex::new(
+        nexus_presence::Snapshot {
+            idle: Some(Duration::from_secs(900)),
+            user: Some("alice".into()),
+            battery_percent: Some(42),
+            on_ac: false,
+            ..Default::default()
+        },
+    )));
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_cfg(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(DiagnosticsHandler),
+        {
+            let s: Arc<dyn nexus_presence::Sensor> = sensor.clone();
+            move |c| c.presence_sensor = Some(s)
+        },
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    let state_seen_by_mac = || async {
+        let d = mac.client.list_devices().await.unwrap().devices;
+        (d[0].state, d[0].battery_percent, d[0].active_user.clone())
+    };
+    eventually("the PC to show as idle with its battery", || async {
+        state_seen_by_mac().await == (PresenceState::Idle as i32, 42, "alice".to_owned())
+    })
+    .await;
+
+    sensor.0.lock().unwrap().locked = true;
+    eventually("the PC to show as locked", || async {
+        state_seen_by_mac().await.0 == PresenceState::Locked as i32
+    })
+    .await;
+
+    {
+        let mut s = sensor.0.lock().unwrap();
+        s.locked = false;
+        s.idle = Some(Duration::from_secs(2));
+    }
+    eventually("the PC to show as in use", || async {
+        state_seen_by_mac().await.0 == PresenceState::InUse as i32
+    })
+    .await;
 }

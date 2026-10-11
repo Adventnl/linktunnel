@@ -61,6 +61,7 @@ nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }
 nexus-portfwd = { path = "crates/nexus-portfwd" }
+nexus-presence = { path = "crates/nexus-presence" }
 nexus-power = { path = "crates/nexus-power" }
 nexus-terminal = { path = "crates/nexus-terminal" }
 nexus-ipc = { path = "crates/nexus-ipc" }

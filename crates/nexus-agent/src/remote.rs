@@ -236,7 +236,13 @@ impl SessionHandler for RemoteHandler {
                 sink: Arc::clone(&ctx.shared.audit),
                 actor: ctx.peer.identity.device_id().to_string(),
             }),
-            power: self.power.clone(),
+            power: self.power.clone().map(|inner| {
+                Arc::new(AnnouncingPower {
+                    inner,
+                    shared: Arc::clone(&ctx.shared),
+                    runtime: tokio::runtime::Handle::current(),
+                }) as Arc<dyn PowerBackend>
+            }),
             wake_relay: self.wake_relay,
             terminal: self.terminal.clone(),
             portfwd: self.portfwd.clone(),
@@ -244,5 +250,40 @@ impl SessionHandler for RemoteHandler {
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;
         info!(peer = %ctx.peer.name, ?reason, "remote session finished");
+    }
+}
+
+/// Tells the signaling server why this device is about to disappear, so paired devices see
+/// "sleeping" or "restarting" at once instead of "offline" after a timeout.
+struct AnnouncingPower {
+    inner: Arc<dyn PowerBackend>,
+    shared: Arc<crate::state::Shared>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl PowerBackend for AnnouncingPower {
+    fn perform(&self, action: nexus_power::PowerAction) -> Result<(), nexus_power::PowerError> {
+        use nexus_power::PowerAction as A;
+        use nexus_proto::v1::GoingOfflineReason as R;
+        let reason = match action {
+            A::Sleep => Some(R::Sleep),
+            A::Hibernate => Some(R::Hibernate),
+            A::Restart => Some(R::Restart),
+            A::Shutdown => Some(R::Shutdown),
+            A::LogOff => Some(R::Logout),
+            A::Lock => None,
+        };
+        if let (Some(reason), Some(signal)) = (reason, self.shared.signal()) {
+            // Runs on a blocking thread, so waiting on the runtime here is fine.
+            let _ = self.runtime.block_on(tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                signal.going_offline(reason),
+            ));
+        }
+        self.inner.perform(action)
+    }
+
+    fn supported(&self) -> Vec<nexus_power::PowerAction> {
+        self.inner.supported()
     }
 }
