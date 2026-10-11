@@ -15,6 +15,7 @@ mod identity_cmd;
 mod power_cmds;
 mod remote_cmds;
 mod shell_cmds;
+mod update_cmds;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -161,6 +162,9 @@ enum Command {
         #[arg(long)]
         via: Option<String>,
     },
+    /// Check for, download and apply signed updates.
+    #[command(subcommand)]
+    Update(update_cmds::UpdateCommand),
     /// Read and verify this device's tamper-evident audit log.
     #[command(subcommand)]
     Audit(audit_cmds::AuditCommand),
@@ -264,6 +268,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             yes,
         } => power_cmds::power(&ctx, &device, action, yes).await,
         Command::Wake { device, via } => power_cmds::wake(&ctx, &device, via.as_deref()).await,
+        Command::Update(cmd) => update_cmds::run(&ctx, cmd).await,
         Command::Audit(cmd) => audit_cmds::run(&ctx, &cmd),
         Command::Consent => consent_cmds::watch(&ctx).await,
         Command::Trust(cmd) => consent_cmds::trust(&ctx, cmd).await,

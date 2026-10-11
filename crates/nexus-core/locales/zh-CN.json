@@ -109,5 +109,15 @@
   "cli.audit.ok": "审计日志完好：共 {records} 条记录，签名头{head}。",
   "cli.audit.head_ok": "已验证",
   "cli.audit.head_unchecked": "未校验（此处没有设备身份）",
-  "cli.audit.broken": "审计日志已损坏，位置：第 {seq} 条记录：{why}"
+  "cli.audit.broken": "审计日志已损坏，位置：第 {seq} 条记录：{why}",
+  "cli.update.disabled": "尚未配置更新。请在配置文件中设置 update.manifest_url 和 update.public_keys。",
+  "cli.update.uptodate": "已是最新版本（{version}）。",
+  "cli.update.available": "有新版本 {version}（当前 {current}）。",
+  "cli.update.not_yet": "版本 {version} 已发布，但仍在逐步推送（目前 {percent}% 的设备）。",
+  "cli.update.no_artifact": "版本 {version} 暂无适用于此电脑的构建。",
+  "cli.update.downloaded": "已下载并校验 {path}。",
+  "cli.update.installer": "正在启动安装程序：{command}",
+  "cli.update.replaced": "已替换 {path}；旧版本保留为 {old}。请重启代理以使用新版本。",
+  "cli.update.manual": "请自行运行安装程序（可能需要管理员权限）：{command}",
+  "cli.update.rolled_back": "已恢复 {path} 的上一个版本。"
 }

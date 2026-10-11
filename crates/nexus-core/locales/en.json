@@ -109,5 +109,15 @@
   "cli.audit.ok": "Audit log intact: {records} records, signed head {head}.",
   "cli.audit.head_ok": "verified",
   "cli.audit.head_unchecked": "not checked (no identity here)",
-  "cli.audit.broken": "AUDIT LOG DAMAGED at record {seq}: {why}"
+  "cli.audit.broken": "AUDIT LOG DAMAGED at record {seq}: {why}",
+  "cli.update.disabled": "Updates are not configured. Set update.manifest_url and update.public_keys in the config file.",
+  "cli.update.uptodate": "You are up to date ({version}).",
+  "cli.update.available": "Version {version} is available (you have {current}).",
+  "cli.update.not_yet": "Version {version} exists but is still rolling out ({percent}% of devices so far).",
+  "cli.update.no_artifact": "Version {version} has no build for this computer yet.",
+  "cli.update.downloaded": "Downloaded and verified {path}.",
+  "cli.update.installer": "Starting the installer: {command}",
+  "cli.update.replaced": "Replaced {path}; the previous version is kept as {old}. Restart the agent to use it.",
+  "cli.update.manual": "Run the installer yourself (it may need administrator rights): {command}",
+  "cli.update.rolled_back": "Restored the previous version of {path}."
 }

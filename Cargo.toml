@@ -56,6 +56,7 @@ nexus-core = { path = "crates/nexus-core" }
 nexus-proto = { path = "crates/nexus-proto" }
 nexus-crypto = { path = "crates/nexus-crypto" }
 nexus-trust = { path = "crates/nexus-trust" }
+nexus-update = { path = "crates/nexus-update" }
 nexus-signal-client = { path = "crates/nexus-signal-client" }
 nexus-signal = { path = "crates/nexus-signal" }
 nexus-net = { path = "crates/nexus-net" }

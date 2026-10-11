@@ -55,6 +55,8 @@ pub enum SignContext {
     ConsentGrant,
     /// Binds a session to a handshake transcript.
     SessionBinding,
+    /// A release manifest published by the update service.
+    UpdateManifest,
 }
 
 impl SignContext {
@@ -70,6 +72,7 @@ impl SignContext {
             Self::AuditEntry => "audit-entry",
             Self::ConsentGrant => "consent-grant",
             Self::SessionBinding => "session-binding",
+            Self::UpdateManifest => "update-manifest",
         }
     }
 
@@ -545,6 +548,7 @@ mod tests {
             SignContext::AuditEntry,
             SignContext::ConsentGrant,
             SignContext::SessionBinding,
+            SignContext::UpdateManifest,
         ] {
             assert!(ctx.label().len() < 64, "{ctx:?}");
             assert!(ctx.label().is_ascii(), "{ctx:?}");
@@ -563,6 +567,7 @@ mod tests {
             SignContext::KeyBinding,
             SignContext::ConsentGrant,
             SignContext::SessionBinding,
+            SignContext::UpdateManifest,
         ] {
             assert!(
                 id.public().verify(other, b"nonce", &sig).is_err(),

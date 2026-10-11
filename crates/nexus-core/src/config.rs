@@ -61,6 +61,31 @@ pub struct NexusConfig {
     pub terminal: TerminalConfig,
     /// TCP port forwarding.
     pub portfwd: PortForwardConfig,
+    /// Software updates.
+    pub update: UpdateConfig,
+}
+
+/// Where updates come from and whom to trust. With no publisher key configured, updates are
+/// disabled entirely (never "accept anything").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct UpdateConfig {
+    /// URL of the signed release manifest.
+    pub manifest_url: Option<Url>,
+    /// Hex Ed25519 public keys of trusted publishers (`nexus-release keygen` prints one).
+    pub public_keys: Vec<String>,
+    /// `stable` or `beta`.
+    pub channel: String,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            manifest_url: None,
+            public_keys: Vec::new(),
+            channel: "stable".into(),
+        }
+    }
 }
 
 /// One destination a controller may forward to.
