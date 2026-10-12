@@ -46,6 +46,11 @@ struct Cli {
     #[arg(long, global = true, env = "NEXUS_HOME")]
     home: Option<PathBuf>,
 
+    /// Talk to the machine-wide service agent (`nexus-agent --system`, as installed by the
+    /// packages) instead of the per-user one. Usually needs `sudo` / an elevated terminal.
+    #[arg(long, global = true)]
+    system: bool,
+
     /// Store the identity in an owner-only file instead of the OS keychain.
     #[arg(long, global = true)]
     file_store: bool,
@@ -241,14 +246,15 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         .as_deref()
         .and_then(Locale::parse)
         .unwrap_or_else(Locale::detect);
-    let paths = match &cli.home {
-        Some(home) => Paths::under(home),
-        None => Paths::resolve(Scope::User).context("locating state directories")?,
+    let paths = match (&cli.home, cli.system) {
+        (Some(home), _) => Paths::under(home),
+        (None, true) => Paths::resolve(Scope::System).context("locating state directories")?,
+        (None, false) => Paths::resolve(Scope::User).context("locating state directories")?,
     };
     let store = open_default(&DefaultStoreOptions {
         service: KEYCHAIN_SERVICE.into(),
         file_dir: paths.data_dir.join("keys"),
-        prefer_os_store: !cli.file_store && cli.home.is_none(),
+        prefer_os_store: !cli.file_store && !cli.system && cli.home.is_none(),
         allow_file_fallback: true,
     })
     .context("opening the secret store")?;
@@ -262,6 +268,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     }
     if cli.file_store {
         passthrough.push("--file-store".into());
+    }
+    if cli.system {
+        passthrough.push("--system".into());
     }
     let ctx = AppContext {
         locale,

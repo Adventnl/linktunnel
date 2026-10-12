@@ -55,7 +55,8 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
   (`[display] virtual = "auto"`), so `nexus remote view server` shows a desktop. Put a window manager or terminal on it with
   `[display] session = ["openbox-session"]`. Without Xvfb the server still offers terminal, files and ports.
   The systemd unit is in `installers/linux/systemd/` (hardened; a root shell for administrators is an explicit, documented
-  drop-in with a warning).
+  drop-in with a warning). Talk to a service agent with `sudo nexus --system …` (`pair offer`, `trust unattended`, `status`, `audit tail`);
+  the per-user agent needs no flag.
 * **An always-on helper that wakes your PCs.** On a Raspberry Pi / home server: `nexus-agent --wake-helper` (or the
   `nexus-wake.service` unit). Pair it with your devices and grant `wake`. It offers nothing else.
 * **Windows PC (service).** [WINDOWS.md](WINDOWS.md): lock-screen and UAC control need the SYSTEM service (**untested**).

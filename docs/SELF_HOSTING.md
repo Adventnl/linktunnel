@@ -17,7 +17,7 @@ Devices on one LAN need none of this after pairing: they find each other over mD
 
 ## Docker Compose (signal + PostgreSQL + Redis + Caddy)
 ```sh
-cd deploy/compose && cp ../../.env.example .env   # set NEXUS_DOMAIN, POSTGRES_PASSWORD
+cd deploy/compose && cp .env.example .env   # set NEXUS_DOMAIN, POSTGRES_PASSWORD
 docker compose up -d --build
 ```
 Agents then use `wss://$NEXUS_DOMAIN/v1/ws`. `docker-compose.local.yml` publishes the plain port on 127.0.0.1 for a trial.
@@ -49,8 +49,8 @@ Caddy example: `signal.example.com { reverse_proxy 127.0.0.1:8443 }`.
 * Nothing needs to be opened inbound for normal use. For a server you want to reach directly, pin a UDP port (`net.udp_port = 7842`) and allow it.
 * Without a relay, two devices behind strict NATs may fail to connect; run `iroh-relay` yourself and set `net.relay_urls`. Nothing is sent to third-party
   relays unless you opt in. (Relay operation is documented upstream; **we have not deployed one in this project outside tests.**)
-* A headless Linux server: install the `.deb`, `sudo systemctl enable --now nexus-agent`, pair, then `nexus trust unattended <your device>` (an unattended
-  box cannot ask anyone). The unit runs as the unprivileged `nexus` user; see the admin-terminal drop-in for the root-shell variant and its warning.
+* A headless Linux server: install the `.deb`, `sudo systemctl enable --now nexus-agent`, pair (`sudo nexus --system pair offer`), then
+  `sudo nexus --system trust unattended <your device>` (an unattended box cannot ask anyone). The unit runs as the unprivileged `nexus` user; see the admin-terminal drop-in for the root-shell variant and its warning.
 
 ## What the server can and cannot see
 It sees which devices are paired and when they are online, and relays opaque blobs. It cannot read envelopes, create pairings, or reach a device that

@@ -36,3 +36,4 @@ apps/*/.vite/
 /apps/nexus-app/shots/
 /apps/nexus-app/src-tauri/target/
 /apps/nexus-app/src-tauri/gen/
+!.env.example

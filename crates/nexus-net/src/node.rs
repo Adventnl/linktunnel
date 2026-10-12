@@ -106,11 +106,19 @@ impl Node {
                 builder.relay_mode(RelayMode::Custom(configs.into_iter().collect::<RelayMap>()))
             }
         };
-        builder = match &config.relay_trust {
-            RelayTrust::System => builder.ca_tls_config(CaTlsConfig::system()),
-            RelayTrust::CustomRoots(roots) => builder.ca_tls_config(CaTlsConfig::custom_roots(
-                roots.iter().map(|der| CertificateDer::from(der.clone())),
-            )),
+        builder = match (&config.relay, &config.relay_trust) {
+            // No relay means the endpoint makes no outbound TLS connections, so it must not
+            // insist on a readable system root store (the compiled-in Mozilla roots are used instead) (a minimal container or a service account
+            // may have none; failing to start a LAN-only agent over it would be absurd).
+            (RelaySetting::Disabled, RelayTrust::System) => {
+                builder.ca_tls_config(CaTlsConfig::embedded())
+            }
+            (_, RelayTrust::System) => builder.ca_tls_config(CaTlsConfig::system()),
+            (_, RelayTrust::CustomRoots(roots)) => {
+                builder.ca_tls_config(CaTlsConfig::custom_roots(
+                    roots.iter().map(|der| CertificateDer::from(der.clone())),
+                ))
+            }
         };
         if !config.direct {
             builder = builder.clear_ip_transports();

@@ -16,7 +16,7 @@ for X11, Chromium, no Docker daemon) with the Windows and macOS targets installe
 Windows code written after Phase 2 has ever been executed**, and no second physical machine or real NAT was available
 at any point. A ✅ row names its evidence and runs on Linux unless it says otherwise.
 
-**Totals at the last full run (Linux):** 583 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
+**Totals at the last full run (Linux):** 584 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
 19 frontend tests; `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check` clean; 13 fuzz
 targets run (see Phase 9). The GitHub Actions workflows are written but **have not been run** (no runner here).
 
@@ -129,7 +129,7 @@ local session recording; certificate pinning of the signaling TLS beyond the pla
 | Artifact | State |
 |---|---|
 | systemd units (agent, desktop user unit, wake helper, signal), hardened | ✅ verified with `systemd-analyze` |
-| `.deb` builder (`installers/linux/build-deb.sh`) | ✅ built and inspected (see below) |
+| `.deb` builder (`installers/linux/build-deb.sh`) | ✅ built (release), installed with `dpkg -i` in the container: binaries in `/usr/bin`, `nexus` user created by sysusers, units verify clean; the installed agent ran as the unprivileged `nexus` user (virtual display included) and `sudo nexus --system status` reached it. This found and fixed a real bug: an agent with no relay configured refused to start when the system CA bundle was unreadable (regression test `the_agent_starts_without_readable_ca_roots_when_no_relay_is_configured`). **Not run under a live systemd.** |
 | Dockerfile + Compose (signal + PostgreSQL + Redis + Caddy) | 🟡 image builds/starts (Mac); not run in the container (no Docker) |
 | **Helm chart** (`deploy/helm/nexus-signal`) | ✅ `helm lint` clean and renders (Helm built from source in the container); not installed on a cluster |
 | macOS `.pkg` builder, LaunchAgent/Daemon plists, entitlements | 🟡 plists parse; scripts `bash -n` clean; **never run on a Mac** (needs signing identity, notarization) |
@@ -146,7 +146,7 @@ with expiring guest links · multi-user teams · smart-plug/IPMI/AMT wake driver
 
 ## How to re-verify everything claimed above
 ```sh
-cargo test --workspace                                   # 583 tests (Linux needs xvfb, libasound2-dev, cmake)
+cargo test --workspace                                   # 584 tests (Linux needs xvfb, libasound2-dev, cmake)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check
 cargo check --target x86_64-pc-windows-msvc -p nexus-capture -p nexus-input -p nexus-desktop -p nexus-winservice
