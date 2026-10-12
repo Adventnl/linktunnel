@@ -543,7 +543,10 @@ impl ConfigLoader {
     /// Merges `NEXUS_*` environment variables (`__` separates nesting levels).
     #[must_use]
     pub fn with_env(mut self) -> Self {
-        self.figment = self.figment.merge(Env::prefixed(ENV_PREFIX).split("__"));
+        // `NEXUS_HOME` relocates the state directory (see `paths`); it is not a setting.
+        self.figment = self
+            .figment
+            .merge(Env::prefixed(ENV_PREFIX).ignore(&["home"]).split("__"));
         self
     }
 
@@ -608,6 +611,20 @@ mod tests {
                 .map_err(|e| e.to_string())?;
             assert_eq!(cfg.net.udp_port, 2222);
             assert!(cfg.security.lockdown);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment's `Jail` API dictates this closure signature
+    fn nexus_home_relocates_state_and_is_not_a_setting() {
+        Jail::expect_with(|jail| {
+            jail.set_env("NEXUS_HOME", "/somewhere/else");
+            let cfg = ConfigLoader::new()
+                .with_env()
+                .load()
+                .map_err(|e| e.to_string())?;
+            assert_eq!(cfg, NexusConfig::default());
             Ok(())
         });
     }

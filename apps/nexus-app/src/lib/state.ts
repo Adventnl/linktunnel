@@ -16,7 +16,7 @@ export interface AppState {
 }
 
 export const initialState: AppState = {
-  snapshot: { agent: "unreachable", status: null, devices: [], error: null },
+  snapshot: { agent: "unreachable", status: null, devices: [], sessions: [], error: null },
   consents: [],
   pairingSas: null,
   pairingResult: null,
@@ -38,7 +38,7 @@ export function reduce(state: AppState, e: AppEvent): AppState {
     case "agent":
       return {
         ...state,
-        snapshot: e.agent === "unreachable" ? { agent: "unreachable", status: null, devices: [], error: e.error } : { ...state.snapshot, agent: e.agent, error: e.error },
+        snapshot: e.agent === "unreachable" ? { agent: "unreachable", status: null, devices: [], sessions: [], error: e.error } : { ...state.snapshot, agent: e.agent, error: e.error },
         // Prompts belong to a connection that no longer exists.
         consents: e.agent === "unreachable" ? [] : state.consents,
       };
@@ -52,6 +52,8 @@ export function reduce(state: AppState, e: AppEvent): AppState {
       return state.snapshot.status
         ? { ...state, snapshot: { ...state.snapshot, status: { ...state.snapshot.status, signalConnected: e.connected } } }
         : state;
+    case "sessions_changed":
+      return { ...state, snapshot: { ...state.snapshot, sessions: e.sessions } };
     case "consent_request":
       return { ...state, consents: [...state.consents.filter((c) => c.requestId !== e.request.requestId), e.request] };
     case "consent_resolved":

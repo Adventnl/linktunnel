@@ -106,6 +106,22 @@ pub async fn set_lockdown(app: AppHandle, link: Link<'_>, on: bool) -> CmdResult
     .map_err(err)
 }
 
+/// Ends the live incoming sessions of one device, or of everyone when `id` is empty.
+#[tauri::command]
+pub async fn disconnect_sessions(link: Link<'_>, id: Option<String>) -> CmdResult<()> {
+    let device = match id {
+        Some(id) if !id.is_empty() => dto::unhex(&id)?,
+        _ => Vec::new(),
+    };
+    link.client()?.disconnect_sessions(device).await.map_err(err)
+}
+
+/// Lockdown on and everyone disconnected.
+#[tauri::command]
+pub async fn panic(app: AppHandle, link: Link<'_>) -> CmdResult<()> {
+    crate::alert::panic_now(&app, link.inner()).await
+}
+
 #[tauri::command]
 pub async fn unpair(link: Link<'_>, id: String) -> CmdResult<()> {
     link.client()?.unpair(dto::unhex(&id)?).await.map_err(err)

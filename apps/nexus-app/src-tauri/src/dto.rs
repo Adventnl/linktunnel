@@ -99,6 +99,31 @@ impl From<&v1::DeviceView> for Device {
     }
 }
 
+/// Someone connected to this machine right now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveSession {
+    pub id: u64,
+    pub device_id: String,
+    pub peer_name: String,
+    pub started_ms: u64,
+    pub path: &'static str,
+    pub grants: Vec<String>,
+}
+
+impl From<&v1::ActiveSession> for ActiveSession {
+    fn from(s: &v1::ActiveSession) -> Self {
+        Self {
+            id: s.id,
+            device_id: hex(&s.peer_device_id),
+            peer_name: s.peer_name.clone(),
+            started_ms: s.started_ms,
+            path: path_name(s.path),
+            grants: s.grants.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentStatus {
@@ -135,6 +160,7 @@ pub struct Snapshot {
     pub agent: &'static str,
     pub status: Option<AgentStatus>,
     pub devices: Vec<Device>,
+    pub sessions: Vec<ActiveSession>,
     pub error: Option<String>,
 }
 
@@ -144,6 +170,7 @@ impl Snapshot {
             agent: "unreachable",
             status: None,
             devices: Vec::new(),
+            sessions: Vec::new(),
             error: Some(error.into()),
         }
     }
@@ -195,6 +222,9 @@ pub enum AppEvent {
     SignalState {
         connected: bool,
     },
+    SessionsChanged {
+        sessions: Vec<ActiveSession>,
+    },
     ConsentRequest {
         request: ConsentRequest,
     },
@@ -241,6 +271,9 @@ pub fn translate(ev: &v1::IpcEvent, now_ms: u64) -> Option<AppEvent> {
         },
         Body::SignalState(s) => AppEvent::SignalState {
             connected: s.connected,
+        },
+        Body::SessionsChanged(c) => AppEvent::SessionsChanged {
+            sessions: c.sessions.iter().map(ActiveSession::from).collect(),
         },
         Body::ConsentRequest(r) => AppEvent::ConsentRequest {
             request: ConsentRequest {
@@ -422,6 +455,25 @@ mod tests {
             panic!()
         };
         assert_eq!(data_b64, "AQID");
+        let who = v1::IpcEvent {
+            body: Some(Body::SessionsChanged(v1::SessionsChanged {
+                sessions: vec![v1::ActiveSession {
+                    id: 4,
+                    peer_device_id: vec![0xab, 0x01].into(),
+                    peer_name: "MacBook".into(),
+                    path: v1::PathKind::Relay as i32,
+                    grants: vec!["screen".into()],
+                    ..Default::default()
+                }],
+            })),
+        };
+        let Some(AppEvent::SessionsChanged { sessions }) = translate(&who, 0) else {
+            panic!()
+        };
+        assert_eq!(
+            (sessions[0].peer_name.as_str(), sessions[0].device_id.as_str(), sessions[0].path),
+            ("MacBook", "ab01", "relay")
+        );
         assert!(translate(&v1::IpcEvent { body: None }, 0).is_none());
     }
 }

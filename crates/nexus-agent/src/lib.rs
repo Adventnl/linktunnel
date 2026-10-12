@@ -44,7 +44,8 @@ pub use consent::ConsentPrompter;
 pub use error::AgentError;
 pub use remote::RemoteHandler;
 pub use sessions::{
-    CLOSE_LOCKDOWN, CLOSE_RATE_LIMITED, DiagnosticsHandler, SessionContext, SessionHandler,
+    CLOSE_DISCONNECTED, CLOSE_LOCKDOWN, CLOSE_RATE_LIMITED, DiagnosticsHandler, SessionContext,
+    SessionHandler,
 };
 pub use state::Shared;
 #[cfg(windows)]
@@ -129,6 +130,8 @@ impl Agent {
             events,
             lockdown: AtomicBool::new(locked),
             sessions: AtomicU32::new(0),
+            active: Mutex::default(),
+            next_session_id: AtomicU64::new(1),
             pairing: Mutex::new(None),
             handler,
             shutdown,

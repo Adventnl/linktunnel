@@ -10,7 +10,7 @@ use nexus_ipc::{IpcClient, IpcPaths};
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::dto::{self, AgentStatus, AppEvent, Device, Snapshot};
+use crate::dto::{self, ActiveSession, AgentStatus, AppEvent, Device, Snapshot};
 
 /// The one event channel the UI listens on.
 pub const EVENT: &str = "nexus://event";
@@ -21,6 +21,7 @@ const RETRY: Duration = Duration::from_millis(1500);
 #[derive(Default)]
 struct Cache {
     devices: Vec<Device>,
+    sessions: Vec<ActiveSession>,
     lockdown: bool,
 }
 
@@ -77,22 +78,31 @@ impl AgentLink {
         self.cache.lock().lockdown
     }
 
+    /// Who is connected to this machine, as last reported.
+    pub fn sessions(&self) -> Vec<ActiveSession> {
+        self.cache.lock().sessions.clone()
+    }
+
     pub async fn snapshot(&self) -> Snapshot {
         let client = match self.client() {
             Ok(c) => c,
             Err(e) => return Snapshot::unreachable(e),
         };
-        match tokio::try_join!(client.status(), client.list_devices()) {
-            Ok((status, list)) => {
+        match tokio::try_join!(client.status(), client.list_devices(), client.list_sessions()) {
+            Ok((status, list, sessions)) => {
                 let devices: Vec<Device> = list.devices.iter().map(Device::from).collect();
+                let sessions: Vec<ActiveSession> =
+                    sessions.sessions.iter().map(ActiveSession::from).collect();
                 let status = AgentStatus::from(&status);
                 let mut cache = self.cache.lock();
                 cache.devices.clone_from(&devices);
+                cache.sessions.clone_from(&sessions);
                 cache.lockdown = status.lockdown;
                 Snapshot {
                     agent: "connected",
                     status: Some(status),
                     devices,
+                    sessions,
                     error: None,
                 }
             }
@@ -114,18 +124,28 @@ impl AgentLink {
                         let Some(app_ev) = dto::translate(&ev, now_ms()) else {
                             continue;
                         };
+                        let before = self.sessions();
                         self.apply(&app_ev);
                         let _ = app.emit(EVENT, &app_ev);
+                        if let AppEvent::SessionsChanged { sessions } = &app_ev {
+                            crate::alert::sessions_changed(&app, &before, sessions);
+                        }
                         if matches!(
                             app_ev,
-                            AppEvent::DeviceChanged { .. } | AppEvent::DeviceRemoved { .. }
+                            AppEvent::DeviceChanged { .. }
+                                | AppEvent::DeviceRemoved { .. }
+                                | AppEvent::SessionsChanged { .. }
                         ) {
                             crate::tray::refresh(&app, &self);
                         }
                     }
                     *self.client.lock() = None;
                     self.terminals.lock().clear();
-                    self.cache.lock().devices.clear();
+                    {
+                        let mut cache = self.cache.lock();
+                        cache.devices.clear();
+                        cache.sessions.clear();
+                    }
                     crate::tray::refresh(&app, &self);
                     let _ = app.emit(
                         EVENT,
@@ -162,6 +182,7 @@ impl AgentLink {
                 }
             }
             AppEvent::DeviceRemoved { id } => cache.devices.retain(|d| &d.id != id),
+            AppEvent::SessionsChanged { sessions } => cache.sessions.clone_from(sessions),
             _ => {}
         }
     }

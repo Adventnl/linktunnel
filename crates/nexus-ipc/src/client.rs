@@ -451,6 +451,27 @@ impl IpcClient {
         .await
     }
 
+    /// Who is controlling this machine right now.
+    pub async fn list_sessions(&self) -> Result<nexus_proto::v1::SessionList, IpcError> {
+        match self
+            .request(Req::ListSessions(nexus_proto::v1::ListSessions {}))
+            .await?
+        {
+            Resp::SessionList(l) => Ok(l),
+            _ => Err(IpcError::Protocol("unexpected response")),
+        }
+    }
+
+    /// Ends the live incoming sessions of a device (all of them when `device_id` is empty).
+    pub async fn disconnect_sessions(&self, device_id: Vec<u8>) -> Result<(), IpcError> {
+        self.expect_ack(Req::DisconnectSessions(
+            nexus_proto::v1::DisconnectSessions {
+                device_id: device_id.into(),
+            },
+        ))
+        .await
+    }
+
     /// Answers an attended-access prompt.
     pub async fn consent_decision(
         &self,

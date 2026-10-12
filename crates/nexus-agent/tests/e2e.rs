@@ -1609,3 +1609,75 @@ async fn paired_devices_find_each_other_on_the_lan_without_any_server() {
     };
     assert!(report.control.is_some());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_person_at_a_machine_can_see_and_end_who_is_connected() {
+    let server = Server::start().await;
+    let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut mac = start_device("MacBook", 41, dir_a.path(), Some(server.url())).await;
+    let mut pc = start_device("Windows PC", 42, dir_b.path(), Some(server.url())).await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    assert!(pc.client.list_sessions().await.unwrap().sessions.is_empty());
+    let open = |mac: &Device, pc: &Device| {
+        let (client, id) = (mac.client.clone(), pc.id());
+        async move {
+            client
+                .open_session(nexus_proto::v1::OpenSession {
+                    device_id: id.into(),
+                    want_video: false,
+                    ..Default::default()
+                })
+                .await
+        }
+    };
+    let sid = open(&mac, &pc).await.unwrap().session_id;
+
+    // The PC's user is told who is connected, as an event and on request.
+    let pushed = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if !s.sessions.is_empty() => Some(s.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(pushed.sessions.len(), 1);
+    assert_eq!(pushed.sessions[0].peer_name, "MacBook");
+    assert!(pushed.sessions[0].grants.iter().any(|g| g == "screen"));
+    assert_eq!(pc.client.list_sessions().await.unwrap().sessions.len(), 1);
+    assert_eq!(pc.client.status().await.unwrap().active_sessions, 1);
+
+    // One switch ends it: the controller learns it was deliberate (so it does not retry)...
+    pc.client.disconnect_sessions(vec![]).await.unwrap();
+    let ended = next_matching(&mut mac.events, |ev| match &ev.body {
+        Some(Ev::SessionEnded(e)) if e.session_id == sid => Some(e.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(
+        !ended.connection_lost,
+        "a local disconnect is deliberate: {ended:?}"
+    );
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if s.sessions.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
+    assert!(pc.client.list_sessions().await.unwrap().sessions.is_empty());
+
+    // ...and it is not blocked: a fresh session works, and ending one device's sessions by id works too.
+    let sid2 = open(&mac, &pc).await.unwrap().session_id;
+    assert_ne!(sid, sid2);
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if !s.sessions.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
+    pc.client.disconnect_sessions(mac.id()).await.unwrap();
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if s.sessions.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
+}

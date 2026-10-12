@@ -3,6 +3,7 @@
 //! The app never touches the network or any key material itself. Pixels never pass through the
 //! web layer either: "Connect" launches the native viewer (`nexus remote view`).
 
+mod alert;
 mod commands;
 mod dto;
 mod link;
@@ -14,11 +15,14 @@ use tauri::{Manager, WindowEvent};
 
 pub fn run() {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let link = link::AgentLink::new(link::agent_paths());
             app.manage(Arc::clone(&link));
             let handle = app.handle().clone();
             *link.tray_ok.lock() = tray::build(&handle, &link);
+            alert::register_panic_hotkey(&handle);
             link.start(handle);
             Ok(())
         })
@@ -39,6 +43,8 @@ pub fn run() {
             commands::power,
             commands::set_unattended,
             commands::set_lockdown,
+            commands::disconnect_sessions,
+            commands::panic,
             commands::unpair,
             commands::pair_offer,
             commands::pair_join,

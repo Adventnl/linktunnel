@@ -196,6 +196,17 @@ export function App({ bridge }: { bridge: Bridge }) {
         </Button>
       </header>
 
+      {state.snapshot.sessions.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-danger bg-panel px-4 py-2 text-sm">
+          <span aria-hidden className="pulse text-danger">●</span>
+          <span className="mr-auto font-medium">{t("connected.banner", { names: state.snapshot.sessions.map((s) => s.peerName).join(", ") })}</span>
+          <Button onClick={() => void bridge.disconnectSessions().catch((e: unknown) => toast("error", String(e)))}>{t("connected.disconnect")}</Button>
+          <Button kind="danger" title={t("connected.panic.hint")} onClick={() => void bridge.panic().catch((e: unknown) => toast("error", String(e)))}>
+            {t("connected.panic")}
+          </Button>
+        </div>
+      )}
+
       <main className="min-h-0 flex-1 overflow-auto" aria-live="polite">
         {state.snapshot.agent === "unreachable" ? (
           <div className="mt-16 text-center">

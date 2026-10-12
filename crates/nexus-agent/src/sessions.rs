@@ -19,6 +19,8 @@ use crate::sysinfo;
 pub const CLOSE_LOCKDOWN: u32 = 0x4E03;
 /// Close code used when a device opens sessions faster than allowed.
 pub const CLOSE_RATE_LIMITED: u32 = 0x4E04;
+/// The person at this machine ended the session from the dashboard / tray / `nexus disconnect`.
+pub const CLOSE_DISCONNECTED: u32 = 0x4E05;
 
 /// Everything a handler needs about one established incoming session.
 pub struct SessionContext {
@@ -82,16 +84,36 @@ pub(crate) fn local_hello(shared: &Shared) -> Hello {
 struct SessionGuard {
     shared: Arc<Shared>,
     peer: [u8; 32],
+    id: u64,
 }
 
 impl SessionGuard {
-    fn new(shared: &Arc<Shared>, peer: [u8; 32], path: PathKind) -> Self {
+    fn new(
+        shared: &Arc<Shared>,
+        peer: [u8; 32],
+        path: PathKind,
+        who: &nexus_trust::PairedPeer,
+        session: &Session,
+    ) -> Self {
         shared.sessions.fetch_add(1, Ordering::SeqCst);
         shared.devices.lock().set_path(peer, Some(path));
+        let id = shared.next_session_id.fetch_add(1, Ordering::Relaxed);
+        shared.active.lock().push(crate::state::ActiveEntry {
+            id,
+            peer,
+            peer_id: who.identity.device_id().as_bytes().to_vec(),
+            name: who.name.clone(),
+            started_ms: Shared::now_ms(),
+            path,
+            grants: who.grants_from_peer.iter().cloned().collect(),
+            session: session.clone(),
+        });
         shared.emit_device_changed(&peer);
+        shared.emit_sessions();
         Self {
             shared: Arc::clone(shared),
             peer,
+            id,
         }
     }
 }
@@ -100,8 +122,40 @@ impl Drop for SessionGuard {
     fn drop(&mut self) {
         self.shared.sessions.fetch_sub(1, Ordering::SeqCst);
         self.shared.devices.lock().set_path(self.peer, None);
+        self.shared.active.lock().retain(|a| a.id != self.id);
         self.shared.emit_device_changed(&self.peer);
+        self.shared.emit_sessions();
     }
+}
+
+/// Ends the live incoming sessions of `device_id` (all of them if it is empty). The device is
+/// not blocked and may connect again, but must be approved afresh: a person pulling the plug
+/// also closes any resume window.
+pub(crate) fn disconnect(shared: &Shared, device_id: &[u8]) -> usize {
+    let targets: Vec<(u64, [u8; 32], String, nexus_net::Session)> = shared
+        .active
+        .lock()
+        .iter()
+        .filter(|a| device_id.is_empty() || a.peer_id == device_id)
+        .map(|a| (a.id, a.peer, a.name.clone(), a.session.clone()))
+        .collect();
+    for (_, key, name, session) in &targets {
+        session.close(
+            CLOSE_DISCONNECTED,
+            "disconnected by the person at this machine",
+        );
+        shared.limits.lock().ended_on_purpose(key);
+        shared
+            .audit
+            .record("session.disconnected_locally", None, &[("name", name)]);
+    }
+    if !targets.is_empty() {
+        info!(
+            count = targets.len(),
+            "sessions disconnected by the local user"
+        );
+    }
+    targets.len()
 }
 
 /// Accepts incoming sessions for the life of the agent.
@@ -153,7 +207,7 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
         }
     };
     info!(peer = %peer.identity.device_id(), path = ?session.path().kind, "session established");
-    let _guard = SessionGuard::new(&shared, key, session.path().kind);
+    let _guard = SessionGuard::new(&shared, key, session.path().kind, &peer, &session);
     let actor = peer.identity.device_id().to_string();
     shared.audit.record(
         "session.accepted",

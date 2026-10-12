@@ -21,6 +21,18 @@ describe("device ordering", () => {
   });
 });
 
+describe("who is connected", () => {
+  it("follows sessions_changed, and an unreachable agent clears it", () => {
+    const s = reduce(initialState, {
+      kind: "sessions_changed",
+      sessions: [{ id: 1, deviceId: "ab", peerName: "Sam's laptop", startedMs: 0, path: "lan", grants: ["screen"] }],
+    });
+    expect(s.snapshot.sessions.map((x) => x.peerName)).toEqual(["Sam's laptop"]);
+    expect(reduce(s, { kind: "sessions_changed", sessions: [] }).snapshot.sessions).toHaveLength(0);
+    expect(reduce(s, { kind: "agent", agent: "unreachable", error: null }).snapshot.sessions).toHaveLength(0);
+  });
+});
+
 describe("reducer", () => {
   const withDevices = reduce(initialState, { kind: "snapshot", snapshot: MOCK_SNAPSHOT });
   it("loads a snapshot sorted", () => {

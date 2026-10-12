@@ -16,8 +16,8 @@ for X11, Chromium, no Docker daemon) with the Windows and macOS targets installe
 Windows code written after Phase 2 has ever been executed**, and no second physical machine or real NAT was available
 at any point. A ✅ row names its evidence and runs on Linux unless it says otherwise.
 
-**Totals at the last full run (Linux):** 588 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
-19 frontend tests; `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check` clean; 13 fuzz
+**Totals at the last full run (Linux):** 591 Rust tests pass (`cargo test --workspace`), 8 app-backend tests,
+20 frontend tests; `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check` clean; 13 fuzz
 targets run (see Phase 9). The GitHub Actions workflows are written but **have not been run** (no runner here).
 
 ---
@@ -120,10 +120,20 @@ player (libopus), jitter buffer, **H.264 decoder (OpenH264)**, crypto inputs, tr
 sandbox, clipboard/PNG, config TOML, input stream. Each run ≥ 45 s here (h264 400 s, audio 400 s): **no crash in any product
 code**; one failing run was a wrong invariant in my harness (re-sent duplicate after a re-sync), fixed and documented in
 the target. This is a smoke run, not a campaign: a nightly CI job runs each for 4 minutes.
+✅ **Who is connected, and cut them off (new):** the agent tracks live incoming sessions (`ListSessions`, pushed `SessionsChanged`);
+`nexus sessions`, `nexus disconnect [device]`, a red banner + `D` key in `nexus dashboard`, a banner / tray "Disconnect everyone" /
+tooltip in the desktop app, a desktop notification when a new session starts, and a global **panic hotkey** (Ctrl+Alt+Shift+L:
+lockdown on, then disconnect everyone). A local disconnect closes with a deliberate code, clears the resume window and is audited
+(`session.disconnected_locally`). Evidence: e2e `the_person_at_a_machine_can_see_and_end_who_is_connected`, dashboard banner test,
+app `alert`/`tray`/`dto` unit tests. **Not verified:** the notification and the global hotkey have only been type-checked and
+unit-tested for their logic; no notification daemon or hotkey-capable desktop was available (Wayland compositors may refuse global
+shortcuts). `nexus doctor` now also checks the agent, signaling, paired devices, lockdown and display availability.
+✅ Fixed while there: `NEXUS_HOME` (the documented relocation variable) made config loading fail with "unknown field `home`"; it is
+now excluded from the settings environment (`nexus_home_relocates_state_and_is_not_a_setting`).
 ✅ Threat model v2 ([THREAT_MODEL.md](THREAT_MODEL.md), citations checked by `scripts/check-threat-model.sh`).
 🔲 Independent penetration test; privilege-separation audit of the macOS helper; WebAuthn/TOTP step-up (designed in ADR-0006,
-not implemented); on-screen "session active" indicator and panic hotkey on the target (consent prompt and lockdown exist; the
-persistent indicator does not); push/email notification on new connections; per-device quiet hours / geofence; encrypted
+not implemented); an always-on-top **on-screen border/badge** while a session is active (see the ✅ below for what does exist);
+push/email notification on new connections; per-device quiet hours / geofence; encrypted
 local session recording; certificate pinning of the signaling TLS beyond the platform verifier; reproducible builds.
 
 ## Phase 10: Packaging, updates and polish: 🟡 written, mostly unrun
@@ -147,7 +157,7 @@ with expiring guest links · multi-user teams · smart-plug/IPMI/AMT wake driver
 
 ## How to re-verify everything claimed above
 ```sh
-cargo test --workspace                                   # 588 tests (Linux needs xvfb, libasound2-dev, cmake)
+cargo test --workspace                                   # 591 tests (Linux needs xvfb, libasound2-dev, cmake)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check
 cargo check --target x86_64-pc-windows-msvc -p nexus-capture -p nexus-input -p nexus-desktop -p nexus-winservice

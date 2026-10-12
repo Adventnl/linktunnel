@@ -95,6 +95,8 @@ pub(crate) enum Outcome {
     Run(Verb, String),
     /// Wake this device, then connect to it once it is online.
     WakeAndConnect(String),
+    /// Cut off everyone connected to this machine.
+    DisconnectAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +124,8 @@ pub(crate) struct Model {
     pub mode: Mode,
     pub message: String,
     pub locale: Locale,
+    /// Who is connected to this machine right now.
+    pub sessions: Vec<nexus_proto::v1::ActiveSession>,
 }
 
 fn is_asleep(state: i32) -> bool {
@@ -140,6 +144,7 @@ impl Model {
             mode: Mode::Normal,
             message: String::new(),
             locale,
+            sessions: Vec::new(),
         };
         m.sort();
         m.selected = 0;
@@ -193,6 +198,7 @@ impl Model {
                 self.sort();
             }
             Some(Ev::SignalState(s)) => self.signal = s.connected,
+            Some(Ev::SessionsChanged(c)) => self.sessions.clone_from(&c.sessions),
             _ => {}
         }
         Outcome::None
@@ -325,6 +331,7 @@ impl Model {
             KeyCode::Char('s') => self.pick(Verb::Sleep),
             KeyCode::Char('r') => self.pick(Verb::Restart),
             KeyCode::Char('x') => self.pick(Verb::Shutdown),
+            KeyCode::Char('D') if !self.sessions.is_empty() => Outcome::DisconnectAll,
             _ => Outcome::None,
         }
     }
@@ -434,8 +441,9 @@ pub(crate) fn seen_text(l: Locale, last_seen_ms: u64, now_ms: u64) -> String {
 pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, now_ms: u64) {
     let l = model.locale;
     let area = frame.area();
-    let [head, body, foot] = Layout::vertical([
+    let [head, banner, body, foot] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(u16::from(!model.sessions.is_empty())),
         Constraint::Min(3),
         Constraint::Length(3),
     ])
@@ -464,6 +472,28 @@ pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, now_ms: u64) {
         ])),
         head,
     );
+
+    if !model.sessions.is_empty() {
+        let names: Vec<&str> = model
+            .sessions
+            .iter()
+            .map(|s| s.peer_name.as_str())
+            .collect();
+        frame.render_widget(
+            Paragraph::new(tr_args(
+                l,
+                "cli.dash.connected_banner",
+                &[("names", &names.join(", "))],
+            ))
+            .style(
+                Style::new()
+                    .fg(Color::White)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            banner,
+        );
+    }
 
     if model.devices.is_empty() {
         frame.render_widget(
@@ -705,6 +735,7 @@ pub(crate) async fn run(ctx: &AppContext, once: bool, width: u16) -> Result<Exit
     let status = client.status().await?;
     let devices = client.list_devices().await?.devices;
     let mut model = Model::new(ctx.locale, devices, status.signal_connected);
+    model.sessions = client.list_sessions().await?.sessions;
     if once {
         print!("{}", snapshot(&model, width, now_ms()));
         return Ok(ExitCode::SUCCESS);
@@ -752,6 +783,12 @@ pub(crate) async fn run(ctx: &AppContext, once: bool, width: u16) -> Result<Exit
             match outcome {
                 Outcome::None => {}
                 Outcome::Quit => return Ok(()),
+                Outcome::DisconnectAll => {
+                    model.message = match client.disconnect_sessions(Vec::new()).await {
+                        Ok(()) => tr(ctx.locale, "cli.dash.disconnected"),
+                        Err(e) => e.to_string(),
+                    };
+                }
                 Outcome::WakeAndConnect(name) => {
                     let devices = client.list_devices().await?.devices;
                     let dev = resolve(ctx.locale, &devices, &name)?;
@@ -1075,6 +1112,32 @@ mod tests {
         );
         let t = snapshot(&zh, 110, 0);
         assert!(t.contains("设备") && t.contains("台式机"), "{t}");
+    }
+
+    #[test]
+    fn a_banner_names_whoever_is_connected_and_capital_d_disconnects_them() {
+        let mut m = model();
+        assert_eq!(
+            press(&mut m, KeyCode::Char('D')),
+            Outcome::None,
+            "nobody to cut off"
+        );
+        assert!(!snapshot(&m, 110, 0).contains("CONNECTED TO THIS MACHINE"));
+        m.apply(&IpcEvent {
+            body: Some(Ev::SessionsChanged(nexus_proto::v1::SessionsChanged {
+                sessions: vec![nexus_proto::v1::ActiveSession {
+                    id: 1,
+                    peer_name: "Laptop-of-Sam".into(),
+                    ..Default::default()
+                }],
+            })),
+        });
+        let t = snapshot(&m, 110, 0);
+        assert!(
+            t.contains("CONNECTED TO THIS MACHINE: Laptop-of-Sam"),
+            "{t}"
+        );
+        assert_eq!(press(&mut m, KeyCode::Char('D')), Outcome::DisconnectAll);
     }
 
     #[test]

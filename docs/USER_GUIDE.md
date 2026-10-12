@@ -46,7 +46,10 @@
 | Pre-authorise a device (no prompt) | `nexus trust unattended <device>` |
 | Answer "may this device use me?" prompts | `nexus consent` (or the desktop app) |
 | Read what happened here | `nexus audit tail` / `nexus audit verify` |
+| See who is connected to this machine | `nexus sessions` (the dashboard and desktop app show a red banner) |
+| Cut them off | `nexus disconnect [device]`; `D` in the dashboard; **Ctrl+Alt+Shift+L** in the desktop app = lockdown + disconnect everyone |
 | Emergency stop | `nexus lockdown on` |
+| Check the setup | `nexus doctor` |
 
 If the link drops (Wi-Fi switch, sleep, a restart of the controller's agent) the viewer keeps its last picture, says "reconnecting" in the title bar and comes back by itself; an attended target does not ask again if the device was approved moments before (`[security] resume_window_secs`, default 120, 0 = always ask).
 

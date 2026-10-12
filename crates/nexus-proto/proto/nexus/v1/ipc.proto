@@ -71,6 +71,8 @@ message IpcRequest {
     CloseTerminal close_terminal = 47;
     StartForward start_forward = 48;
     StopForward stop_forward = 49;
+    ListSessions list_sessions = 50;
+    DisconnectSessions disconnect_sessions = 51;
   }
 }
 
@@ -137,6 +139,7 @@ message IpcResponse {
     TransferStarted transfer_started = 32;
     TerminalStarted terminal_started = 33;
     ForwardStarted forward_started = 34;
+    SessionList session_list = 17;
   }
 }
 
@@ -244,6 +247,8 @@ message IpcEvent {
     TerminalReady terminal_ready = 15;
     TerminalOutput terminal_output = 16;
     TerminalEnded terminal_ended = 17;
+    // Who is currently controlling THIS machine (pushed whenever it changes).
+    SessionsChanged sessions_changed = 18;
   }
 }
 
@@ -567,4 +572,33 @@ message ForwardStarted {
 
 message StopForward {
   uint64 forward_id = 1;
+}
+
+// ----- who is connected to this machine (spec 6.4: always visible, one switch to end it) ------
+
+message ListSessions {}
+
+// End every live incoming session, or only those of one paired device. The disconnected device may
+// connect again (it is not blocked: use lockdown or unpair for that) but must be approved afresh.
+message DisconnectSessions {
+  // Empty = all.
+  bytes device_id = 1;
+}
+
+message ActiveSession {
+  uint64 id = 1;
+  bytes peer_device_id = 2;
+  string peer_name = 3;
+  uint64 started_ms = 4;
+  PathKind path = 5;
+  // What that device is allowed to do here.
+  repeated string grants = 6;
+}
+
+message SessionList {
+  repeated ActiveSession sessions = 1;
+}
+
+message SessionsChanged {
+  repeated ActiveSession sessions = 1;
 }

@@ -265,6 +265,16 @@ not turn attended mode into "approve once, access forever".
 | The viewer reconnecting forever / after a refusal | exponential back-off 1 s→8 s, gives up after 5 minutes, never retries a permission/not-found refusal | `a_lost_link_is_retried_and_a_deliberate_end_is_not`, `retry_delays_grow_then_cap` |
 | Residual: a stolen *approved* controller can reconnect inside the window | **accepted**; shorten or disable the window | — |
 
-### 8.14 What v2 still does not cover
-Independent review; the macOS helper split; WebAuthn/TOTP step-up; the target-side "session active" indicator and panic hotkey; supply-chain
+### 8.14 Visibility and the panic switch (new)
+The person at a machine must be able to see that someone is connected and end it at once.
+| Threat | Mitigation | Evidence |
+|---|---|---|
+| A session runs unnoticed | the agent lists live sessions and pushes changes to every local UI; dashboard/app show a banner, the tray names them, a notification fires on each new session | `the_person_at_a_machine_can_see_and_end_who_is_connected`, `a_banner_names_whoever_is_connected_and_capital_d_disconnects_them`, `only_new_sessions_are_announced` |
+| "Disconnect" is undone by the controller's auto-reconnect | local disconnect closes with a deliberate code (no retry), clears the resume window; the next session asks again | `the_person_at_a_machine_can_see_and_end_who_is_connected` |
+| Panic leaves a gap between steps | lockdown is set *before* sessions are cut | `panic_now` (order; reviewed, not separately tested) |
+| Unaudited cut-off | written to the audit log as `session.disconnected_locally` | `the_person_at_a_machine_can_see_and_end_who_is_connected` |
+| Residual: a full-screen app hides the UI; a malicious local process could swallow the hotkey | **accepted**; `nexus lockdown on` from a terminal is the fallback | — |
+
+### 8.15 What v2 still does not cover
+Independent review; the macOS helper split; WebAuthn/TOTP step-up; the always-on-top "session active" border; supply-chain
 attestation of release binaries; behaviour of any Windows/macOS-specific path on real machines.

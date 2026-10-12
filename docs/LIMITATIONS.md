@@ -27,8 +27,10 @@ An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause 
   capture, input, presence sensors, service, installers.
 * **Step-up authentication** (WebAuthn passkeys, TOTP) from the spec: designed in ADR-0006, not implemented. Unattended access is a
   per-device switch, not a passkey ceremony.
-* **Always-visible session indicator, panic hotkey and "new connection" push/email notifications on the target.** The consent prompt,
-  per-device pre-authorisation, signed audit log and lockdown exist; the persistent on-screen indicator does not.
+* **An always-on-top "session active" border/badge drawn over the screen, and push/email notifications to your *other* devices.** What
+  exists: tray/menu and dashboard banners, `nexus sessions`, a desktop notification on each new connection, and a panic hotkey. All of
+  these live in the agent/app UI: someone looking only at a full-screen game or video would not see them, and the notification and
+  hotkey are untested on real desktops (Wayland may refuse global shortcuts, and a headless server has neither).
 * **Encrypted local session recording, quiet hours, geofence, per-device allowed-controller lists beyond pairing grants.**
 * **Horizontal scaling of the signaling server** (presence/envelope routing is per-process: run one replica; state is in PostgreSQL/Redis
   so restarts are safe).

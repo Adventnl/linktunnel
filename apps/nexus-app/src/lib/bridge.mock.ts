@@ -43,6 +43,7 @@ export const MOCK_SNAPSHOT: Snapshot = {
     activeSessions: 0,
   },
   devices: DEVICES,
+  sessions: [],
   error: null,
 };
 
@@ -71,6 +72,11 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
     setUnattended: async (id, on) => {
       const d = DEVICES.find((x) => x.id === id);
       if (d) emit({ kind: "device_changed", device: { ...d, unattended: on } });
+    },
+    disconnectSessions: async () => emit({ kind: "sessions_changed", sessions: [] }),
+    panic: async () => {
+      lockdown = true;
+      if (snapshot.status) emit({ kind: "snapshot", snapshot: { ...snapshot, sessions: [], status: { ...snapshot.status, lockdown } } });
     },
     setLockdown: async (on) => {
       lockdown = on;

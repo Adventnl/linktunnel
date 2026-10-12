@@ -71,7 +71,7 @@ recipient device id.
 ## 6. IPC (`ipc.proto`)
 `IpcHello{token}` → `IpcWelcome` → `IpcRequest`/`IpcResponse` correlated by id, plus pushed
 `IpcEvent`s (`PairingSasReady`, `PairingFinished`, `DeviceChanged`, `DeviceRemoved`,
-`SignalState`). The same API serves the CLI, the tray and the desktop app.
+`SignalState`, `SessionsChanged`); `ListSessions`/`DisconnectSessions(device_id?)` show and end live incoming sessions. The same API serves the CLI, the tray and the desktop app.
 
 
 ## 7. Datagram demultiplexing (v1.1)

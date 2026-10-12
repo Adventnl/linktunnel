@@ -6,7 +6,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
 
-use crate::dto::Device;
+use crate::dto::{ActiveSession, Device};
 use crate::link::AgentLink;
 
 const TRAY_ID: &str = "nexus-tray";
@@ -29,12 +29,33 @@ pub fn connectable(d: &Device) -> bool {
     d.online && !matches!(d.state, "sleeping" | "hibernating")
 }
 
+/// "● Connected now: MacBook, Phone" — shown at the top of the menu while anyone is connected.
+pub fn connected_label(sessions: &[ActiveSession]) -> Option<String> {
+    if sessions.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = sessions.iter().map(|s| s.peer_name.as_str()).collect();
+    Some(format!("● Connected now: {}", names.join(", ")))
+}
+
 fn build_menu(
     app: &AppHandle,
     devices: &[Device],
+    sessions: &[ActiveSession],
     lockdown: bool,
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
+    if let Some(text) = connected_label(sessions) {
+        menu.append(&MenuItem::with_id(app, "who", text, false, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(
+            app,
+            "disconnect",
+            "Disconnect everyone",
+            true,
+            None::<&str>,
+        )?)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
     if devices.is_empty() {
         menu.append(&MenuItem::with_id(
             app,
@@ -85,7 +106,7 @@ fn build_menu(
 
 /// Creates the icon; returns false if the platform has no tray (the window then must not hide on close).
 pub fn build(app: &AppHandle, link: &Arc<AgentLink>) -> bool {
-    let Ok(menu) = build_menu(app, &link.devices(), link.lockdown()) else {
+    let Ok(menu) = build_menu(app, &link.devices(), &link.sessions(), link.lockdown()) else {
         return false;
     };
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
@@ -98,6 +119,13 @@ pub fn build(app: &AppHandle, link: &Arc<AgentLink>) -> bool {
             match id.as_str() {
                 "open" => AgentLink::show_window(app),
                 "quit" => app.exit(0),
+                "disconnect" => {
+                    tauri::async_runtime::spawn(async move {
+                        if let Ok(c) = link.client() {
+                            let _ = c.disconnect_sessions(Vec::new()).await;
+                        }
+                    });
+                }
                 "lockdown" => {
                     let on = !link.lockdown();
                     let app = app.clone();
@@ -129,7 +157,14 @@ pub fn refresh(app: &AppHandle, link: &Arc<AgentLink>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    if let Ok(menu) = build_menu(app, &link.devices(), link.lockdown()) {
+    let sessions = link.sessions();
+    let tip = if sessions.is_empty() {
+        "Nexus Remote".to_owned()
+    } else {
+        format!("Nexus Remote — {} connected", sessions.len())
+    };
+    let _ = tray.set_tooltip(Some(tip));
+    if let Ok(menu) = build_menu(app, &link.devices(), &link.sessions(), link.lockdown()) {
         let _ = tray.set_menu(Some(menu));
     }
 }
@@ -154,6 +189,23 @@ mod tests {
             unattended: false,
             grants_on_peer: vec![],
         }
+    }
+
+    #[test]
+    fn the_menu_names_whoever_is_connected() {
+        assert_eq!(connected_label(&[]), None);
+        let s = |n: &str| ActiveSession {
+            id: 1,
+            device_id: String::new(),
+            peer_name: n.into(),
+            started_ms: 0,
+            path: "lan",
+            grants: vec![],
+        };
+        assert_eq!(
+            connected_label(&[s("MacBook"), s("Phone")]).as_deref(),
+            Some("● Connected now: MacBook, Phone")
+        );
     }
 
     #[test]

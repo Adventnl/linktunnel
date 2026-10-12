@@ -45,11 +45,23 @@ export interface AgentStatus {
   activeSessions: number;
 }
 
+/** Someone connected to this machine right now. */
+export interface ActiveSession {
+  id: number;
+  deviceId: string;
+  peerName: string;
+  startedMs: number;
+  path: PathKind;
+  grants: string[];
+}
+
 export interface Snapshot {
   /** "unreachable" when no agent is running for this user. */
   agent: "connected" | "unreachable";
   status: AgentStatus | null;
   devices: Device[];
+  /** Who is connected to this machine right now. */
+  sessions: ActiveSession[];
   error: string | null;
 }
 
@@ -80,6 +92,7 @@ export type AppEvent =
   | { kind: "device_changed"; device: Device }
   | { kind: "device_removed"; id: string }
   | { kind: "signal_state"; connected: boolean }
+  | { kind: "sessions_changed"; sessions: ActiveSession[] }
   | { kind: "consent_request"; request: ConsentRequest }
   | { kind: "consent_resolved"; requestId: number }
   | { kind: "pairing_sas"; sas: PairingSas }
@@ -99,6 +112,10 @@ export interface Bridge {
   power(id: string, action: PowerAction): Promise<void>;
   setUnattended(id: string, on: boolean): Promise<void>;
   setLockdown(on: boolean): Promise<void>;
+  /** Ends the live incoming sessions of one device, or of everyone. */
+  disconnectSessions(id?: string): Promise<void>;
+  /** Lockdown on and everyone out. */
+  panic(): Promise<void>;
   unpair(id: string): Promise<void>;
   pairOffer(): Promise<{ pairingId: number; code: string }>;
   pairJoin(code: string): Promise<{ pairingId: number }>;
