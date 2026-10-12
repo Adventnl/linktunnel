@@ -53,6 +53,9 @@ impl ConnCtx {
 /// A live viewer session.
 pub(crate) struct ViewerEntry {
     controller: ControllerSession,
+    /// Keeps the sound playing on this machine for as long as the session lives.
+    #[cfg(feature = "audio-device")]
+    _playback: Option<nexus_audio::device::DevicePlayback>,
     owner: Arc<ConnCtx>,
     pump: tokio::task::JoinHandle<()>,
 }
@@ -150,6 +153,29 @@ pub(crate) async fn open(
         }
     }
 
+    // Sound is best-effort: a target with no audio (or a machine with no speakers) still gives a
+    // working screen.
+    let mut audio_source = String::new();
+    #[cfg(feature = "audio-device")]
+    let playback = if req.audio {
+        match start_playback(&controller).await {
+            Ok((pb, source)) => {
+                audio_source = source;
+                Some(pb)
+            }
+            Err(e) => {
+                info!(error = %e, "no sound for this session");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "audio-device"))]
+    if req.audio {
+        info!("this build has no audio support");
+    }
+
     let pump = tokio::spawn(pump_events(
         Arc::clone(shared),
         Arc::clone(ctx),
@@ -161,6 +187,8 @@ pub(crate) async fn open(
         id,
         ViewerEntry {
             controller,
+            #[cfg(feature = "audio-device")]
+            _playback: playback,
             owner: Arc::clone(ctx),
             pump,
         },
@@ -178,7 +206,37 @@ pub(crate) async fn open(
         monitors,
         path: path as i32,
         peer_name: peer.name,
+        audio_source,
     })
+}
+
+/// Asks the target for its sound and starts playing it on the default output device.
+#[cfg(feature = "audio-device")]
+async fn start_playback(
+    controller: &ControllerSession,
+) -> Result<(nexus_audio::device::DevicePlayback, String), AgentError> {
+    let (player, started) = controller
+        .start_audio(nexus_proto::v1::StartAudio::default())
+        .await
+        .map_err(|e| AgentError::Failed(e.to_string()))?;
+    let pb = nexus_audio::device::DevicePlayback::start(player, None).map_err(|e| {
+        controller.stop_audio();
+        AgentError::Failed(e.to_string())
+    })?;
+    Ok((pb, started.source))
+}
+
+pub(crate) fn audio(
+    shared: &Shared,
+    ctx: &Arc<ConnCtx>,
+    req: &nexus_proto::v1::SessionAudio,
+) -> Result<(), AgentError> {
+    controller_for(shared, ctx, req.session_id)?.set_audio(nexus_proto::v1::SetAudio {
+        mute: req.mute,
+        bitrate_bps: req.bitrate_bps,
+        loss_percent: u32::MAX,
+    });
+    Ok(())
 }
 
 async fn pump_events(

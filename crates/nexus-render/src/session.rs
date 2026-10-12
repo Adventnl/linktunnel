@@ -35,6 +35,8 @@ pub struct ViewerOptions {
     pub clipboard: bool,
     /// Swap ⌘ and Ctrl between a Mac and a PC so shortcuts keep working.
     pub key_remap: bool,
+    /// Play the target's sound on this machine.
+    pub audio: bool,
 }
 
 /// Messages from the network thread to the window.
@@ -147,6 +149,7 @@ async fn run(
             bitrate_bps: options.bitrate_bps,
             want_video: true,
             clipboard: options.clipboard,
+            audio: options.audio,
             key_remap: if options.key_remap {
                 "auto".into()
             } else {

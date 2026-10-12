@@ -58,6 +58,7 @@ async fn rig(
         consent: None,
         power: None,
         wake_relay: false,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

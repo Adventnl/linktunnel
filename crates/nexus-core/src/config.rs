@@ -63,6 +63,35 @@ pub struct NexusConfig {
     pub portfwd: PortForwardConfig,
     /// Software updates.
     pub update: UpdateConfig,
+    /// Sharing this device's sound.
+    pub audio: AudioConfig,
+}
+
+/// Streaming what this device is playing to controllers that hold the `audio` grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AudioConfig {
+    /// Offer audio at all.
+    pub enabled: bool,
+    /// Capture device (a substring of its name); empty = the system's default output, captured
+    /// as loopback.
+    pub device: Option<String>,
+    /// Capture a recording device (a microphone) instead of the system output. Off by default:
+    /// hearing the room is a much bigger permission than hearing the machine.
+    pub microphone: bool,
+    /// Opus bitrate in kbit/s (6..=510).
+    pub bitrate_kbps: u32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            device: None,
+            microphone: false,
+            bitrate_kbps: 96,
+        }
+    }
 }
 
 /// Where updates come from and whom to trust. With no publisher key configured, updates are
@@ -369,6 +398,12 @@ impl NexusConfig {
             return Err(ConfigError::Invalid {
                 key: "security.consent_timeout_secs",
                 reason: "must be between 1 and 600".into(),
+            });
+        }
+        if !(6..=510).contains(&self.audio.bitrate_kbps) {
+            return Err(ConfigError::Invalid {
+                key: "audio.bitrate_kbps",
+                reason: "must be between 6 and 510".into(),
             });
         }
         if self.terminal.max_sessions == 0 || self.terminal.detached_ttl_hours == 0 {

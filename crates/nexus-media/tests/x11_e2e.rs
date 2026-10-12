@@ -70,6 +70,7 @@ async fn a_real_x_desktop_is_viewed_and_controlled_over_quic() {
         consent: None,
         power: None,
         wake_relay: false,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

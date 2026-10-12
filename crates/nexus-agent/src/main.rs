@@ -176,6 +176,10 @@ async fn main() -> Result<()> {
             } else {
                 base
             };
+            let base = match audio_source(&nexus.audio) {
+                Some(factory) => base.with_audio(factory),
+                None => base,
+            };
             let base = if nexus.power.accept_requests {
                 base.with_power(Arc::new(nexus_power::SystemPower))
             } else {
@@ -195,4 +199,37 @@ async fn main() -> Result<()> {
     }
     agent.shutdown().await;
     Ok(())
+}
+
+/// The capture source for sound sharing, if this build and configuration offer it.
+#[cfg(feature = "audio-device")]
+fn audio_source(
+    cfg: &nexus_core::config::AudioConfig,
+) -> Option<nexus_media::target::AudioSourceFactory> {
+    if !cfg.enabled {
+        return None;
+    }
+    let (device, loopback) = (cfg.device.clone(), !cfg.microphone);
+    let bitrate = cfg.bitrate_kbps.saturating_mul(1000);
+    Some(Arc::new(move |requested: &nexus_audio::StreamConfig| {
+        let shaped = nexus_audio::StreamConfig {
+            bitrate_bps: if requested.bitrate_bps
+                == nexus_audio::StreamConfig::default().bitrate_bps
+            {
+                bitrate
+            } else {
+                requested.bitrate_bps
+            },
+            ..*requested
+        };
+        nexus_audio::device::DeviceSource::open(&shaped, device.as_deref(), loopback)
+            .map(|s| Box::new(s) as Box<dyn nexus_audio::AudioSource>)
+    }))
+}
+
+#[cfg(not(feature = "audio-device"))]
+fn audio_source(
+    _: &nexus_core::config::AudioConfig,
+) -> Option<nexus_media::target::AudioSourceFactory> {
+    None
 }

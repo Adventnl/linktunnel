@@ -55,6 +55,7 @@ message IpcRequest {
     SessionKeyframe session_keyframe = 23;
     SessionQuality session_quality = 24;
     SessionMonitor session_monitor = 25;
+    SessionAudio session_audio = 26;
     FileList file_list = 30;
     FileStatRequest file_stat = 31;
     FileMkdir file_mkdir = 32;
@@ -295,6 +296,8 @@ message OpenSession {
   // "auto" swaps Command and Ctrl between a Mac and a PC (for a person typing on this machine);
   // empty sends keys exactly as given (scripted use).
   string key_remap = 7;
+  // Play the target's sound on this machine (needs the `audio` grant on the peer).
+  bool audio = 8;
 }
 
 message CloseSession {
@@ -342,6 +345,16 @@ message SessionOpened {
   repeated MonitorInfo monitors = 3;
   PathKind path = 4;
   string peer_name = 5;
+  // The target's audio source when sound is playing here ("" = no audio).
+  string audio_source = 6;
+}
+
+// Mute / unmute the target's sound for a session, or retune it.
+message SessionAudio {
+  uint64 session_id = 1;
+  // 0 = unchanged, 1 = mute, 2 = unmute.
+  uint32 mute = 2;
+  uint32 bitrate_bps = 3;
 }
 
 message SessionVideo {

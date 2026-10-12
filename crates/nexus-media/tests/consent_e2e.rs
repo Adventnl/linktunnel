@@ -76,6 +76,7 @@ async fn rig_with(answer: Consent, delay: Duration, options: ControllerOptions) 
         consent: Some(gate),
         power: None,
         wake_relay: false,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

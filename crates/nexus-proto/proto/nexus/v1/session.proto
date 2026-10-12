@@ -50,6 +50,15 @@ message ControlMessage {
     // Controller → a device on the target's LAN: send Wake-on-LAN packets for these MACs
     // (needs the `wake` grant). Answered with PowerResult.
     WakeRequest wake = 32;
+
+    // ---- audio ----
+    // Controller → target: start streaming system audio (needs the `audio` grant). The Opus
+    // packets themselves travel as datagrams (`nexus_proto::wire::audio`).
+    StartAudio start_audio = 40;
+    AudioStarted audio_started = 41;
+    StopAudio stop_audio = 42;
+    // Controller → target: mute / change bitrate / report observed loss while streaming.
+    SetAudio set_audio = 43;
   }
 }
 
@@ -239,4 +248,33 @@ message PowerResult {
 message WakeRequest {
   // MAC addresses to wake, "aa:bb:cc:dd:ee:ff".
   repeated string macs = 1;
+}
+
+message StartAudio {
+  // 1 or 2.
+  uint32 channels = 1;
+  // Packet duration in milliseconds: 2 (meaning 2.5), 5, 10 or 20. 0 = target's choice.
+  uint32 frame_ms = 2;
+  // Opus bitrate. 0 = target's choice.
+  uint32 bitrate_bps = 3;
+}
+
+message AudioStarted {
+  uint32 channels = 1;
+  // What was actually granted.
+  uint32 frame_ms = 2;
+  uint32 bitrate_bps = 3;
+  // The capture device on the target ("WASAPI loopback", "tone", ...), for the HUD.
+  string source = 4;
+}
+
+message StopAudio {}
+
+message SetAudio {
+  // 0 = leave unchanged, 1 = mute, 2 = unmute.
+  uint32 mute = 1;
+  // 0 = leave unchanged.
+  uint32 bitrate_bps = 2;
+  // Packet loss the receiver observes, percent (0..=100). 0xFFFFFFFF = leave unchanged.
+  uint32 loss_percent = 3;
 }

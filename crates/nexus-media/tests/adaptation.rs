@@ -71,6 +71,7 @@ async fn run(adaptive: bool, rate_mbps: f64, delay_ms: u64, secs: f64, window: f
         consent: None,
         power: None,
         wake_relay: false,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

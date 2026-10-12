@@ -5,7 +5,8 @@
 //!
 //! ```text
 //!  off  size  field
-//!    0     1  wire version (1)
+//!    0     1  tag: 0x80 | wire version (0x81). The high bit tells audio datagrams from cursor
+//!                updates (whose first byte is the bare version) on the shared datagram channel
 //!    1     1  codec    (1 = Opus, 2 = PCM s16le — used for tests / loopback)
 //!    2     1  channels (1 or 2)
 //!    3     1  flags    (bit0: discontinuity — sender dropped audio before this packet)
@@ -18,6 +19,15 @@
 use bytes::BufMut;
 
 use super::{Reader, WIRE_VERSION, WireError};
+
+/// First byte of every audio datagram (`0x80 | WIRE_VERSION`).
+pub const TAG: u8 = 0x80 | WIRE_VERSION;
+
+/// True if `datagram` is an audio packet (as opposed to a cursor update or a diagnostics echo).
+#[must_use]
+pub fn is_audio(datagram: &[u8]) -> bool {
+    datagram.first() == Some(&TAG)
+}
 
 /// Header size.
 pub const HEADER_LEN: usize = 12;
@@ -90,7 +100,7 @@ pub fn encode_packet(
             max: MAX_PACKET_LEN,
         });
     }
-    out.put_u8(WIRE_VERSION);
+    out.put_u8(TAG);
     out.put_u8(header.codec.to_u8());
     out.put_u8(header.channels);
     out.put_u8(header.flags);
@@ -111,9 +121,9 @@ pub fn decode_packet(buf: &[u8]) -> Result<(AudioHeader, &[u8]), WireError> {
         });
     }
     let mut r = Reader::new(buf);
-    let version = r.u8()?;
-    if version != WIRE_VERSION {
-        return Err(WireError::BadVersion(version));
+    let tag = r.u8()?;
+    if tag != TAG {
+        return Err(WireError::BadVersion(tag));
     }
     let codec = AudioCodec::from_u8(r.u8()?)?;
     let channels = r.u8()?;
@@ -191,8 +201,11 @@ mod tests {
         let mut buf = Vec::new();
         encode_packet(&header(), &[0], &mut buf).unwrap();
         let mut bad = buf.clone();
-        bad[0] = 2;
-        assert_eq!(decode_packet(&bad).unwrap_err(), WireError::BadVersion(2));
+        bad[0] = 0x82;
+        assert_eq!(
+            decode_packet(&bad).unwrap_err(),
+            WireError::BadVersion(0x82)
+        );
         let mut bad = buf.clone();
         bad[1] = 9;
         assert!(matches!(

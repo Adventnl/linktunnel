@@ -45,6 +45,7 @@ async fn rig(grant_list: &[&str], root: &std::path::Path) -> ControllerSession {
         consent: None,
         power: None,
         wake_relay: false,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

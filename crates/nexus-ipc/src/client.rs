@@ -8,11 +8,11 @@ use nexus_proto::v1::{
     FileMkdir, FileRemove, FileStatRequest, FileTransfer, ForwardStarted, GetStatus, IpcErrorCode,
     IpcEvent, IpcFrame, IpcHello, IpcRequest, IpcResponse, IpcWelcome, ListDevices, OpenSession,
     OpenTerminal, PairingCancel, PairingConfirm, PairingJoin, PairingOffer, PairingStarted,
-    PingDevice, PingReport, PowerCommand, SessionInput, SessionKeyframe, SessionMonitor,
-    SessionOpened, SessionQuality, SetLockdown, SetUnattended, Shutdown, StartForward, Status,
-    StopForward, TerminalInput, TerminalResize, TerminalStarted, TransferStarted, Unpair,
-    WakeDevice, ipc_event::Body as Ev, ipc_frame::Body as F, ipc_request::Body as Req,
-    ipc_response::Body as Resp,
+    PingDevice, PingReport, PowerCommand, SessionAudio, SessionInput, SessionKeyframe,
+    SessionMonitor, SessionOpened, SessionQuality, SetLockdown, SetUnattended, Shutdown,
+    StartForward, Status, StopForward, TerminalInput, TerminalResize, TerminalStarted,
+    TransferStarted, Unpair, WakeDevice, ipc_event::Body as Ev, ipc_frame::Body as F,
+    ipc_request::Body as Req, ipc_response::Body as Resp,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -432,6 +432,21 @@ impl IpcClient {
         self.expect_ack(Req::SessionMonitor(SessionMonitor {
             session_id,
             monitor,
+        }))
+        .await
+    }
+
+    /// Mutes or unmutes (`mute` 1 / 2) the sound of a session, or retunes its bitrate.
+    pub async fn session_audio(
+        &self,
+        session_id: u64,
+        mute: u32,
+        bitrate_bps: u32,
+    ) -> Result<(), IpcError> {
+        self.expect_ack(Req::SessionAudio(SessionAudio {
+            session_id,
+            mute,
+            bitrate_bps,
         }))
         .await
     }

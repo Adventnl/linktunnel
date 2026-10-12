@@ -1,0 +1,29 @@
+[package]
+name = "nexus-audio"
+description = "System-audio streaming: Opus codec, jitter buffer, synthetic and device (cpal) sources and sinks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# OS audio devices through cpal (ALSA/PulseAudio, CoreAudio, WASAPI). Off by default so the
+# codec/jitter logic builds and tests anywhere; the agent and CLI turn it on.
+device = ["dep:cpal"]
+
+[dependencies]
+bytes.workspace = true
+nexus-core.workspace = true
+nexus-proto.workspace = true
+opus = "0.4"
+thiserror.workspace = true
+tracing.workspace = true
+cpal = { version = "0.18", optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+nexus-proto.workspace = true
+bytes.workspace = true

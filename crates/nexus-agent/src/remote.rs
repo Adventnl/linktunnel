@@ -29,6 +29,7 @@ pub struct RemoteHandler {
     wake_relay: bool,
     terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
+    audio: Option<target::AudioSourceFactory>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -62,6 +63,7 @@ impl RemoteHandler {
             wake_relay: false,
             terminal: None,
             portfwd: None,
+            audio: None,
         }
     }
 
@@ -95,6 +97,13 @@ impl RemoteHandler {
         self
     }
 
+    /// Lets controllers holding the `audio` grant hear what this machine plays.
+    #[must_use]
+    pub fn with_audio(mut self, source: target::AudioSourceFactory) -> Self {
+        self.audio = Some(source);
+        self
+    }
+
     /// Lets controllers holding the `wake` grant use this machine to wake others on its LAN.
     #[must_use]
     pub fn with_wake_relay(mut self, on: bool) -> Self {
@@ -111,6 +120,7 @@ impl RemoteHandler {
             || self.clipboard.is_some()
             || self.terminal.is_some()
             || self.portfwd.is_some()
+            || self.audio.is_some()
     }
 
     /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
@@ -205,6 +215,9 @@ impl SessionHandler for RemoteHandler {
         if self.portfwd.is_some() {
             features_list.push(features::PORT_FORWARD.to_owned());
         }
+        if self.audio.is_some() {
+            features_list.push(features::AUDIO_OPUS.to_owned());
+        }
         caps.features = features_list;
         caps
     }
@@ -244,6 +257,7 @@ impl SessionHandler for RemoteHandler {
                 }) as Arc<dyn PowerBackend>
             }),
             wake_relay: self.wake_relay,
+            audio: self.audio.clone(),
             terminal: self.terminal.clone(),
             portfwd: self.portfwd.clone(),
         };
