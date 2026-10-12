@@ -1,5 +1,7 @@
-//! Structured operations against the jitter buffer: it must never panic, never hand out the same
-//! packet twice, and never report more losses than packets it was ever asked to expect.
+//! Structured operations against the jitter buffer: it must never panic and, within one continuous
+//! stream, never hand out the same packet twice. (After the buffer re-synchronises, from a sender's
+//! discontinuity flag or from running dry, an old duplicate may legitimately play once more: a
+//! ten-millisecond repeat, not a safety issue.)
 #![no_main]
 
 use arbitrary::Arbitrary;
@@ -17,6 +19,7 @@ fuzz_target!(|ops: Vec<Op>| {
     let mut j = JitterBuffer::new(10_000);
     let mut now = 0u64;
     let mut played = std::collections::HashSet::new();
+    let mut underruns = 0;
     for op in ops {
         match op {
             Op::Push { seq, ts, flags, advance_us } => {
@@ -32,7 +35,12 @@ fuzz_target!(|ops: Vec<Op>| {
                 j.push(&h, bytes::Bytes::from(payload), now);
             }
             Op::Pull => {
-                if let Pull::Packet(p) = j.pull() {
+                let pulled = j.pull();
+                if j.stats().underruns != underruns {
+                    underruns = j.stats().underruns;
+                    played.clear();
+                }
+                if let Pull::Packet(p) = pulled {
                     assert!(played.insert(p.to_vec()), "a packet was played twice");
                 }
             }

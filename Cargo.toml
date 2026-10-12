@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "bench/latency"]
 # bench/transport is a standalone workspace: it pulls webrtc-rs and quinn purely for the ADR-0003
 # comparison, which should not weigh on the product build or CI.
-exclude = ["bench/transport"]
+exclude = ["bench/transport", "fuzz", "apps/nexus-app/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
