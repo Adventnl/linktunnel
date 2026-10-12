@@ -35,6 +35,9 @@ pub struct AgentConfig {
     pub presence_sensor: Option<std::sync::Arc<dyn nexus_presence::Sensor>>,
     /// How often activity (idle, locked, battery) is re-read.
     pub presence_interval: Duration,
+    /// Advertise on and listen to the local network (mDNS) so paired devices find each other
+    /// without a server.
+    pub lan_discovery: bool,
 }
 
 impl AgentConfig {
@@ -56,6 +59,7 @@ impl AgentConfig {
             consent_timeout: Duration::from_secs(u64::from(cfg.security.consent_timeout_secs)),
             presence_sensor: None,
             presence_interval: Duration::from_secs(10),
+            lan_discovery: cfg.net.lan_discovery,
         })
     }
 

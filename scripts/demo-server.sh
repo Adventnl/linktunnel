@@ -69,6 +69,16 @@ cli "$CTL" pair join "$CODE" --assume-words-match
 sleep 2
 cli "$SRV" trust unattended "MacBook"
 
+say "0. The dashboard sees the server (text snapshot, then the live TUI under a pty)"
+cli "$CTL" dashboard --snapshot | tee "$WORK/dashboard.txt"
+grep -q "Server" "$WORK/dashboard.txt" || fail "the dashboard does not list the server"
+if command -v script >/dev/null; then
+  ( sleep 2; printf 'q' ) | timeout 20 script -qec "stty rows 30 cols 130; exec $BIN/nexus --home $CTL dashboard" /dev/null >"$WORK/tui.out" 2>&1 \
+    || fail "the live dashboard did not exit cleanly on q"
+  grep -q "Server" "$WORK/tui.out" || fail "the live dashboard did not draw the server"
+  echo "live dashboard drew the device list and quit on q"
+fi
+
 say "1. GUI session on a machine with no monitor"
 cli "$CTL" remote monitors "Server"
 cli "$CTL" remote screenshot "Server" -o "$OUT/server-screen.png"

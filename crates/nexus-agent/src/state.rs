@@ -58,6 +58,8 @@ pub struct Shared {
     pub(crate) consents: Mutex<std::collections::HashMap<u64, crate::consent::Pending>>,
     pub(crate) next_consent_id: AtomicU64,
     pub(crate) started: Instant,
+    /// mDNS discovery, when enabled.
+    pub(crate) discovery: Option<nexus_discovery::Discovery>,
 }
 
 impl std::fmt::Debug for Shared {

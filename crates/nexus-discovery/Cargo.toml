@@ -1,0 +1,17 @@
+[package]
+name = "nexus-discovery"
+description = "LAN discovery over mDNS: find paired devices on the local network without any server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3.workspace = true
+mdns-sd = { version = "0.21", default-features = false, features = ["logging"] }
+parking_lot = "0.12"
+thiserror.workspace = true
+tracing.workspace = true

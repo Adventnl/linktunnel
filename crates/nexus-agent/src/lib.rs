@@ -35,7 +35,7 @@ use nexus_trust::TrustStore;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{info, warn};
 
 pub use config::AgentConfig;
 pub use error::AgentError;
@@ -113,6 +113,7 @@ impl Agent {
         let default_consent = config.default_consent;
         let (events, _) = broadcast::channel(256);
         let (shutdown, _) = watch::channel(false);
+        let discovery = start_discovery(&config, &identity, &node);
         let shared = Arc::new(Shared {
             cfg: config,
             identity,
@@ -138,14 +139,30 @@ impl Agent {
             consents: Mutex::default(),
             next_consent_id: AtomicU64::new(1),
             started: Instant::now(),
+            discovery,
         });
         info!(device = %shared.identity.device_id(), locked, "agent starting");
 
-        let tasks = vec![
+        let mut tasks = vec![
             tokio::spawn(supervisor::run(Arc::clone(&shared))),
             tokio::spawn(sessions::accept_loop(Arc::clone(&shared))),
             tokio::spawn(ipc_server::serve(Arc::clone(&shared), ipc)),
         ];
+        if shared.discovery.is_some() {
+            let s = Arc::clone(&shared);
+            tasks.push(tokio::spawn(async move {
+                // The advertised tag changes every hour; check often enough to roll over on time.
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    tick.tick().await;
+                    if let Some(d) = &s.discovery
+                        && let Err(e) = d.refresh()
+                    {
+                        tracing::warn!(error = %e, "refreshing the LAN advertisement failed");
+                    }
+                }
+            }));
+        }
         Ok(Self {
             shared,
             tasks,
@@ -188,5 +205,38 @@ impl Agent {
             let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
         }
         self.shared.node.close().await;
+    }
+}
+
+/// Starts mDNS advertising/browsing; a machine where it cannot start just runs without it.
+fn start_discovery(
+    config: &AgentConfig,
+    identity: &nexus_crypto::DeviceIdentity,
+    node: &Node,
+) -> Option<nexus_discovery::Discovery> {
+    if !config.lan_discovery {
+        return None;
+    }
+    let started = nexus_discovery::Discovery::start().and_then(|d| {
+        let addrs = node.local_addrs();
+        let port = addrs
+            .iter()
+            .find(|a| a.is_ipv4())
+            .or_else(|| addrs.first())
+            .map_or(0, std::net::SocketAddr::port);
+        if port != 0 {
+            d.advertise(*identity.device_id().as_bytes(), port)?;
+        }
+        Ok(d)
+    });
+    match started {
+        Ok(d) => {
+            info!("LAN discovery on (paired devices can find this one without a server)");
+            Some(d)
+        }
+        Err(e) => {
+            warn!(error = %e, "LAN discovery unavailable");
+            None
+        }
     }
 }

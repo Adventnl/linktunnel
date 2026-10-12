@@ -13,12 +13,26 @@ pub fn os_info() -> OsInfo {
     };
     OsInfo {
         family: family as i32,
-        version: format!("{} {}", info.os_type(), info.version()),
+        version: pretty_os_name()
+            .unwrap_or_else(|| format!("{} {}", info.os_type(), info.version())),
         arch: std::env::consts::ARCH.to_owned(),
         hostname: hostname(),
         class: DeviceClass::Desktop as i32,
         mac_addresses: mac_addresses(),
     }
+}
+
+/// "Ubuntu 24.04.1 LTS" from `/etc/os-release` on Linux (the generic version parser prints
+/// "24.4.0" for it).
+fn pretty_os_name() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let text = std::fs::read_to_string("/etc/os-release").ok()?;
+    text.lines()
+        .find_map(|l| l.strip_prefix("PRETTY_NAME="))
+        .map(|v| v.trim().trim_matches('"').to_owned())
+        .filter(|v| !v.is_empty())
 }
 
 /// Hardware addresses of this machine's network adapters (for Wake-on-LAN), formatted

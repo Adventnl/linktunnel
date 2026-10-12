@@ -9,6 +9,7 @@
 mod agent_cmds;
 mod audit_cmds;
 mod consent_cmds;
+mod dashboard;
 mod files_cmds;
 mod forward_cmds;
 mod identity_cmd;
@@ -120,6 +121,15 @@ enum Command {
         #[arg(short, long)]
         recursive: bool,
     },
+    /// Live dashboard of your devices: state at a glance, one key to connect, wake or lock.
+    Dashboard {
+        /// Print one text snapshot and exit (scripts, bug reports).
+        #[arg(long)]
+        snapshot: bool,
+        /// Width of the snapshot in columns.
+        #[arg(long, default_value_t = 110)]
+        width: u16,
+    },
     /// Reach a service on a paired device through a local port (`nexus forward pc 5432`).
     Forward {
         /// Device name or ID.
@@ -197,6 +207,8 @@ pub(crate) struct AppContext {
     pub locale: Locale,
     pub paths: Paths,
     pub store: Box<dyn SecretStore>,
+    /// Global flags to repeat when this process starts another `nexus` (the dashboard does).
+    pub passthrough: Vec<String>,
 }
 
 #[tokio::main]
@@ -241,10 +253,21 @@ async fn run(cli: Cli) -> Result<ExitCode> {
     })
     .context("opening the secret store")?;
 
+    let mut passthrough = Vec::new();
+    if let Some(home) = &cli.home {
+        passthrough.extend(["--home".to_owned(), home.display().to_string()]);
+    }
+    if let Some(lang) = &cli.lang {
+        passthrough.extend(["--lang".to_owned(), lang.clone()]);
+    }
+    if cli.file_store {
+        passthrough.push("--file-store".into());
+    }
     let ctx = AppContext {
         locale,
         paths,
         store,
+        passthrough,
     };
     match cli.command {
         Command::Id(cmd) => identity_cmd::run(&ctx, &cmd),
@@ -267,6 +290,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Dashboard { snapshot, width } => dashboard::run(&ctx, snapshot, width).await,
         Command::Forward { device, spec } => forward_cmds::forward(&ctx, &device, &spec).await,
         Command::Proxy { device, host, port } => {
             forward_cmds::proxy(&ctx, &device, &host, port).await

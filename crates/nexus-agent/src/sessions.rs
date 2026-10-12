@@ -216,6 +216,12 @@ pub(crate) async fn dial(
             }
         }
     }
+    // Addresses heard on the local network need no server at all (and are the fastest path).
+    if let Some(d) = &shared.discovery {
+        for sock in d.addresses_for(peer.identity.device_id().as_bytes()) {
+            addr = addr.with_direct(sock);
+        }
+    }
     let session = shared.node.connect(&addr).await.map_err(AgentError::from)?;
     let hello = local_hello(shared);
     let established = session

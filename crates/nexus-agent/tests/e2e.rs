@@ -91,6 +91,7 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         consent_timeout: Duration::from_secs(30),
         presence_sensor: None,
         presence_interval: Duration::from_millis(200),
+        lan_discovery: false,
     }
 }
 
@@ -1555,4 +1556,54 @@ async fn presence_follows_what_the_machine_is_doing() {
         state_seen_by_mac().await.0 == PresenceState::InUse as i32
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paired_devices_find_each_other_on_the_lan_without_any_server() {
+    // Pair through a signaling server...
+    let server = Server::start().await;
+    let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut a = start_device("Desk", 31, dir_a.path(), Some(server.url())).await;
+    let mut b = start_device("Laptop", 32, dir_b.path(), Some(server.url())).await;
+    wait_signal(&a).await;
+    wait_signal(&b).await;
+    pair(&mut a, &mut b).await;
+    drop(a.client);
+    a.agent.shutdown().await;
+    drop(b.client);
+    b.agent.shutdown().await;
+    drop(server);
+
+    // ...then run with no server at all, only mDNS. The nodes listen on every interface so the
+    // advertised LAN address is reachable.
+    let lan = |c: &mut AgentConfig| {
+        c.lan_discovery = true;
+        c.node.bind = Some("0.0.0.0:0".parse().unwrap());
+        c.publish_loopback_hints = false;
+    };
+    let nohandler = || Arc::new(DiagnosticsHandler) as Arc<dyn nexus_agent::SessionHandler>;
+    let a = start_device_cfg("Desk", 31, dir_a.path(), None, nohandler(), lan).await;
+    let b = start_device_cfg("Laptop", 32, dir_b.path(), None, nohandler(), lan).await;
+
+    let req = ping_request(&b);
+    let mut last = None;
+    for _ in 0..40 {
+        match a.client.ping(req.clone()).await {
+            Ok(report) => {
+                last = Some(report);
+                break;
+            }
+            Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+        }
+    }
+    let Some(report) = last else {
+        // Some CI sandboxes have no multicast; set NEXUS_TEST_REQUIRE_LAN=1 where it must work.
+        assert!(
+            std::env::var_os("NEXUS_TEST_REQUIRE_LAN").is_none(),
+            "mDNS did not connect the paired devices"
+        );
+        eprintln!("mDNS did not deliver on this host; skipping the assertion");
+        return;
+    };
+    assert!(report.control.is_some());
 }

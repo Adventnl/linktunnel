@@ -40,6 +40,11 @@ struct Args {
     /// Do not offer this machine's screen or accept remote input (diagnostics only).
     #[arg(long)]
     no_screen: bool,
+    /// Run as a Wake-on-LAN helper: an always-on LAN machine (a Raspberry Pi, the home server)
+    /// that sends magic packets for paired devices holding the `wake` grant, and offers nothing
+    /// else (no screen, terminal, files, clipboard, audio, power or port forwarding).
+    #[arg(long)]
+    wake_helper: bool,
     /// Share this folder read-only with paired devices that hold the `files` grant (repeatable).
     #[arg(long = "share", value_name = "DIR")]
     share: Vec<PathBuf>,
@@ -56,7 +61,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if args.wake_helper {
+        args.no_screen = true;
+        args.share.clear();
+        args.share_rw.clear();
+    }
     let paths = match (&args.home, args.system) {
         (Some(home), _) => Paths::under(home),
         (None, true) => Paths::resolve(Scope::System)?,
@@ -79,6 +89,16 @@ async fn main() -> Result<()> {
     }
     if let Some(level) = args.log {
         nexus.log.level = level;
+    }
+    if args.wake_helper {
+        nexus.power.wake_relay = true;
+        nexus.power.accept_requests = false;
+        nexus.terminal.enabled = false;
+        nexus.portfwd.enabled = false;
+        nexus.audio.enabled = false;
+        nexus.clipboard.send = false;
+        nexus.clipboard.receive = false;
+        nexus.files.shared.clear();
     }
     nexus.validate().context("validating configuration")?;
     let _telemetry = nexus_core::telemetry::init_tracing(&LogConfig {
@@ -135,7 +155,7 @@ async fn main() -> Result<()> {
         }
     });
     let handler: Arc<dyn SessionHandler> =
-        if args.no_screen && roots.is_empty() && clipboard.is_none() {
+        if args.no_screen && roots.is_empty() && clipboard.is_none() && !nexus.power.wake_relay {
             Arc::new(DiagnosticsHandler)
         } else {
             let base = if args.no_screen {
