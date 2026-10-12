@@ -1,83 +1,160 @@
 # Status ledger
 
+The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
+claims a capability this page does not.
+
 **Legend**
-✅ implemented **and verified here** by automated tests/commands run on the build machine
-(macOS 26, Apple M4, arm64) ·
-🟡 implemented and type-checked for other targets, **not executed** on them ·
+✅ implemented **and verified here** by automated tests or a scripted run on the build machine ·
+🟡 implemented and type-checked / linted for the target, **not executed** there ·
 🔲 not started ·
-⛔ cannot be completed or verified from this environment (reason given)
+⛔ cannot be verified from the available environment (reason given)
 
-The build machine is a single MacBook (no Windows PC, no Linux box, no second macOS device, no
-GPU vendor variety, no real NAT zoo, Docker daemon not running). Anything that needs those is
-marked accordingly instead of being claimed.
+**Verification environments.** The Phase 1-2 evidence in the earlier version of this ledger (Keychain store, real
+PostgreSQL/Redis containers, relay tests) came from a MacBook (macOS 26, Apple M4). **Everything built since then, including
+the whole media/control stack, ran in Linux x86-64 cloud containers** (Ubuntu 24.04, 4 cores, no GPU, no audio hardware, Xvfb
+for X11, Chromium, no Docker daemon) with the Windows and macOS targets installed for type-checking only. So **no macOS or
+Windows code written after Phase 2 has ever been executed**, and no second physical machine or real NAT was available
+at any point. A ✅ row names its evidence and runs on Linux unless it says otherwise.
 
-## Phase 1: Foundations and skeleton: ✅ complete
+**Totals at the last full run (Linux):** 583 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
+19 frontend tests; `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check` clean; 13 fuzz
+targets run (see Phase 9). The GitHub Actions workflows are written but **have not been run** (no runner here).
 
+---
+
+## Phase 1: Foundations: ✅
+Workspace, pinned toolchain, lint policy (`unsafe` denied except documented FFI, no `unwrap`/`panic` in non-test
+code), config layering, tracing, HDR-histogram latency telemetry, en + zh-CN message catalogs with a parity test,
+protobuf schemas + hot-path binary codecs with property tests, Ed25519+X25519 device identity with OS-keychain /
+owner-only-file stores (known-answer test cross-checked against an independent Python implementation).
+Evidence: unit + property tests, `cargo deny`, `cargo audit`. Windows Credential Manager and Linux Secret Service
+stores are 🟡 (type-checked; the Linux Secret Service store cannot be exercised in a container without a keyring).
+
+## Phase 2: Networking and security spine: ✅ (one machine) / ⛔ (real NAT)
+Noise `XXpsk0` pairing with a six-word code and four-word SAS, dual-signed pairing records, revocations;
+`nexus-signal` (axum) with key-possession login, presence, pairing registry, sealed-envelope routing, rate limits;
+SQLite/PostgreSQL/Redis stores behind one conformance suite (run against real PostgreSQL 17 and Redis 8 containers
+on the Mac); QUIC transport via iroh keyed by device identity, allow-list before any app byte, live revocation,
+LAN/direct/relay classification, relay→direct migration against a real local `iroh-relay`.
+**New in this session:** **mDNS LAN discovery** ✅ (`nexus-discovery`): privacy-preserving (hourly-rotating tag, no
+names, ADR-0017); two real agents with **no signaling server** find each other and exchange traffic
+(`paired_devices_find_each_other_on_the_lan_without_any_server`, Linux, multicast worked in the container).
+⛔ Hole punching / symmetric NAT on real networks: relied on from iroh, not measurable here. Horizontal scaling of
+`nexus-signal` 🔲 (run one replica; documented in the Helm chart).
+
+## Phase 3: First pixels: ✅ Linux X11 ⇄ Linux X11 / 🟡 macOS and Windows backends
+Capture (X11 + XDamage dirty rects ✅; ScreenCaptureKit 🟡; DXGI Desktop Duplication 🟡), OpenH264 software codec ✅,
+VideoToolbox encoder 🟡 (type-checked for both Mac targets, tests only run on a Mac), per-frame QUIC streams reset when stale,
+local cursor stream, input injection (XTest ✅; CGEvent 🟡; SendInput 🟡), viewer window
+(`nexus remote view`, winit + softbuffer) ✅, `nexus remote screenshot/type/key/click/monitors` ✅ end to end through two
+real agents (`scripts/demo-remote.sh`, Linux).
+Note: the viewer renders with `softbuffer`, not `wgpu`: ADR-0012's "wgpu viewport" is **not** what was built (see LIMITATIONS).
+
+## Phase 4: Hardware acceleration and the latency war: 🟡 partial
+Adaptive bitrate (delay-gradient + AIMD) with quality ladder ✅ (tests + shaped-link benchmark: on a 4 Mbit/s,
+25 ms link the adaptive controller cut p50 latency from 859 ms to 114 ms, `docs/benchmarks/latest.json`),
+dirty-rect skipping ✅, live encoder rate changes ✅, latency telemetry ✅, benchmark harness + CI regression gate ✅
+(script; CI job unrun).
+**Measured (Linux x86-64, software OpenH264, loopback, synthetic content):** glass-to-glass **p50 7.9 ms, p95 10.8 ms**
+(encode 5.5 ms, network 0.2 ms, decode 1.1 ms). 1080p software encode p50 12.4 ms (81 fps max).
+🔲 NVENC / AMF / QuickSync / VAAPI encoders, hardware decode, zero-copy GPU paths, intra-refresh, reference-frame
+invalidation, FEC for video: **not built**. Software H.264 only (+ VideoToolbox on Mac). The "≤ 40 ms LAN p50" target
+is met in the synthetic loopback measurement; real-LAN / real-desktop numbers are ⛔ (no second machine) and the WAN
+numbers are ⛔ (no WAN).
+
+## Phase 5: Full control feature set: 🟡 mostly
 | Item | State | Evidence |
 |---|---|---|
-| Cargo workspace, pinned toolchain, lint policy, rustfmt/clippy config | ✅ | `cargo clippy --workspace --all-targets -- -D warnings` exits 0 |
-| CI matrix (fmt, clippy, test on ubuntu/macos/windows, docs, cross type-check, cargo-deny, nightly cargo-audit + SBOM) | 🟡 | YAML validated locally; **not run** (no GitHub runner available here) |
-| Supply-chain gates | ✅ | `cargo deny check` and `cargo audit` exit 0 (1296 advisories, 281 crates) |
-| `nexus-core`: layered config (defaults → TOML → `NEXUS_*` env), strict validation | ✅ | 31 unit tests |
-| `nexus-core`: paths (user/system scope), tracing init, `Redacted`, HDR latency histograms (p50/p95/p99), monotonic clock | ✅ | unit tests |
-| `nexus-core`: i18n catalogs en + zh-CN with key/placeholder parity test | ✅ | unit test |
-| `nexus-proto` v0: protobuf schema (common, session), version/capability negotiation with downgrade floors | ✅ | 55 tests incl. property tests |
-| `nexus-proto`: length-delimited framing (pre-allocation size cap), serial-number arithmetic | ✅ | tests + "decoder is total" property test |
-| `nexus-proto`: hot-path codecs: video header, audio packet, cursor update, input events (+ move/scroll coalescing) | ✅ | roundtrip + "never panics on arbitrary bytes" property tests |
-| `nexus-crypto`: root-seed identity (Ed25519 + bound X25519), `DeviceId`, fingerprint, domain-separated signatures, strict verify | ✅ | 38 tests; **known-answer test cross-checked against an independent Python implementation** |
-| `nexus-crypto`: secret stores: OS keychain, owner-only file (atomic create, perms/owner check, checksum), memory | ✅ macOS keychain, file store; 🟡 Windows Credential Manager, Linux Secret Service | real Keychain roundtrip test passed on this Mac (`--ignored`); Windows/Linux paths type-checked only |
-| `nexus-cli`: `nexus id create/show/delete`, `nexus doctor`, `--lang zh-CN`, `--json` | ✅ | exercised end to end in a throwaway home |
-| Cross-target type-check | ✅ type-check only | `cargo check --workspace` for x86_64-linux, aarch64-linux, x86_64-windows-msvc |
+| Clipboard (text + images, per-direction opt-in, not sent on connect) | ✅ Linux | `without_the_clipboard_grant_nothing_crosses`, `text_and_images_roundtrip_through_the_x_clipboard` |
+| File panel (resumable, BLAKE3-verified, sandboxed shared folders, symlink-escape refused) | ✅ | `an_interrupted_upload_resumes`, `symlinks_pointing_out_of_the_share_are_refused` |
+| Multi-monitor selection / mid-session switch | ✅ | e2e monitor-switch tests |
+| Mac↔PC modifier remap, scroll fidelity, HID keymaps | ✅ (unit) | remap/scroll tests |
+| Power actions + Wake-on-LAN (direct, or relayed through an always-on device) | ✅ | `a_granted_request_is_performed_after_the_reply`, `wake::tests::a_packet_goes_out_on_the_wire` |
+| **Audio streaming (new)**: Opus 48 kHz, FEC + loss concealment, adaptive jitter buffer, mute/bitrate/loss feedback, `audio` grant | ✅ pipeline & transport / 🟡 devices | 19 `nexus-audio` tests; QUIC e2e `tone_arrives_and_is_audible`; fuzzed. **Device capture/playback (cpal: WASAPI loopback, CoreAudio loopback, PulseAudio/PipeWire monitor) is type-checked on Linux but never ran against real sound hardware** (the container has none); macOS ScreenCaptureKit audio is not used (cpal's CoreAudio loopback needs macOS 14.6+) |
+| Privacy screen (blank target display, block local input) | 🔲 | not implemented (LIMITATIONS) |
+| IME / international layouts beyond scancode + Unicode text injection | 🔲 | scancodes and `Text` events only |
+| Pinch-zoom / gesture viewport | 🔲 | |
 
-**Phase 1 DoD** ("CI green on win/mac/linux; keys generated and persisted; unit tests pass"):
-keys generated and persisted ✅ (macOS Keychain + file store, verified); unit tests pass ✅
-(124 tests); lint/audit gates ✅ locally; **"CI green on all three OSes" is unverified until the
-workflows run on GitHub**: the workflows are written and the equivalent commands pass locally on
-macOS and type-check for Linux/Windows.
+## Phase 6: Windows deep control: 🟡 written, ⛔ never run
+New this session. `nexus-desktop` (follow the input desktop `Default ⇄ Winlogon`), `nexus-winservice` (SCM service
+launching the agent as SYSTEM into the active console session; WTS session-change supervision; `WTSSendMessage`
+consent prompts; ACL lockdown of `C:\ProgramData\Nexus`), capture and injection threads re-attach to the input desktop,
+agent flags (`--windows-service`, `--no-terminal`), WiX MSI, design in [WINDOWS.md](WINDOWS.md).
+Evidence: ✅ the supervisor state machine (13 tests) and command-line quoting (3 tests) run on Linux;
+🟡 all Win32 code is `cargo check` + `clippy -D warnings` clean for `x86_64-pc-windows-msvc`; the full `nexus-agent`
+could not be cross-compiled here (C dependencies need the MSVC toolchain): the `windows-latest` CI jobs will be its first compile.
+**The Phase 6 DoD (unlock the PC at the login screen from the Mac, approve a UAC prompt, control the elevated
+desktop) has not been demonstrated.** [WINDOWS.md](WINDOWS.md) ends with the checklist that would turn this green.
 
-## Phase 2: Networking and security spine: ✅ complete on one machine; ⛔ real-NAT validation
+## Phase 7: Servers: ✅ Linux / 🟡 Windows Server
+`nexus-vdisplay`: supervised **Xvfb virtual display** for machines with no monitor ✅ (5 tests incl. real capture and
+input on it; `[display]` config; the agent creates one by itself when no screen is reachable); persistent PTY terminals ✅;
+TCP port forwarding ✅; resumable file panel ✅; **SSH ProxyCommand bridge** `nexus proxy` ✅ (half-close aware);
+systemd units ✅ verified with `systemd-analyze verify` / `security` (exposure 3.2 "OK"; not run under a live systemd).
+**DoD demonstrated on Linux by `scripts/demo-server.sh`** (also a CI job): a monitor-less, DISPLAY-less server agent
+creates its own screen; the controller screenshots it (1920×1080), runs a command in a named persistent terminal,
+forwards a loopback-only service port, reaches the same service through the stdio proxy, and round-trips a 3 MB file
+byte-identically, all through one encrypted session.
+🔲 Server Core / Windows Server multi-session; 🔲 headless Wayland compositor (only Xvfb); 🔲 KMS/DRM capture.
 
-| Item | State | Evidence |
-|---|---|---|
-| Noise pairing: `XXpsk0` + 6-word code + 4-word SAS; Noise `X` sealed envelopes; replay guard | ✅ | 78 `nexus-crypto` tests incl. MITM-with-known-code → different SAS; known-answer values from an independent Python implementation |
-| `nexus-trust`: dual-signed pairing records, revocations, local trust store, I/O-free pairing state machine | ✅ | 38 tests incl. forged/transplanted signatures, policy ceilings, stale clocks, hand-edited trust file |
-| `nexus-signal` server: key-possession login (audience + nonce bound), presence (TTL, sleep/offline states), pairing registry, sealed-envelope routing, rendezvous rooms, rate limits, `/metrics` | ✅ | 32 integration tests against a real WebSocket server (forged/replayed logins, zero-trust presence, revocation, envelopes, rate limits, full two-device pairing) |
-| Stores: in-memory, SQLite, PostgreSQL (pairings); in-memory, Redis (presence) behind traits | ✅ | one conformance suite passing on all backends, **including real PostgreSQL 17 and Redis 8 containers**; the suite caught a genuine concurrent-insert race in the SQL `put`, now fixed |
-| `nexus-net`: QUIC over iroh, endpoint keyed by the device identity, allow-list enforced before any app byte, live-session revocation, LAN/direct/relay path classification, hello negotiation, diagnostics | ✅ | 24 tests: unpaired and impostor peers rejected, revocation kills a live session, relay-only sessions through a real local `iroh-relay` with a pinned certificate, relay→direct migration |
-| Transport benchmark & ADR-0003 | ✅ loopback only | docs/benchmarks/transport-loopback.md (iroh ≈ quinn ≫ webrtc-rs on bulk); NAT/WAN performance ⛔ unmeasured |
-| `nexus-agent` daemon: signaling supervisor with reconnect + pairing re-sync, presence, pairing orchestration, session acceptance, persistent lockdown switch, unpair/revocation | ✅ | 7 whole-system tests: real agents + signaling server + QUIC, driven over IPC (restart persistence; signaling-server restart recovery) |
-| `nexus-ipc`: Unix socket / named pipe, private token, peer-UID check | ✅ Unix; 🟡 Windows named pipe (type-checked) | 8 tests incl. wrong token, pre-auth requests, stale sockets, file modes |
-| `nexus` CLI: `status`, `devices`, `pair offer/join`, `unpair`, `ping`, `lockdown`, `stop` (en + zh-CN) | ✅ | `scripts/demo-local.sh` runs signal + two agents + CLI as separate OS processes: both screens show identical words, presence goes online, `ping` over a real QUIC session on the LAN address |
-| Linux | ✅ arm64 in a container | `scripts/test-linux-container.sh` runs the whole suite on Linux (found and fixed a race that macOS timing hid) |
-| Docker Compose stack (signal + PostgreSQL + Redis + Caddy) | 🟡 | image builds and starts; see "Phase 2 compose check" below |
-| Threat model v1 | ✅ | docs/THREAT_MODEL.md; `scripts/check-threat-model.sh` verifies every cited test exists |
-| mDNS LAN discovery | 🔲 deferred to Phase 8 | peers find each other through signaling presence hints today |
-| Horizontal scaling of `nexus-signal` (cross-node push routing, shared rendezvous) | 🔲 | stores can be external; routing is per-process, so run one active replica |
-| Hole punching / symmetric NAT behaviour on real networks | ⛔ no NAT test bed | iroh's implementation is relied upon; local relay-to-direct migration is tested |
-| Windows runtime (agent, IPC pipe, Credential Manager store) | ⛔ no Windows machine | type-checked for `x86_64-pc-windows-msvc` for the C-free crates; CI `windows-latest` will compile and test the rest |
+## Phase 8: Presence, wake and the dashboard: ✅ mostly
+Presence state machine from real OS signals (idle / locked / in use / battery / sleep): the pure classifier and the Linux sensors
+(X11 screensaver, logind, sysfs) ✅; macOS (`ioreg`/`pmset`) and Windows (`GetLastInputInfo`, input desktop, power status) 🟡,
+instant offline + sleep announcements ✅, Wake-on-LAN direct and via relay device ✅, **wake helper mode**
+`nexus-agent --wake-helper` ✅ (config + e2e of the relay path; no sleeping machine was available to wake),
+mDNS discovery ✅, **`nexus dashboard`** terminal UI ✅ (status dots, connect/terminal/files/wake/lock/sleep/restart/
+shutdown, ⌘K palette, wake-and-connect with progress, en + zh-CN; 15 logic/render tests; driven on a pty in
+`demo-server.sh`), and the **Tauri 2 desktop app** ✅ (`apps/nexus-app`): dashboard, palette, pairing wizard, consent
+dialog, xterm.js terminal, settings, tray with live status. **Verified by `scripts/demo-app.sh`: the real app on a
+virtual X display against two real agents; a GUI-driven terminal command landed on the server.**
+Not done: the app has **not** been built or run on macOS or Windows (only Linux/WebKitGTK); tray behaviour without an
+`appindicator` host is untested; MSIX 🔲; the in-app file manager 🔲 (files are CLI-only: `nexus ls/cp`).
 
-**Phase 2 DoD** ("two machines pair, see each other's presence, open an authenticated E2E encrypted
-data channel across NAT; echo + ping-latency demo; threat model v1"): pairing, presence and the
-authenticated encrypted channel with echo/latency/throughput are demonstrated end to end between two
-real agent processes on this MacBook (LAN path) and between two nodes through a real relay; the
-literal "across NAT between two physical machines" step needs your second device and is described in
-docs/USER_GUIDE.md. Threat model v1 is written.
+## Phase 9: Hardening and security review: 🟡 partial
+✅ Tamper-evident signed hash-chained **audit log** (chain, signed head, rotation tests); session rate limit and approval
+lockout; persistent **lockdown** switch; attended consent with per-device pre-authorisation; signed, staged, rollback-able
+**updates** (`nexus-update`: signature, expiry, rollout %, rollback tests).
+✅ **Fuzzing (new):** 13 `cargo-fuzz` targets (`fuzz/`): wire formats, every protobuf message, frame decoder, audio
+player (libopus), jitter buffer, **H.264 decoder (OpenH264)**, crypto inputs, trust records, update manifests, file-path
+sandbox, clipboard/PNG, config TOML, input stream. Each run ≥ 45 s here (h264 400 s, audio 400 s): **no crash in any product
+code**; one failing run was a wrong invariant in my harness (re-sent duplicate after a re-sync), fixed and documented in
+the target. This is a smoke run, not a campaign: a nightly CI job runs each for 4 minutes.
+✅ Threat model v2 ([THREAT_MODEL.md](THREAT_MODEL.md), citations checked by `scripts/check-threat-model.sh`).
+🔲 Independent penetration test; privilege-separation audit of the macOS helper; WebAuthn/TOTP step-up (designed in ADR-0006,
+not implemented); on-screen "session active" indicator and panic hotkey on the target (consent prompt and lockdown exist; the
+persistent indicator does not); push/email notification on new connections; per-device quiet hours / geofence; encrypted
+local session recording; certificate pinning of the signaling TLS beyond the platform verifier; reproducible builds.
 
-## Phase 3: First pixels: 🔲
-## Phase 4: Hardware acceleration and the latency war: 🔲
-## Phase 5: Full control feature set: 🔲
-## Phase 6: Windows deep control: 🔲 (runtime validation ⛔ no Windows machine)
-## Phase 7: Servers: 🔲 (Linux runtime validation ⛔ no Linux machine)
-## Phase 8: Presence, wake and the dashboard: 🔲
-## Phase 9: Hardening and security review: 🔲
-## Phase 10: Packaging, updates and polish: 🔲
+## Phase 10: Packaging, updates and polish: 🟡 written, mostly unrun
+| Artifact | State |
+|---|---|
+| systemd units (agent, desktop user unit, wake helper, signal), hardened | ✅ verified with `systemd-analyze` |
+| `.deb` builder (`installers/linux/build-deb.sh`) | ✅ built and inspected (see below) |
+| Dockerfile + Compose (signal + PostgreSQL + Redis + Caddy) | 🟡 image builds/starts (Mac); not run in the container (no Docker) |
+| **Helm chart** (`deploy/helm/nexus-signal`) | ✅ `helm lint` clean and renders (Helm built from source in the container); not installed on a cluster |
+| macOS `.pkg` builder, LaunchAgent/Daemon plists, entitlements | 🟡 plists parse; scripts `bash -n` clean; **never run on a Mac** (needs signing identity, notarization) |
+| Windows MSI (WiX v4) + signing script | 🟡 XML well-formed; **never built** |
+| RPM, AppImage (agent) | 🔲 (the desktop app's Tauri bundler can emit AppImage/deb; unrun) |
+| Update client + signed manifests | ✅ library + `nexus-release`; no update server deployed, no auto-apply daemon loop |
+| Crash reporting (opt-in, scrubbed) | 🔲 |
+| User guide, self-hosting, troubleshooting | 🟡 written, partly stale before this session; refreshed (USER_GUIDE.md, SELF_HOSTING.md) |
+| Clean-machine install < 5 min + automatic connection test | ⛔ no clean machines |
+
+## Not started / out of scope so far
+`nexus-relay` as its own binary (relays today are stock `iroh-relay`; ADR-0003) · iOS/Android/web controller · session sharing
+with expiring guest links · multi-user teams · smart-plug/IPMI/AMT wake drivers · AV1 / HEVC · Wayland virtual-pointer fast path.
 
 ## How to re-verify everything claimed above
 ```sh
-cargo test --workspace
+cargo test --workspace                                   # 583 tests (Linux needs xvfb, libasound2-dev, cmake)
 cargo clippy --workspace --all-targets -- -D warnings
-cargo deny check && cargo audit
-cargo test -p nexus-crypto -- --ignored keyring        # touches your real OS keychain
-cargo check --workspace --target x86_64-unknown-linux-gnu
-cargo check --workspace --target x86_64-pc-windows-msvc --features nexus-cli/pure-blake3
+cargo deny check
+cargo check --target x86_64-pc-windows-msvc -p nexus-capture -p nexus-input -p nexus-desktop -p nexus-winservice
+./scripts/demo-server.sh          # Phase 7 DoD on a headless "server"; also the dashboard TUI on a pty
+./scripts/demo-app.sh             # the Tauri app against real agents, GUI-driven terminal
+./scripts/fuzz-smoke.sh 45        # all fuzz targets (nightly toolchain + cargo-fuzz)
+(cd apps/nexus-app && npm ci && npm test && npm run build)
+helm lint deploy/helm/nexus-signal
+systemd-analyze verify installers/linux/systemd/nexus-agent.service
+installers/linux/build-deb.sh --profile release
 ```

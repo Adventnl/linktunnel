@@ -61,7 +61,10 @@ recipient device id.
   port-forward 6, video 16, diagnostics 250).
 * **Control stream**: dialler sends `Hello`, acceptor answers; then `Ping/Pong`, `Goodbye`, `Error`,
   and later phases' RPCs. Frames are `varint(len) ‖ protobuf`, capped at 1 MiB.
-* **Datagrams**: cursor updates and audio (formats in `nexus-proto::wire`).
+* **Datagrams**: cursor updates (first byte `0x01`) and audio (first byte `0x81`: the high bit marks audio, `wire::audio::is_audio`);
+  formats in `nexus-proto::wire`. Diagnostics echoes also use datagrams before video starts.
+* **Audio**: `StartAudio` → `AudioStarted` (what was granted), then one Opus packet per datagram; `SetAudio` mutes / retunes /
+  reports loss; `StopAudio` ends it. Needs the `audio` grant. See ADR-0015.
 * **Video**: one unidirectional stream per frame: 40-byte header + dirty rects + payload
   (Phase 3+).
 
@@ -69,3 +72,10 @@ recipient device id.
 `IpcHello{token}` → `IpcWelcome` → `IpcRequest`/`IpcResponse` correlated by id, plus pushed
 `IpcEvent`s (`PairingSasReady`, `PairingFinished`, `DeviceChanged`, `DeviceRemoved`,
 `SignalState`). The same API serves the CLI, the tray and the desktop app.
+
+
+## 7. Datagram demultiplexing (v1.1)
+Cursor updates and audio share the QUIC datagram channel. The first byte tells them apart: `0x01` = cursor (28 bytes), `0x81` = audio
+(`0x80 | WIRE_VERSION`). A receiver that does not know a tag must ignore the datagram. Control-plane additions in this revision (all new
+`oneof` variants, capability string `audio.opus`): `StartAudio`, `AudioStarted`, `StopAudio`, `SetAudio`. IPC additions: `OpenSession.audio`,
+`SessionOpened.audio_source`, `SessionAudio`.

@@ -10,7 +10,7 @@ names=$(grep -E '^\|' "$doc" | awk -F'|' 'NF>=5 {print $(NF-1)}' | grep -oE '`[a
 checked=0
 for n in $names; do
   # Skip things that are not test names (constants, config keys, words in backticks).
-  if ! grep -rqE --include="*.rs" --exclude-dir=target "fn ${n}\b" crates bench 2>/dev/null; then
+  if ! grep -rqE --include="*.rs" --exclude-dir=target --exclude-dir=node_modules "fn ${n}\b" crates bench apps 2>/dev/null; then
     if grep -qE "\`${n}\`" "$doc" && [[ "$n" == *_* ]]; then
       echo "MISSING test cited in THREAT_MODEL.md: $n"; status=1
     fi

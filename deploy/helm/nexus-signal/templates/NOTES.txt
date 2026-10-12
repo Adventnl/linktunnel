@@ -1,0 +1,7 @@
+Nexus signaling server installed.
+
+Point agents at:   wss://{{ .Values.ingress.host }}/v1/ws
+   nexus-agent --signal-url wss://{{ .Values.ingress.host }}/v1/ws
+
+The server's audience is "{{ .Values.audience }}": it must equal the host in that URL.
+Keep replicaCount at 1 (see values.yaml). Do not expose /metrics publicly.

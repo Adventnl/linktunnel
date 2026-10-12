@@ -20,3 +20,8 @@ An ADR that depends on a measurement says so and links the result.
 | [0012](0012-ui-shell-tauri-and-native-viewport.md) | UI shell: Tauri + native wgpu viewport | Accepted |
 | [0013](0013-audit-log.md) | Audit log | Accepted |
 | [0014](0014-updates-and-release-signing.md) | Updates and release signing | Accepted |
+| [0015](0015-audio-streaming.md) | Audio streaming (Opus, datagrams, jitter buffer) | Accepted |
+| [0016](0016-virtual-display-for-headless-servers.md) | Virtual display for headless Linux servers | Accepted |
+| [0017](0017-lan-discovery-and-privacy.md) | LAN discovery (mDNS) without leaking presence | Accepted |
+| [0018](0018-windows-service-and-secure-desktop.md) | Windows service and secure-desktop control | Accepted (unrun on Windows) |
+| [0019](0019-desktop-app-over-agent-ipc.md) | Desktop app as a thin client of the agent | Accepted |

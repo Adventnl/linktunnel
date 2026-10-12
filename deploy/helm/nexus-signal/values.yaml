@@ -1,0 +1,58 @@
+# Nexus signaling server.
+#
+# IMPORTANT: run exactly ONE replica. Presence and sealed-envelope routing are per-process today
+# (see docs/STATUS.md, "Horizontal scaling"); state lives in PostgreSQL/Redis, so a restart is safe,
+# but two replicas would not see each other's connected devices.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/adventnl/nexus-signal
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The host[:port] agents use in their wss:// URL. It is signed into every login, so it MUST match.
+audience: signal.example.com
+
+# Connection strings live in a Secret you create (never in values):
+#   kubectl create secret generic nexus-signal \
+#     --from-literal=database-url='postgres://nexus:PASSWORD@postgres:5432/nexus' \
+#     --from-literal=redis-url='redis://redis:6379'
+existingSecret: nexus-signal
+secretKeys:
+  databaseUrl: database-url
+  redisUrl: redis-url
+
+# The ingress controller overwrites X-Forwarded-For, so the failed-login limiter sees real client IPs.
+trustForwardedFor: true
+
+logLevel: info
+
+service:
+  type: ClusterIP
+  port: 8443
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  # TLS is terminated by the ingress; nexus-signal speaks plain HTTP/WebSocket behind it.
+  host: signal.example.com
+  tls:
+    enabled: true
+    secretName: nexus-signal-tls
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Only the ingress controller's namespace may reach the pod.
+networkPolicy:
+  enabled: true
+  ingressNamespaceLabels:
+    kubernetes.io/metadata.name: ingress-nginx

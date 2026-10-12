@@ -61,9 +61,17 @@ lets you take control of one, run a terminal, move files, or wake it.
 | `nexus-net` | iroh endpoint, allowlist enforcement, stream/datagram plumbing, path telemetry |
 | `nexus-capture` / `-codec` / `-render` / `-input` / `-audio` / `-clipboard` / `-files` / `-terminal` / `-power` | per-feature, per-OS backends behind traits |
 | `nexus-agent` | the daemon: presence, sessions, consent policy, audit |
-| `nexus-session-helper` | privileged per-session helper (Windows secure desktop, macOS user session) |
-| `nexus-signal`, `nexus-relay`, `nexus-wake`, `nexus-update` | server-side and helper services |
-| `nexus-cli` | `nexus` command (identity, diagnostics, scripting) |
+| `nexus-signal` | signaling / presence / pairing registry server |
+| *(`nexus-session-helper`, `nexus-wake`, `nexus-relay`)* | **not separate binaries**: the Windows "helper" is the agent itself in the console session (ADR-0018); the wake helper is `nexus-agent --wake-helper`; relays are stock `iroh-relay` (ADR-0003) |
+| `nexus-audio` | Opus codec, jitter buffer, packetizer, player, cpal devices (feature `device`) |
+| `nexus-vdisplay` | supervised Xvfb virtual display for headless Linux |
+| `nexus-discovery` | privacy-preserving mDNS LAN discovery |
+| `nexus-desktop` | Windows input-desktop tracking (Default ⇄ Winlogon) |
+| `nexus-winservice` | Windows service: SYSTEM agent in the console session, supervisor, consent prompts |
+| `nexus-media`, `nexus-render`, `nexus-files`, `nexus-terminal`, `nexus-portfwd`, `nexus-clipboard`, `nexus-power`, `nexus-presence`, `nexus-audit`, `nexus-update`, `nexus-trust`, `nexus-ipc`, `nexus-signal-client` | the session machinery, viewer, file panel, PTY terminals, port forwarding, clipboard, power/WoL, presence sensors, signed audit log, signed updates, pairing/trust, local IPC, signaling client |
+| `nexus-cli` | `nexus` command: identity, devices, pairing, remote view/screenshot, files, shell, forward, proxy, power, wake, dashboard (TUI), audit, update, lockdown |
+| `apps/nexus-app` | Tauri 2 desktop app (dashboard, tray, terminal, pairing, consent): a thin client of the agent IPC |
+| `fuzz/` | 13 cargo-fuzz targets |
 
 ## 4. Connection flow (as built)
 
@@ -89,11 +97,11 @@ lets you take control of one, run a terminal, move files, or wake it.
 
 | Requirement | Mechanism | Status |
 |---|---|---|
-| E2E encryption, forward secrecy | QUIC/TLS 1.3 with pinned Ed25519 identities | Phase 2 |
+| E2E encryption, forward secrecy | QUIC/TLS 1.3 with pinned Ed25519 identities | ✅ |
 | Zero-trust presence | server ACL from dual-signed pairing records | Phase 2 |
-| < 50 ms LAN glass-to-glass | HW codecs, zero-copy, per-frame streams, local cursor | Phase 3-4 |
-| Wake | LAN helper receives sealed command via signaling | Phase 8 |
-| Windows UAC / lock screen | SYSTEM helper attached to `Winsta0\Winlogon` | Phase 6 (needs real Windows to validate) |
-| Auditability | hash-chained, signed append-only log | Phase 9 |
+| < 50 ms LAN glass-to-glass | per-frame streams, local cursor, adaptive bitrate; HW codecs and zero-copy are **not built** | ✅ 7.9 ms p50 loopback (software); real LAN ⛔ |
+| Wake | an always-on agent on the target's LAN (`--wake-helper`) sends magic packets on request | ✅ (no real sleeping machine tried) |
+| Windows UAC / lock screen | SYSTEM agent in the console session, threads attached to `Winsta0\Winlogon` | 🟡 written, never run (WINDOWS.md) |
+| Auditability | hash-chained, signed append-only log | ✅ |
 
 The live truth of what is implemented and *verified* is in [STATUS.md](STATUS.md).
