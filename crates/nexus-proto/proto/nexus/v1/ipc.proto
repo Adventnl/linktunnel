@@ -379,6 +379,9 @@ message SessionCursorPos {
 message SessionEnded {
   uint64 session_id = 1;
   string reason = 2;
+  // The link died (timeout, reset, network change) rather than either side ending the session
+  // on purpose: a viewer may reconnect.
+  bool connection_lost = 3;
 }
 
 // ----- files (over an open session; a control-only session is enough) -----------------------

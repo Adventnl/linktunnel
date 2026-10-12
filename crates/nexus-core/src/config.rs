@@ -389,6 +389,9 @@ pub struct SecurityConfig {
     pub consent: ConsentMode,
     /// Seconds an attended prompt waits before the request is denied.
     pub consent_timeout_secs: u32,
+    /// After an approved session loses its link (not a deliberate disconnect), the same device
+    /// may reconnect without a new prompt for this many seconds. 0 turns resuming off.
+    pub resume_window_secs: u32,
     /// Require a second factor (TOTP / passkey) for unattended access.
     pub unattended_requires_stepup: bool,
     /// Master kill switch: when true every remote access request is refused.
@@ -400,6 +403,7 @@ impl Default for SecurityConfig {
         Self {
             consent: ConsentMode::Attended,
             consent_timeout_secs: 30,
+            resume_window_secs: 120,
             unattended_requires_stepup: true,
             lockdown: false,
         }
@@ -436,6 +440,12 @@ impl NexusConfig {
                     reason: format!("`{url}` must be https:// (or http:// to localhost)"),
                 });
             }
+        }
+        if self.security.resume_window_secs > 3600 {
+            return Err(ConfigError::Invalid {
+                key: "security.resume_window_secs",
+                reason: "must be at most 3600".into(),
+            });
         }
         if self.security.consent_timeout_secs == 0 || self.security.consent_timeout_secs > 600 {
             return Err(ConfigError::Invalid {

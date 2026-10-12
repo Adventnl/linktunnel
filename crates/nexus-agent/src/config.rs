@@ -31,6 +31,9 @@ pub struct AgentConfig {
     pub default_consent: ConsentMode,
     /// How long that prompt waits before the request is refused.
     pub consent_timeout: Duration,
+    /// How long after an approved session *loses its link* the same device may reconnect
+    /// without a new prompt. Zero disables resuming.
+    pub resume_window: Duration,
     /// Reads idle / locked / battery state for presence; `None` uses the operating system's.
     pub presence_sensor: Option<std::sync::Arc<dyn nexus_presence::Sensor>>,
     /// How often activity (idle, locked, battery) is re-read.
@@ -60,6 +63,7 @@ impl AgentConfig {
             start_locked_down: cfg.security.lockdown,
             default_consent: cfg.security.consent,
             consent_timeout: Duration::from_secs(u64::from(cfg.security.consent_timeout_secs)),
+            resume_window: Duration::from_secs(u64::from(cfg.security.resume_window_secs)),
             presence_sensor: None,
             presence_interval: Duration::from_secs(10),
             lan_discovery: cfg.net.lan_discovery,

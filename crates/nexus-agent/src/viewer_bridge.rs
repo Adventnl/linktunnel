@@ -303,6 +303,7 @@ async fn pump_events(
             body: Some(Ev::SessionEnded(SessionEnded {
                 session_id: id,
                 reason,
+                connection_lost: stats.ended_by_loss.load(Ordering::SeqCst),
             })),
         })
         .await;

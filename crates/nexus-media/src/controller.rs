@@ -165,6 +165,9 @@ pub struct ControllerStats {
     pub cursor_updates: AtomicU32,
     /// The bitrate the receiver last asked the sender for (0 until adaptation starts).
     pub target_bitrate_bps: AtomicU32,
+    /// Set when the session ended because the link died rather than on purpose (a viewer may
+    /// reconnect); read after [`MediaEvent::Closed`].
+    pub ended_by_loss: std::sync::atomic::AtomicBool,
 }
 
 impl ControllerStats {
@@ -585,7 +588,9 @@ async fn control_task(
     let mut report = tokio::time::interval(REPORT_INTERVAL);
     let mut samples: VecDeque<(u64, i64)> = VecDeque::with_capacity(10); // (rtt, offset)
     let mut last_report = ReportState::default();
-    let mut closed = Box::pin(session.closed());
+    let mut closed = Box::pin(session.closed_detail());
+    // Until proven deliberate (goodbye, revocation, our own close), an ending is a lost link.
+    let mut lost = true;
     let mut waiting: HashMap<u64, oneshot::Sender<ControlMessage>> = HashMap::new();
     let reason = loop {
         tokio::select! {
@@ -625,7 +630,10 @@ async fn control_task(
                             let _ = best_rtt;
                         }
                     }
-                    Some(Body::Goodbye(g)) => break format!("target ended the session: {}", g.detail),
+                    Some(Body::Goodbye(g)) => {
+                        lost = false;
+                        break format!("target ended the session: {}", g.detail);
+                    }
                     _ => {}
                 }
             }
@@ -678,9 +686,13 @@ async fn control_task(
                     if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
                 }
             }
-            reason = &mut closed => break reason,
+            (reason, deliberate) = &mut closed => {
+                lost = !deliberate;
+                break reason;
+            }
         }
     };
+    stats.ended_by_loss.store(lost, Ordering::SeqCst);
     let _ = events.send(MediaEvent::Closed(reason)).await;
 }
 

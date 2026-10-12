@@ -48,6 +48,8 @@
 | Read what happened here | `nexus audit tail` / `nexus audit verify` |
 | Emergency stop | `nexus lockdown on` |
 
+If the link drops (Wi-Fi switch, sleep, a restart of the controller's agent) the viewer keeps its last picture, says "reconnecting" in the title bar and comes back by itself; an attended target does not ask again if the device was approved moments before (`[security] resume_window_secs`, default 120, 0 = always ask).
+
 Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` pixel-perfect) to leave or resize it.
 
 ## 5. Special machines
@@ -78,7 +80,7 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 `config.toml` in the config directory (next to the identity and trust files; `--home DIR` puts everything under `DIR`); every key also works as `NEXUS_SECTION__KEY=value`.
 ```toml
 [net]       signal_url = "wss://signal.example.com/v1/ws"; udp_port = 7842; lan_discovery = true
-[security]  consent = "attended"; consent_timeout_secs = 30
+[security]  consent = "attended"; consent_timeout_secs = 30; resume_window_secs = 120
 [files]     shared = [{ path = "/srv/share", writable = true }]
 [clipboard] send = true; receive = true; images = true
 [audio]     enabled = true; microphone = false; bitrate_kbps = 96   # optional: device = "monitor"

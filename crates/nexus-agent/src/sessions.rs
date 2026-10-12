@@ -171,6 +171,8 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
             let mut last = session.path().kind;
             while !session.is_closed() {
                 tokio::time::sleep(Duration::from_secs(2)).await;
+                // An approved session that is alive keeps its resume window open.
+                shared.limits.lock().heartbeat(&key, Instant::now());
                 let now = session.path().kind;
                 if now != last {
                     last = now;

@@ -50,6 +50,20 @@ pub(crate) fn gate(
     if shared.policy.lock().is_unattended(&key) {
         return None;
     }
+    // A link that dropped moments after a person approved this device may come straight back.
+    if shared
+        .limits
+        .lock()
+        .may_resume(&key, std::time::Instant::now(), shared.cfg.resume_window)
+    {
+        info!(peer = %peer.name, "resuming an approved session without asking again");
+        shared.audit.record(
+            "consent.resumed",
+            Some(&peer.identity.device_id().to_string()),
+            &[("name", &peer.name)],
+        );
+        return None;
+    }
     let (shared, peer) = (Arc::clone(shared), peer.clone());
     Some(Arc::new(move || {
         let (shared, peer) = (Arc::clone(&shared), peer.clone());
@@ -147,7 +161,7 @@ pub(crate) async fn request(
     {
         let mut limits = shared.limits.lock();
         if outcome == Consent::Allowed {
-            limits.approved(&key);
+            limits.approved(&key, std::time::Instant::now());
         } else if limits.refused(key, std::time::Instant::now()) {
             warn!(peer = %peer.name, "locking this device out of approval prompts for a while");
             shared.audit.record(

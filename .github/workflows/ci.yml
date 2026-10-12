@@ -126,6 +126,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - run: sudo apt-get update && sudo apt-get install -y xvfb python3
       - run: ./scripts/demo-server.sh
+      - run: ./scripts/demo-resume.sh
 
   app:
     # The Tauri desktop app: frontend type-check + tests + build, and the Rust backend.

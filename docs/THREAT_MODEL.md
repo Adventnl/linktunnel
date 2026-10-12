@@ -253,6 +253,18 @@ limits. All of it is written to the audit log (§8.8).
 `clipboard_content`, `config_toml`, `input_stream`. `scripts/fuzz-smoke.sh` ran each ≥ 45 s here (400 s for the codecs): no product crash. A nightly CI
 job runs each for 4 minutes. This is smoke-level assurance, **not** a substitute for a long campaign or independent review.
 
-### 8.13 What v2 still does not cover
+### 8.13 Session resume (new)
+Brief drops (Wi-Fi switch, sleep, crash of the controller's agent) should not need a person at the target to approve again, but resuming must
+not turn attended mode into "approve once, access forever".
+| Threat | Mitigation | Evidence |
+|---|---|---|
+| A resume window silently extends an approval | it opens only after a person *approved* this device, slides only while that session is alive, and lasts `security.resume_window_secs` (default 120, 0 = off) after the link dies | `a_dropped_link_may_resume_briefly_and_a_deliberate_end_may_not` |
+| A deliberate disconnect leaves a way back in | goodbye, refusal and local stop clear the window; the next session asks | `a_dropped_link_may_resume_briefly_and_a_deliberate_end_may_not`, `scripts/demo-resume.sh` |
+| Resume-state growth | bounded table | `resume_state_is_bounded` |
+| Unaudited silent access | every resume is written to the audit log (`consent.resumed`) | `scripts/demo-resume.sh` |
+| The viewer reconnecting forever / after a refusal | exponential back-off 1 s→8 s, gives up after 5 minutes, never retries a permission/not-found refusal | `a_lost_link_is_retried_and_a_deliberate_end_is_not`, `retry_delays_grow_then_cap` |
+| Residual: a stolen *approved* controller can reconnect inside the window | **accepted**; shorten or disable the window | — |
+
+### 8.14 What v2 still does not cover
 Independent review; the macOS helper split; WebAuthn/TOTP step-up; the target-side "session active" indicator and panic hotkey; supply-chain
 attestation of release binaries; behaviour of any Windows/macOS-specific path on real machines.

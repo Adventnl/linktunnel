@@ -200,6 +200,25 @@ impl Session {
         self.conn.closed().await.to_string()
     }
 
+    /// Like [`closed`](Self::closed), but also says whether the end was *deliberate*: the peer or
+    /// this side closed it on purpose (a goodbye, a revocation, an unpaired key), as opposed to
+    /// the link dying (timeout, reset, transport error). Only the latter is worth reconnecting
+    /// after.
+    pub async fn closed_detail(&self) -> (String, bool) {
+        use iroh::endpoint::ConnectionError;
+        let e = self.conn.closed().await;
+        let deliberate = match &e {
+            ConnectionError::ApplicationClosed(c) => {
+                let code = u64::from(c.error_code);
+                // Our own deliberate codes: normal goodbye, unpaired, revoked, lockdown.
+                code == u64::from(CLOSE_NORMAL) || (0x4E00..0x4F00).contains(&code)
+            }
+            ConnectionError::LocallyClosed => true,
+            _ => false,
+        };
+        (e.to_string(), deliberate)
+    }
+
     /// True once the connection has ended.
     #[must_use]
     pub fn is_closed(&self) -> bool {

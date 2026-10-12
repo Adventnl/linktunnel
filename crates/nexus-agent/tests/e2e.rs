@@ -89,6 +89,7 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         // has its own tests.
         default_consent: nexus_core::config::ConsentMode::Unattended,
         consent_timeout: Duration::from_secs(30),
+        resume_window: Duration::from_secs(120),
         presence_sensor: None,
         presence_interval: Duration::from_millis(200),
         lan_discovery: false,

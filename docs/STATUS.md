@@ -16,7 +16,7 @@ for X11, Chromium, no Docker daemon) with the Windows and macOS targets installe
 Windows code written after Phase 2 has ever been executed**, and no second physical machine or real NAT was available
 at any point. A ✅ row names its evidence and runs on Linux unless it says otherwise.
 
-**Totals at the last full run (Linux):** 584 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
+**Totals at the last full run (Linux):** 588 Rust tests pass (`cargo test --workspace`), 5 app-backend tests,
 19 frontend tests; `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check` clean; 13 fuzz
 targets run (see Phase 9). The GitHub Actions workflows are written but **have not been run** (no runner here).
 
@@ -71,6 +71,7 @@ numbers are ⛔ (no WAN).
 | Mac↔PC modifier remap, scroll fidelity, HID keymaps | ✅ (unit) | remap/scroll tests |
 | Power actions + Wake-on-LAN (direct, or relayed through an always-on device) | ✅ | `a_granted_request_is_performed_after_the_reply`, `wake::tests::a_packet_goes_out_on_the_wire` |
 | **Audio streaming (new)**: Opus 48 kHz, FEC + loss concealment, adaptive jitter buffer, mute/bitrate/loss feedback, `audio` grant | ✅ pipeline & transport / 🟡 devices | 19 `nexus-audio` tests; QUIC e2e `tone_arrives_and_is_audible`; fuzzed. **Device capture/playback (cpal: WASAPI loopback, CoreAudio loopback, PulseAudio/PipeWire monitor) is type-checked on Linux but never ran against real sound hardware** (the container has none); macOS ScreenCaptureKit audio is not used (cpal's CoreAudio loopback needs macOS 14.6+) |
+| **Auto-reconnect and session resume (new)**: the viewer reconnects after a lost link (1 s→8 s back-off, 5 min), the target skips the attended prompt for a device whose approved session *dropped* in the last 2 minutes (never after a deliberate disconnect), audit-logged | ✅ | `a_lost_link_is_retried_and_a_deliberate_end_is_not` (fake agent speaking the real IPC), `a_dropped_link_may_resume_briefly_and_a_deliberate_end_may_not`, and `scripts/demo-resume.sh`: two real agents, attended, the controller agent SIGKILLed mid-terminal, same persistent shell re-attached with **no second prompt** (and a clean stop *does* ask again). QUIC connection *migration* (IP change without a drop) is quinn's and was not separately tested |
 | Privacy screen (blank target display, block local input) | 🔲 | not implemented (LIMITATIONS) |
 | IME / international layouts beyond scancode + Unicode text injection | 🔲 | scancodes and `Text` events only |
 | Pinch-zoom / gesture viewport | 🔲 | |
@@ -146,7 +147,7 @@ with expiring guest links · multi-user teams · smart-plug/IPMI/AMT wake driver
 
 ## How to re-verify everything claimed above
 ```sh
-cargo test --workspace                                   # 584 tests (Linux needs xvfb, libasound2-dev, cmake)
+cargo test --workspace                                   # 588 tests (Linux needs xvfb, libasound2-dev, cmake)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check
 cargo check --target x86_64-pc-windows-msvc -p nexus-capture -p nexus-input -p nexus-desktop -p nexus-winservice

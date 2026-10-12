@@ -323,6 +323,14 @@ impl SessionHandler for RemoteHandler {
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;
         info!(peer = %ctx.peer.name, ?reason, "remote session finished");
+        // A dropped link may come straight back without a new prompt; a goodbye, a refusal or a
+        // local stop may not.
+        if !matches!(reason, target::EndReason::ConnectionLost(_)) {
+            ctx.shared
+                .limits
+                .lock()
+                .ended_on_purpose(&ctx.peer.identity.ed25519_bytes());
+        }
     }
 }
 
