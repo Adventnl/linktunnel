@@ -8,6 +8,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Build dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      # ALSA headers for audio capture/playback (cpal); opus itself is vendored and built by cmake.
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev cmake
     - name: Install pinned toolchain
       shell: bash
       run: |

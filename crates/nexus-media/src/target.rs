@@ -25,9 +25,9 @@ use nexus_input::{Guarded, Injector, MonitorRect};
 use nexus_net::{FramedStream, Session, StreamKind};
 use nexus_proto::v1::control_message::Body;
 use nexus_proto::v1::{
-    ControlMessage, CursorShape, Error as ProtoError, ErrorCode, Goodbye, GoodbyeReason,
-    MonitorInfo as ProtoMonitor, MonitorList, Pong, PowerActionKind, PowerResult, StartVideo,
-    VideoCodec, VideoStarted,
+    AudioStarted, ControlMessage, CursorShape, Error as ProtoError, ErrorCode, Goodbye,
+    GoodbyeReason, MonitorInfo as ProtoMonitor, MonitorList, Pong, PowerActionKind, PowerResult,
+    StartVideo, VideoCodec, VideoStarted,
 };
 use nexus_proto::wire::cursor::CursorUpdate;
 use nexus_proto::wire::input::TimedInput;
@@ -50,6 +50,15 @@ const CAPTURE_TICK: Duration = Duration::from_millis(50);
 /// Creates the injector for a session when the controller first sends input.
 pub type InjectorFactory =
     Arc<dyn Fn() -> Result<Box<dyn Injector>, nexus_input::InputError> + Send + Sync>;
+
+/// Opens the capture source for an audio stream with the given shape.
+pub type AudioSourceFactory = Arc<
+    dyn Fn(
+            &nexus_audio::StreamConfig,
+        ) -> Result<Box<dyn nexus_audio::AudioSource>, nexus_audio::AudioError>
+        + Send
+        + Sync,
+>;
 
 /// Everything the target needs to serve a session.
 #[derive(Clone)]
@@ -85,6 +94,8 @@ pub struct TargetConfig {
     /// Send Wake-on-LAN packets from this machine's network on behalf of controllers holding the
     /// `wake` grant (a device that is always on can wake the ones that sleep).
     pub wake_relay: bool,
+    /// Where system audio comes from for controllers holding the `audio` grant; `None` refuses.
+    pub audio: Option<AudioSourceFactory>,
 }
 
 /// Who is doing things on this machine, and where to write it down.
@@ -332,6 +343,7 @@ pub async fn serve(
     )));
 
     let mut cursor_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut audio: Option<nexus_audio::StreamHandle> = None;
     let mut closed = Box::pin(session.closed());
 
     let reason = loop {
@@ -395,6 +407,33 @@ pub async fn serve(
                                 QUALITY_AUTO => p.flags.pin_scale.store(0, Ordering::SeqCst),
                                 sc => p.flags.pin_scale.store(sc.clamp(25, 100), Ordering::SeqCst),
                             }
+                        }
+                    }
+                    Some(Body::StartAudio(req)) if !config.grants.contains(grants::AUDIO) => {
+                        let _ = out_tx.send(error_reply(msg.id, ErrorCode::PermissionDenied, "audio is not granted"));
+                        debug!(?req, "StartAudio refused: no audio grant");
+                    }
+                    Some(Body::StartAudio(_)) if consent.check().await != Consent::Allowed => {
+                        break EndReason::ConsentRefused(consent.check().await);
+                    }
+                    Some(Body::StartAudio(req)) => {
+                        match start_audio(&config, &session, &req) {
+                            Ok((handle, started)) => {
+                                note(&config.audit, "audio.started", &[("source", &started.source)]);
+                                audio = Some(handle);
+                                let _ = out_tx.send(ControlMessage { in_reply_to: msg.id, body: Some(Body::AudioStarted(started)), ..Default::default() });
+                            }
+                            Err(reply) => { let _ = out_tx.send(error_reply(msg.id, reply.0, &reply.1)); }
+                        }
+                    }
+                    Some(Body::StopAudio(_)) => {
+                        if let Some(mut h) = audio.take() { h.stop(); }
+                    }
+                    Some(Body::SetAudio(set)) => {
+                        if let Some(h) = &audio {
+                            match set.mute { 1 => h.set_muted(true), 2 => h.set_muted(false), _ => {} }
+                            if set.bitrate_bps != 0 { h.set_bitrate(set.bitrate_bps); }
+                            if set.loss_percent <= 100 { h.set_expected_loss(u8::try_from(set.loss_percent).unwrap_or(100)); }
                         }
                     }
                     Some(Body::Power(req)) => {
@@ -1354,6 +1393,68 @@ async fn accept_streams(
             other => debug!(?other, "stream refused (not granted or not supported here)"),
         }
     }
+}
+
+/// Starts the audio pipeline for a `StartAudio` request.
+fn start_audio(
+    config: &TargetConfig,
+    session: &Session,
+    req: &nexus_proto::v1::StartAudio,
+) -> Result<(nexus_audio::StreamHandle, AudioStarted), (ErrorCode, String)> {
+    use nexus_audio::{FrameSize, StreamConfig};
+    let Some(factory) = &config.audio else {
+        return Err((
+            ErrorCode::Unsupported,
+            "this device cannot capture audio".into(),
+        ));
+    };
+    let defaults = StreamConfig::default();
+    let cfg = StreamConfig {
+        channels: if req.channels == 0 {
+            defaults.channels
+        } else {
+            u8::try_from(req.channels).unwrap_or(0)
+        },
+        frame: if req.frame_ms == 0 {
+            defaults.frame
+        } else {
+            FrameSize::from_ms(req.frame_ms).ok_or((
+                ErrorCode::InvalidRequest,
+                format!("unsupported frame length {} ms", req.frame_ms),
+            ))?
+        },
+        bitrate_bps: if req.bitrate_bps == 0 {
+            defaults.bitrate_bps
+        } else {
+            req.bitrate_bps
+        },
+    };
+    cfg.validate()
+        .map_err(|e| (ErrorCode::InvalidRequest, e.to_string()))?;
+    let source = factory(&cfg).map_err(|e| (ErrorCode::Unsupported, e.to_string()))?;
+    let name = source.name().to_owned();
+    let tx = session.clone();
+    let handle = nexus_audio::spawn_stream(
+        source,
+        cfg,
+        Box::new(move |datagram| {
+            // A full datagram queue just drops this packet: audio is real-time, never retried.
+            let _ = tx.send_datagram(datagram);
+            true
+        }),
+    )
+    .map_err(|e| (ErrorCode::Internal, e.to_string()))?;
+    // 2.5 ms is reported as 2, the value `FrameSize::from_ms` accepts for it.
+    let frame_ms = u32::try_from(cfg.frame.micros() / 1000).unwrap_or(10);
+    Ok((
+        handle,
+        AudioStarted {
+            channels: u32::from(cfg.channels),
+            frame_ms,
+            bitrate_bps: cfg.bitrate_bps,
+            source: name,
+        },
+    ))
 }
 
 /// Echoes datagrams back while no video session is running (the diagnostics latency test).

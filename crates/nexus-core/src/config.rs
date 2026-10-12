@@ -63,6 +63,78 @@ pub struct NexusConfig {
     pub portfwd: PortForwardConfig,
     /// Software updates.
     pub update: UpdateConfig,
+    /// Sharing this device's sound.
+    pub audio: AudioConfig,
+    /// The screen of a machine that has none.
+    pub display: DisplayConfig,
+}
+
+/// When to create a virtual screen (headless Linux servers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VirtualScreen {
+    /// Only if the machine has no screen that can be captured.
+    #[default]
+    Auto,
+    /// Always serve a separate virtual screen, even on a machine with a monitor (a private
+    /// desktop for the remote user that does not disturb the one on the monitor).
+    Always,
+    /// Never; a machine with no screen offers terminal, files and ports only.
+    Never,
+}
+
+/// The virtual screen that makes a monitor-less Linux server remotely usable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DisplayConfig {
+    /// When to create it.
+    #[serde(rename = "virtual")]
+    pub virtual_screen: VirtualScreen,
+    /// Size, `WIDTHxHEIGHT`.
+    pub size: String,
+    /// Dots per inch reported to applications.
+    pub dpi: u32,
+    /// Program (and arguments) to run on it and keep running, e.g. `["openbox-session"]` or
+    /// `["startxfce4"]`. Empty = a bare screen.
+    pub session: Vec<String>,
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        Self {
+            virtual_screen: VirtualScreen::Auto,
+            size: "1920x1080".into(),
+            dpi: 96,
+            session: Vec::new(),
+        }
+    }
+}
+
+/// Streaming what this device is playing to controllers that hold the `audio` grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct AudioConfig {
+    /// Offer audio at all.
+    pub enabled: bool,
+    /// Capture device (a substring of its name); empty = the system's default output, captured
+    /// as loopback.
+    pub device: Option<String>,
+    /// Capture a recording device (a microphone) instead of the system output. Off by default:
+    /// hearing the room is a much bigger permission than hearing the machine.
+    pub microphone: bool,
+    /// Opus bitrate in kbit/s (6..=510).
+    pub bitrate_kbps: u32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            device: None,
+            microphone: false,
+            bitrate_kbps: 96,
+        }
+    }
 }
 
 /// Where updates come from and whom to trust. With no publisher key configured, updates are
@@ -317,6 +389,9 @@ pub struct SecurityConfig {
     pub consent: ConsentMode,
     /// Seconds an attended prompt waits before the request is denied.
     pub consent_timeout_secs: u32,
+    /// After an approved session loses its link (not a deliberate disconnect), the same device
+    /// may reconnect without a new prompt for this many seconds. 0 turns resuming off.
+    pub resume_window_secs: u32,
     /// Require a second factor (TOTP / passkey) for unattended access.
     pub unattended_requires_stepup: bool,
     /// Master kill switch: when true every remote access request is refused.
@@ -328,6 +403,7 @@ impl Default for SecurityConfig {
         Self {
             consent: ConsentMode::Attended,
             consent_timeout_secs: 30,
+            resume_window_secs: 120,
             unattended_requires_stepup: true,
             lockdown: false,
         }
@@ -365,10 +441,36 @@ impl NexusConfig {
                 });
             }
         }
+        if self.security.resume_window_secs > 3600 {
+            return Err(ConfigError::Invalid {
+                key: "security.resume_window_secs",
+                reason: "must be at most 3600".into(),
+            });
+        }
         if self.security.consent_timeout_secs == 0 || self.security.consent_timeout_secs > 600 {
             return Err(ConfigError::Invalid {
                 key: "security.consent_timeout_secs",
                 reason: "must be between 1 and 600".into(),
+            });
+        }
+        let size_ok = self
+            .display
+            .size
+            .split_once(['x', 'X'])
+            .is_some_and(|(w, h)| {
+                matches!((w.trim().parse::<u32>(), h.trim().parse::<u32>()),
+                (Ok(w), Ok(h)) if (320..=7680).contains(&w) && (240..=4320).contains(&h))
+            });
+        if !size_ok {
+            return Err(ConfigError::Invalid {
+                key: "display.size",
+                reason: "must be WIDTHxHEIGHT between 320x240 and 7680x4320".into(),
+            });
+        }
+        if !(6..=510).contains(&self.audio.bitrate_kbps) {
+            return Err(ConfigError::Invalid {
+                key: "audio.bitrate_kbps",
+                reason: "must be between 6 and 510".into(),
             });
         }
         if self.terminal.max_sessions == 0 || self.terminal.detached_ttl_hours == 0 {
@@ -441,7 +543,10 @@ impl ConfigLoader {
     /// Merges `NEXUS_*` environment variables (`__` separates nesting levels).
     #[must_use]
     pub fn with_env(mut self) -> Self {
-        self.figment = self.figment.merge(Env::prefixed(ENV_PREFIX).split("__"));
+        // `NEXUS_HOME` relocates the state directory (see `paths`); it is not a setting.
+        self.figment = self
+            .figment
+            .merge(Env::prefixed(ENV_PREFIX).ignore(&["home"]).split("__"));
         self
     }
 
@@ -506,6 +611,20 @@ mod tests {
                 .map_err(|e| e.to_string())?;
             assert_eq!(cfg.net.udp_port, 2222);
             assert!(cfg.security.lockdown);
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // figment's `Jail` API dictates this closure signature
+    fn nexus_home_relocates_state_and_is_not_a_setting() {
+        Jail::expect_with(|jail| {
+            jail.set_env("NEXUS_HOME", "/somewhere/else");
+            let cfg = ConfigLoader::new()
+                .with_env()
+                .load()
+                .map_err(|e| e.to_string())?;
+            assert_eq!(cfg, NexusConfig::default());
             Ok(())
         });
     }

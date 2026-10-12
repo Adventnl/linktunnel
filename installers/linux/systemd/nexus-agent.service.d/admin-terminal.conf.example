@@ -1,0 +1,14 @@
+# WARNING: with this drop-in, anyone holding the `terminal` grant from a paired device gets a
+# root shell on this machine. Install it only if that is exactly what you want:
+#   sudo cp admin-terminal.conf.example /etc/systemd/system/nexus-agent.service.d/admin-terminal.conf
+#   sudo systemctl daemon-reload && sudo systemctl restart nexus-agent
+# Pair with a unique passkey/step-up policy and keep `nexus trust unattended` OFF for such devices
+# so a person at the machine approves each terminal session.
+[Service]
+User=root
+Group=root
+ProtectSystem=no
+ProtectHome=no
+PrivateTmp=no
+CapabilityBoundingSet=
+NoNewPrivileges=no

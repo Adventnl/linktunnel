@@ -35,6 +35,7 @@ objc2-foundation = "0.3"
 objc2-screen-capture-kit = "0.3"
 
 [target.'cfg(windows)'.dependencies]
+nexus-desktop.workspace = true
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",

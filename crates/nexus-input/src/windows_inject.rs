@@ -6,8 +6,11 @@
 //!   decides what character appears: exactly like typing at the PC.
 //! * Absolute pointer positions use `MOUSEEVENTF_VIRTUALDESK`, which addresses the whole
 //!   multi-monitor desktop in a normalised 0..65535 space.
-//! * `SendInput` acts on the *calling thread's desktop*. To reach the UAC prompt and the lock
-//!   screen the SYSTEM session helper attaches its thread to `Winsta0\Winlogon` first (Phase 6).
+//! * `SendInput` acts on the *calling thread's desktop*. Before each event the injector re-attaches
+//!   its thread to the current input desktop (`nexus-desktop`), so when the UAC prompt or the lock
+//!   screen appears the next keystroke lands there. That only works for a SYSTEM process in the
+//!   session (see `nexus-winservice`); for an ordinary user the attach is refused and input keeps
+//!   going to the user's own desktop.
 //! * Windows does not auto-repeat synthetic held keys, so `Repeat` becomes another key-down.
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -38,6 +41,8 @@ const WHEEL_PER_PIXEL: i32 = 3;
 #[derive(Debug, Default)]
 pub struct WindowsInjector {
     monitors: Vec<MonitorRect>,
+    desktop: nexus_desktop::ThreadDesktop,
+    last_sync: Option<std::time::Instant>,
 }
 
 impl WindowsInjector {
@@ -45,6 +50,18 @@ impl WindowsInjector {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Follows the input desktop (cheap; at most ten checks a second).
+    fn follow_desktop(&mut self) {
+        let due = self
+            .last_sync
+            .is_none_or(|t| t.elapsed() >= std::time::Duration::from_millis(100));
+        if due {
+            self.last_sync = Some(std::time::Instant::now());
+            // Refused for a non-SYSTEM process facing the secure desktop: keep what we have.
+            let _ = self.desktop.sync();
+        }
     }
 }
 
@@ -118,6 +135,7 @@ impl Injector for WindowsInjector {
     }
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), InputError> {
+        self.follow_desktop();
         match event {
             InputEvent::MouseMoveAbs { monitor, x, y } => {
                 let m = self

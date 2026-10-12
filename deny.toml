@@ -20,6 +20,10 @@ ignore = [
     # in any binary we ship); it enters via iroh -> netwatch -> netlink-packet-core (Linux).
     # Informational advisory, no vulnerability. Re-check when iroh/netwatch update (review 2027-01).
     { id = "RUSTSEC-2024-0436", reason = "compile-time proc-macro only; transitive via iroh netwatch" },
+    # `ttf-parser` (unmaintained notice, no vulnerability) is used by winit's Wayland client-side
+    # window decorations (sctk-adwaita -> ab_glyph) to draw the title bar text from the system's
+    # own font, never from network data. Re-check when winit moves to skrifa (review 2027-01).
+    { id = "RUSTSEC-2026-0192", reason = "title-bar font parsing in winit's Wayland decorations; local fonts only" },
 ]
 
 [licenses]

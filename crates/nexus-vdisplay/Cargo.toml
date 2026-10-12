@@ -1,0 +1,19 @@
+[package]
+name = "nexus-vdisplay"
+description = "Virtual display for headless Linux machines: a private X server (Xvfb) plus a supervised session command."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+nexus-capture.workspace = true
+nexus-input.workspace = true
+nexus-testkit.workspace = true

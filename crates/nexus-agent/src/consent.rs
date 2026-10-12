@@ -13,6 +13,26 @@ use tracing::{info, warn};
 use crate::error::AgentError;
 use crate::state::Shared;
 
+/// Something that can ask the person at this machine without going through an IPC client: a
+/// message box on the console session, a desktop notification, ...
+pub trait ConsentPrompter: Send + Sync {
+    /// Asks whether `peer_name` (with this key `fingerprint` and these `grants`) may use the
+    /// machine. `Some(true)` = yes, `Some(false)` = no, `None` = no answer in time.
+    fn ask(
+        &self,
+        peer_name: String,
+        fingerprint: String,
+        grants: Vec<String>,
+        timeout: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + Send>>;
+}
+
+impl std::fmt::Debug for dyn ConsentPrompter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConsentPrompter")
+    }
+}
+
 /// A prompt waiting for an answer.
 #[derive(Debug)]
 pub(crate) struct Pending {
@@ -28,6 +48,20 @@ pub(crate) fn gate(
 ) -> Option<ConsentGate> {
     let key = peer.identity.ed25519_bytes();
     if shared.policy.lock().is_unattended(&key) {
+        return None;
+    }
+    // A link that dropped moments after a person approved this device may come straight back.
+    if shared
+        .limits
+        .lock()
+        .may_resume(&key, std::time::Instant::now(), shared.cfg.resume_window)
+    {
+        info!(peer = %peer.name, "resuming an approved session without asking again");
+        shared.audit.record(
+            "consent.resumed",
+            Some(&peer.identity.device_id().to_string()),
+            &[("name", &peer.name)],
+        );
         return None;
     }
     let (shared, peer) = (Arc::clone(shared), peer.clone());
@@ -60,7 +94,8 @@ pub(crate) async fn request(
     // Nobody to ask means nobody can say yes: refuse straight away instead of making the
     // controller wait out the timeout. (A headless machine is made unattended on purpose with
     // `nexus trust unattended`.)
-    if shared.events.receiver_count() == 0 {
+    let prompter = shared.cfg.consent_prompter.clone();
+    if shared.events.receiver_count() == 0 && prompter.is_none() {
         warn!(peer = %peer.name, "nobody is connected to approve this request; refusing (see `nexus consent`)");
         return Consent::Denied;
     }
@@ -89,7 +124,23 @@ pub(crate) async fn request(
         .audit
         .record("consent.requested", Some(&actor), &[("name", &peer.name)]);
     let mut shutdown = shared.shutdown.subscribe();
+    // The direct prompter races the IPC clients; the first answer wins.
+    let direct = async {
+        match &prompter {
+            Some(p) => {
+                p.ask(
+                    peer.name.clone(),
+                    peer.identity.fingerprint().to_string(),
+                    peer.grants_from_peer.iter().cloned().collect(),
+                    timeout,
+                )
+                .await
+            }
+            None => std::future::pending().await,
+        }
+    };
     let outcome = tokio::select! {
+        said = direct => if said == Some(true) { Consent::Allowed } else { Consent::Denied },
         answer = rx => match answer {
             Ok(d) if d.allow => {
                 if d.remember {
@@ -110,7 +161,7 @@ pub(crate) async fn request(
     {
         let mut limits = shared.limits.lock();
         if outcome == Consent::Allowed {
-            limits.approved(&key);
+            limits.approved(&key, std::time::Instant::now());
         } else if limits.refused(key, std::time::Instant::now()) {
             warn!(peer = %peer.name, "locking this device out of approval prompts for a while");
             shared.audit.record(

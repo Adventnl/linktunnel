@@ -195,6 +195,17 @@ async fn dispatch(
             viewer_bridge::switch_monitor(shared, ctx, &m)?;
             Ok(ack)
         }
+        Req::ListSessions(_) => Ok(Resp::SessionList(nexus_proto::v1::SessionList {
+            sessions: shared.active_views(),
+        })),
+        Req::DisconnectSessions(d) => {
+            sessions::disconnect(shared, &d.device_id);
+            Ok(ack)
+        }
+        Req::SessionAudio(a) => {
+            viewer_bridge::audio(shared, ctx, &a)?;
+            Ok(ack)
+        }
         Req::SessionQuality(q) => {
             viewer_bridge::quality(shared, ctx, &q)?;
             Ok(ack)

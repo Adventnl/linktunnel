@@ -17,14 +17,18 @@ pub const TERMINAL: &str = "terminal";
 pub const POWER: &str = "power";
 /// Wake-on-LAN requests.
 pub const WAKE: &str = "wake";
+/// Hear what the machine is playing.
+pub const AUDIO: &str = "audio";
 
 /// Everything: the default between two devices owned by the same person.
 #[must_use]
 pub fn all() -> Vec<String> {
-    [SCREEN, INPUT, CLIPBOARD, FILES, TERMINAL, POWER, WAKE]
-        .iter()
-        .map(ToString::to_string)
-        .collect()
+    [
+        SCREEN, INPUT, CLIPBOARD, FILES, TERMINAL, POWER, WAKE, AUDIO,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect()
 }
 
 /// A grant string is short lowercase ASCII (`screen`, `files.read`, …).

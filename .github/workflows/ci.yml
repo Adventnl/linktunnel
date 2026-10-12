@@ -98,6 +98,9 @@ jobs:
       - run: >-
           cargo clippy --locked --target ${{ matrix.target }} --all-targets
           -p nexus-capture -p nexus-input -p nexus-codec --no-default-features -- -D warnings
+      - run: >-
+          cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets
+          -p nexus-desktop -p nexus-winservice -- -D warnings
 
   bench-gate:
     # Fails the PR if a gated p95 latency regressed by more than 10 % against the base branch,
@@ -112,6 +115,42 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: ./scripts/bench-gate.sh origin/${{ github.base_ref }}
+
+  server-demo:
+    # Phase 7 end to end on a real (virtual) headless server: GUI session, terminal, port
+    # forward, SSH-style proxy and file transfer through one encrypted session.
+    name: headless server demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: sudo apt-get update && sudo apt-get install -y xvfb python3
+      - run: ./scripts/demo-server.sh
+      - run: ./scripts/demo-resume.sh
+
+  app:
+    # The Tauri desktop app: frontend type-check + tests + build, and the Rust backend.
+    name: desktop app (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/nexus-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/nexus-app/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+        working-directory: .
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
 
   traceability:
     name: threat-model traceability

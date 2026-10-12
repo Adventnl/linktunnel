@@ -53,6 +53,7 @@ async fn rig(
         consent: gate,
         power: power.map(|p| Arc::new(p) as Arc<dyn nexus_power::PowerBackend>),
         wake_relay,
+        audio: None,
         terminal: None,
         portfwd: None,
         audit: None,

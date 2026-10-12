@@ -21,3 +21,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 winit = "0.30"
+
+[dev-dependencies]
+tempfile.workspace = true

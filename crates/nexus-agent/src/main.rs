@@ -40,6 +40,24 @@ struct Args {
     /// Do not offer this machine's screen or accept remote input (diagnostics only).
     #[arg(long)]
     no_screen: bool,
+    /// Run as a Wake-on-LAN helper: an always-on LAN machine (a Raspberry Pi, the home server)
+    /// that sends magic packets for paired devices holding the `wake` grant, and offers nothing
+    /// else (no screen, terminal, files, clipboard, audio, power or port forwarding).
+    #[arg(long)]
+    wake_helper: bool,
+    /// Windows only: run as the Windows service. The service starts a second copy of this agent
+    /// as SYSTEM inside the active console session, which is what lets it capture and control the
+    /// UAC prompt and the lock screen. Installed by the MSI; not for interactive use.
+    #[arg(long)]
+    windows_service: bool,
+    /// Keep remote terminals in the SYSTEM service (they then run as SYSTEM: administrator-grade
+    /// access for anyone holding the `terminal` grant).
+    #[arg(long)]
+    allow_system_terminal: bool,
+    /// Do not offer remote terminals (set for the SYSTEM service: a shell there would be a
+    /// SYSTEM shell).
+    #[arg(long)]
+    no_terminal: bool,
     /// Share this folder read-only with paired devices that hold the `files` grant (repeatable).
     #[arg(long = "share", value_name = "DIR")]
     share: Vec<PathBuf>,
@@ -56,7 +74,28 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if args.wake_helper {
+        args.no_screen = true;
+        args.share.clear();
+        args.share_rw.clear();
+    }
+    if args.windows_service {
+        // The service runs a SYSTEM copy of this program in the console session; that copy gets
+        // the same arguments plus `--system`, and no terminal unless the operator opted in.
+        let mut child: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| a != "--windows-service")
+            .collect();
+        child.push("--system".into());
+        if !child.iter().any(|a| a == "--allow-system-terminal") {
+            child.push("--no-terminal".into());
+        }
+        return tokio::task::spawn_blocking(move || nexus_winservice::run(child))
+            .await
+            .context("the service thread panicked")?
+            .map_err(Into::into);
+    }
     let paths = match (&args.home, args.system) {
         (Some(home), _) => Paths::under(home),
         (None, true) => Paths::resolve(Scope::System)?,
@@ -80,6 +119,19 @@ async fn main() -> Result<()> {
     if let Some(level) = args.log {
         nexus.log.level = level;
     }
+    if args.no_terminal {
+        nexus.terminal.enabled = false;
+    }
+    if args.wake_helper {
+        nexus.power.wake_relay = true;
+        nexus.power.accept_requests = false;
+        nexus.terminal.enabled = false;
+        nexus.portfwd.enabled = false;
+        nexus.audio.enabled = false;
+        nexus.clipboard.send = false;
+        nexus.clipboard.receive = false;
+        nexus.files.shared.clear();
+    }
     nexus.validate().context("validating configuration")?;
     let _telemetry = nexus_core::telemetry::init_tracing(&LogConfig {
         ..nexus.log.clone()
@@ -97,7 +149,15 @@ async fn main() -> Result<()> {
     tracing::info!(?how, store = %store.describe(), device = %identity.device_id(), "identity ready");
 
     let name = args.name.unwrap_or_else(nexus_agent::sysinfo::hostname);
-    let config = AgentConfig::from_nexus_config(&nexus, paths, name)?;
+    #[allow(unused_mut)]
+    let mut config = AgentConfig::from_nexus_config(&nexus, paths, name)?;
+    // A SYSTEM agent in a user's session asks the person with a message box on their desktop.
+    #[cfg(windows)]
+    if args.system {
+        config.consent_prompter = Some(Arc::new(nexus_agent::WtsPrompter::new(
+            nexus_core::i18n::Locale::detect(),
+        )));
+    }
     let mut shared: Vec<SharedRoot> = nexus
         .files
         .shared
@@ -135,13 +195,13 @@ async fn main() -> Result<()> {
         }
     });
     let handler: Arc<dyn SessionHandler> =
-        if args.no_screen && roots.is_empty() && clipboard.is_none() {
+        if args.no_screen && roots.is_empty() && clipboard.is_none() && !nexus.power.wake_relay {
             Arc::new(DiagnosticsHandler)
         } else {
             let base = if args.no_screen {
                 RemoteHandler::new(None, None, args.max_fps)
             } else {
-                RemoteHandler::detect(args.max_fps)
+                RemoteHandler::detect_with_display(args.max_fps, &nexus.display)
             };
             let base = base
                 .with_files(roots, max_upload)
@@ -176,6 +236,10 @@ async fn main() -> Result<()> {
             } else {
                 base
             };
+            let base = match audio_source(&nexus.audio) {
+                Some(factory) => base.with_audio(factory),
+                None => base,
+            };
             let base = if nexus.power.accept_requests {
                 base.with_power(Arc::new(nexus_power::SystemPower))
             } else {
@@ -195,4 +259,37 @@ async fn main() -> Result<()> {
     }
     agent.shutdown().await;
     Ok(())
+}
+
+/// The capture source for sound sharing, if this build and configuration offer it.
+#[cfg(feature = "audio-device")]
+fn audio_source(
+    cfg: &nexus_core::config::AudioConfig,
+) -> Option<nexus_media::target::AudioSourceFactory> {
+    if !cfg.enabled {
+        return None;
+    }
+    let (device, loopback) = (cfg.device.clone(), !cfg.microphone);
+    let bitrate = cfg.bitrate_kbps.saturating_mul(1000);
+    Some(Arc::new(move |requested: &nexus_audio::StreamConfig| {
+        let shaped = nexus_audio::StreamConfig {
+            bitrate_bps: if requested.bitrate_bps
+                == nexus_audio::StreamConfig::default().bitrate_bps
+            {
+                bitrate
+            } else {
+                requested.bitrate_bps
+            },
+            ..*requested
+        };
+        nexus_audio::device::DeviceSource::open(&shaped, device.as_deref(), loopback)
+            .map(|s| Box::new(s) as Box<dyn nexus_audio::AudioSource>)
+    }))
+}
+
+#[cfg(not(feature = "audio-device"))]
+fn audio_source(
+    _: &nexus_core::config::AudioConfig,
+) -> Option<nexus_media::target::AudioSourceFactory> {
+    None
 }

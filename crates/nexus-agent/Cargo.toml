@@ -13,8 +13,18 @@ workspace = true
 name = "nexus-agent"
 path = "src/main.rs"
 
+[features]
+default = ["audio-device"]
+# Real sound devices (needs ALSA headers on Linux). Without it the agent neither shares nor
+# plays sound but everything else works.
+audio-device = ["nexus-audio/device"]
+
 [dependencies]
 anyhow.workspace = true
+nexus-audio.workspace = true
+nexus-winservice.workspace = true
+nexus-discovery.workspace = true
+nexus-vdisplay.workspace = true
 async-trait.workspace = true
 blake3.workspace = true
 bytes.workspace = true

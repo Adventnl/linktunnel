@@ -295,6 +295,15 @@ impl ApplicationHandler<UiEvent> for App {
                 self.title_stats = s;
                 self.update_title();
             }
+            UiEvent::Reconnecting {
+                attempt,
+                reason,
+                in_secs,
+            } => {
+                self.title_stats =
+                    format!("reconnecting (attempt {attempt}, next in {in_secs}s): {reason}");
+                self.update_title();
+            }
             UiEvent::Ended(reason) => {
                 self.exit_reason = Some(reason);
                 event_loop.exit();

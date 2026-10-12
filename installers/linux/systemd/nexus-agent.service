@@ -1,0 +1,60 @@
+# Nexus Remote agent for a headless Linux server (system service).
+#
+# Runs as the unprivileged `nexus` user with a hardened sandbox. That is deliberately the most
+# restrictive profile: files are limited to the shared folders you configure and terminals run as
+# `nexus`. To administer the machine from a terminal, use the drop-in in
+# nexus-agent.service.d/admin-terminal.conf.example (and read its warning first).
+[Unit]
+Description=Nexus Remote agent
+Documentation=https://github.com/adventnl/linktunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+ExecStart=/usr/bin/nexus-agent --system --file-store
+Restart=on-failure
+RestartSec=3
+# Directories under /var/lib/nexus, /etc/nexus, /run/nexus, /var/log/nexus, owned by `nexus`.
+StateDirectory=nexus
+StateDirectoryMode=0700
+ConfigurationDirectory=nexus
+ConfigurationDirectoryMode=0750
+RuntimeDirectory=nexus
+RuntimeDirectoryMode=0750
+LogsDirectory=nexus
+Environment=RUST_LOG=info
+
+# --- hardening -------------------------------------------------------------------------------
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Pseudo-terminals are needed for the terminal feature; no other device nodes are.
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=/dev/ptmx rw
+DeviceAllow=/dev/pts/* rw
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/urandom r
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

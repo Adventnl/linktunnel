@@ -5,10 +5,13 @@
 //!
 //! * `AcquireNextFrame` blocks until the desktop actually changes, so an idle desktop costs
 //!   nothing; per-frame dirty rectangles are forwarded.
-//! * The duplication is bound to the desktop the thread is attached to. When the desktop
-//!   switches (UAC prompt, lock screen) the duplication is lost (`DXGI_ERROR_ACCESS_LOST`); the
-//!   capturer re-creates it. Capturing the *secure* desktop needs the SYSTEM session helper
-//!   (Phase 6), which attaches its thread to `Winsta0\Winlogon` before capturing.
+//! * The duplication is bound to the desktop the thread is attached to. Every few hundred
+//!   milliseconds (and whenever DXGI reports `DXGI_ERROR_ACCESS_LOST`) the capture thread
+//!   re-attaches itself to the current input desktop (`nexus-desktop`) and rebuilds the
+//!   duplication if the desktop changed, so the picture follows the UAC prompt and the lock
+//!   screen. Capturing the *secure* desktop needs a SYSTEM process in the session
+//!   (`nexus-winservice`); for a normal user token the attach is refused and capture carries on
+//!   with the user's own desktop (which goes black while UAC is up: a Windows rule).
 //! * Cursor: position, visibility and shape come from `GetCursorInfo` / `GetIconInfo`
 //!   (the duplication's own pointer data is ignored; the cursor is never part of the picture
 //!   because Desktop Duplication does not composite it).
@@ -157,6 +160,9 @@ struct DxgiCapturer {
     dup: IDXGIOutputDuplication,
     staging: ID3D11Texture2D,
     first: bool,
+    /// Attached lazily on the capture thread (the thread that calls `next_frame`).
+    desktop: nexus_desktop::ThreadDesktop,
+    last_desktop_check: Option<std::time::Instant>,
 }
 
 // SAFETY: the D3D11/DXGI objects are used from the single capture thread that owns this value;
@@ -239,14 +245,39 @@ impl DxgiCapturer {
             dup,
             staging,
             first: true,
+            desktop: nexus_desktop::ThreadDesktop::new(),
+            last_desktop_check: None,
         })
     }
 
     fn recreate(&mut self) -> Result<(), CaptureError> {
-        // The old duplication is dead after a desktop switch; build a fresh one.
+        // The old duplication is dead after a desktop switch; build a fresh one on the desktop
+        // this thread is now attached to.
+        let _ = self.desktop.sync();
         self.dup = duplicate(&self.output, &self.device)?;
         let _ = &self.adapter;
         Ok(())
+    }
+
+    /// Re-attaches to the input desktop when it changed (at most five checks a second) and
+    /// rebuilds the duplication. Returns true if the duplication was rebuilt.
+    fn follow_desktop(&mut self) -> Result<bool, CaptureError> {
+        let due = self
+            .last_desktop_check
+            .is_none_or(|t| t.elapsed() >= Duration::from_millis(200));
+        if !due {
+            return Ok(false);
+        }
+        self.last_desktop_check = Some(std::time::Instant::now());
+        // Refused for a non-SYSTEM process facing the secure desktop: keep what we have.
+        match self.desktop.sync() {
+            Ok(Some(_)) => {
+                self.dup = duplicate(&self.output, &self.device)?;
+                self.first = true;
+                Ok(true)
+            }
+            Ok(None) | Err(_) => Ok(false),
+        }
     }
 
     fn dirty_rects(&self) -> Vec<Rect> {
@@ -300,6 +331,10 @@ impl Capturer for DxgiCapturer {
         let timeout_ms = u32::try_from(timeout.as_millis())
             .unwrap_or(u32::MAX)
             .max(1);
+        // A new desktop means a new picture; `first` makes the next frame a full one.
+        if self.follow_desktop()? {
+            return Ok(None);
+        }
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource: Option<IDXGIResource> = None;
         // SAFETY: valid out-pointers; the duplication is live.

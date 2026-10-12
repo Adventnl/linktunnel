@@ -1,0 +1,42 @@
+[package]
+name = "nexus-app"
+version = "0.1.0"
+description = "Nexus Remote desktop app: live device dashboard, terminal, pairing and consent prompts."
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# Standalone workspace: the app pulls the webview toolchain and must not weigh on the agent,
+# CLI and server builds (or their CI). It talks to the local agent over IPC like the CLI does.
+[workspace]
+
+[features]
+# Embed ../dist in the binary (set by `tauri build`; `tauri dev` uses the dev server instead).
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+[lib]
+name = "nexus_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+nexus-core = { path = "../../../crates/nexus-core" }
+nexus-ipc = { path = "../../../crates/nexus-ipc" }
+nexus-proto = { path = "../../../crates/nexus-proto" }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process"] }
+tracing = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

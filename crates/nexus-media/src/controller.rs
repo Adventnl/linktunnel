@@ -6,8 +6,8 @@
 //! behind video. Input goes the other way through [`ControllerSession::send_input`].
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -17,9 +17,9 @@ use nexus_net::{FramedStream, Session, StreamKind};
 use nexus_proto::serial::newer_u32;
 use nexus_proto::v1::control_message::Body;
 use nexus_proto::v1::{
-    ControlMessage, CursorShape, Goodbye, GoodbyeReason, MonitorInfo, Ping, PowerActionKind,
-    PowerRequest, ReceiverReport, RequestKeyframe, SetQuality, StartVideo, StopVideo, VideoCodec,
-    VideoStarted, WakeRequest,
+    AudioStarted, ControlMessage, CursorShape, Goodbye, GoodbyeReason, MonitorInfo, Ping,
+    PowerActionKind, PowerRequest, ReceiverReport, RequestKeyframe, SetAudio, SetQuality,
+    StartAudio, StartVideo, StopAudio, StopVideo, VideoCodec, VideoStarted, WakeRequest,
 };
 use nexus_proto::wire::cursor::CursorUpdate;
 use nexus_proto::wire::input::{InputEvent, InputPacket, MAX_EVENTS, TimedInput};
@@ -165,6 +165,9 @@ pub struct ControllerStats {
     pub cursor_updates: AtomicU32,
     /// The bitrate the receiver last asked the sender for (0 until adaptation starts).
     pub target_bitrate_bps: AtomicU32,
+    /// Set when the session ended because the link died rather than on purpose (a viewer may
+    /// reconnect); read after [`MediaEvent::Closed`].
+    pub ended_by_loss: std::sync::atomic::AtomicBool,
 }
 
 impl ControllerStats {
@@ -213,7 +216,12 @@ pub struct ControllerSession {
     video: Option<StartVideo>,
     key_remap: Arc<nexus_input::remap::KeyRemap>,
     next_request: Arc<AtomicU64>,
+    /// Where received audio datagrams go; set by [`start_audio`](Self::start_audio).
+    audio: AudioSlot,
 }
+
+/// The player that audio datagrams are pushed into (empty until audio is started).
+type AudioSlot = Arc<Mutex<Option<Arc<Mutex<nexus_audio::Player>>>>>;
 
 impl ControllerSession {
     /// Starts the session machinery on an established session and (if `want_video`) asks the
@@ -277,10 +285,12 @@ impl ControllerSession {
             Arc::clone(&monitor),
             options.reorder_wait,
         ));
+        let audio: AudioSlot = Arc::default();
         tokio::spawn(cursor_receiver(
             session.clone(),
             cursor_tx,
             Arc::clone(&stats),
+            Arc::clone(&audio),
         ));
         tokio::spawn(input_task(session.clone(), input_rx));
         if let Some(setup) = options.clipboard.clone() {
@@ -298,6 +308,7 @@ impl ControllerSession {
                 video,
                 key_remap: Arc::new(options.key_remap),
                 next_request: Arc::new(AtomicU64::new(1000)),
+                audio,
             },
             Streams {
                 events: events_rx,
@@ -479,6 +490,60 @@ impl ControllerSession {
         }
     }
 
+    /// Asks the target to stream its audio (needs the `audio` grant) and returns the player the
+    /// received packets are fed into. Attach it to an output device (for example
+    /// `nexus_audio::device::DevicePlayback`) or pull samples from it with `fill`.
+    pub async fn start_audio(
+        &self,
+        request: StartAudio,
+    ) -> Result<(Arc<Mutex<nexus_audio::Player>>, AudioStarted), MediaError> {
+        let reply = self
+            .request(Body::StartAudio(request), Duration::from_secs(120))
+            .await?;
+        let started = match reply.body {
+            Some(Body::AudioStarted(s)) => s,
+            Some(Body::Error(e)) => return Err(MediaError::Denied(e.message)),
+            _ => {
+                return Err(MediaError::Protocol(
+                    "unexpected reply to an audio request".into(),
+                ));
+            }
+        };
+        let cfg = nexus_audio::StreamConfig {
+            channels: u8::try_from(started.channels).unwrap_or(0),
+            frame: nexus_audio::FrameSize::from_ms(started.frame_ms).ok_or_else(|| {
+                MediaError::Protocol("the target chose an unknown audio frame size".into())
+            })?,
+            bitrate_bps: started.bitrate_bps,
+        };
+        let player = nexus_audio::Player::new(cfg)
+            .map_err(|e| MediaError::Protocol(format!("cannot play the audio stream: {e}")))?;
+        let player = Arc::new(Mutex::new(player));
+        if let Ok(mut slot) = self.audio.lock() {
+            *slot = Some(Arc::clone(&player));
+        }
+        Ok((player, started))
+    }
+
+    /// Stops the audio stream (the session continues).
+    pub fn stop_audio(&self) {
+        if let Ok(mut slot) = self.audio.lock() {
+            *slot = None;
+        }
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::StopAudio(StopAudio {})),
+            ..Default::default()
+        }));
+    }
+
+    /// Mutes or unmutes at the source, or reports loss so the target adds redundancy.
+    pub fn set_audio(&self, set: SetAudio) {
+        let _ = self.commands.send(Command::Control(ControlMessage {
+            body: Some(Body::SetAudio(set)),
+            ..Default::default()
+        }));
+    }
+
     /// Stops video without ending the session.
     pub fn stop_video(&self) {
         let _ = self.commands.send(Command::Control(ControlMessage {
@@ -523,7 +588,9 @@ async fn control_task(
     let mut report = tokio::time::interval(REPORT_INTERVAL);
     let mut samples: VecDeque<(u64, i64)> = VecDeque::with_capacity(10); // (rtt, offset)
     let mut last_report = ReportState::default();
-    let mut closed = Box::pin(session.closed());
+    let mut closed = Box::pin(session.closed_detail());
+    // Until proven deliberate (goodbye, revocation, our own close), an ending is a lost link.
+    let mut lost = true;
     let mut waiting: HashMap<u64, oneshot::Sender<ControlMessage>> = HashMap::new();
     let reason = loop {
         tokio::select! {
@@ -563,7 +630,10 @@ async fn control_task(
                             let _ = best_rtt;
                         }
                     }
-                    Some(Body::Goodbye(g)) => break format!("target ended the session: {}", g.detail),
+                    Some(Body::Goodbye(g)) => {
+                        lost = false;
+                        break format!("target ended the session: {}", g.detail);
+                    }
                     _ => {}
                 }
             }
@@ -616,9 +686,13 @@ async fn control_task(
                     if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
                 }
             }
-            reason = &mut closed => break reason,
+            (reason, deliberate) = &mut closed => {
+                lost = !deliberate;
+                break reason;
+            }
         }
     };
+    stats.ended_by_loss.store(lost, Ordering::SeqCst);
     let _ = events.send(MediaEvent::Closed(reason)).await;
 }
 
@@ -826,12 +900,22 @@ async fn cursor_receiver(
     session: Session,
     tx: watch::Sender<Option<CursorUpdate>>,
     stats: Arc<ControllerStats>,
+    audio: AudioSlot,
 ) {
     loop {
         let datagram = match session.recv_datagram().await {
             Ok(d) => d,
             Err(_) => return,
         };
+        if nexus_proto::wire::audio::is_audio(&datagram) {
+            let player = audio.lock().ok().and_then(|slot| slot.clone());
+            if let Some(p) = player
+                && let Ok(mut p) = p.lock()
+            {
+                p.push(&datagram, now_us());
+            }
+            continue;
+        }
         let Ok(update) = CursorUpdate::decode(&datagram) else {
             continue;
         };

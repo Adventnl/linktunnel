@@ -450,6 +450,65 @@ pub async fn lockdown(ctx: &AppContext, cmd: &LockdownCommand) -> Result<ExitCod
     Ok(ExitCode::SUCCESS)
 }
 
+pub async fn sessions(ctx: &AppContext) -> Result<ExitCode> {
+    let l = ctx.locale;
+    let list = connect(ctx).await?.list_sessions().await?;
+    if list.sessions.is_empty() {
+        println!("{}", tr(l, "cli.sessions.none"));
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!("{}\n", tr(l, "cli.sessions.title"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    for s in &list.sessions {
+        let secs = (now.saturating_sub(s.started_ms) / 1000).to_string();
+        println!(
+            "{}",
+            tr_args(
+                l,
+                "cli.sessions.row",
+                &[
+                    ("name", &s.peer_name),
+                    (
+                        "since",
+                        &tr_args(l, "cli.sessions.since_ago", &[("secs", &secs)])
+                    ),
+                    ("path", &path_label(l, s.path)),
+                    ("grants", &s.grants.join(", ")),
+                ],
+            )
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+pub async fn disconnect(ctx: &AppContext, device: Option<&str>) -> Result<ExitCode> {
+    let l = ctx.locale;
+    let client = connect(ctx).await?;
+    let id = match device {
+        Some(q) => resolve(l, &client.list_devices().await?.devices, q)?
+            .device_id
+            .to_vec(),
+        None => Vec::new(),
+    };
+    let before = client.list_sessions().await?.sessions;
+    let count = before
+        .iter()
+        .filter(|s| id.is_empty() || s.peer_device_id.as_ref() == id.as_slice())
+        .count();
+    client.disconnect_sessions(id).await?;
+    if count == 0 {
+        println!("{}", tr(l, "cli.disconnect.nobody"));
+    } else {
+        println!(
+            "{}",
+            tr_args(l, "cli.disconnect.done", &[("count", &count.to_string())])
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 pub async fn stop(ctx: &AppContext) -> Result<ExitCode> {
     // The agent may close the connection as it exits, before or just after acknowledging.
     match connect(ctx).await?.shutdown().await {

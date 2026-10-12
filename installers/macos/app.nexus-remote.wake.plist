@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchDaemon: an always-on Mac (a Mac mini at home) acting only as a Wake-on-LAN helper.
+     It runs at boot with no one logged in, offers nothing but magic packets, and needs no
+     screen-recording or accessibility permission. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>app.nexus-remote.wake</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Nexus Remote.app/Contents/MacOS/nexus-agent</string>
+    <string>--system</string>
+    <string>--file-store</string>
+    <string>--wake-helper</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>UserName</key><string>_nexus</string>
+  <key>StandardErrorPath</key><string>/Library/Logs/Nexus/wake.err.log</string>
+</dict>
+</plist>

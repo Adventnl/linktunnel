@@ -42,6 +42,9 @@ pub struct Shared {
     pub(crate) events: broadcast::Sender<IpcEvent>,
     pub(crate) lockdown: AtomicBool,
     pub(crate) sessions: AtomicU32,
+    /// Incoming sessions right now (who is controlling this machine).
+    pub(crate) active: Mutex<Vec<ActiveEntry>>,
+    pub(crate) next_session_id: AtomicU64,
     pub(crate) pairing: Mutex<Option<PairingSlot>>,
     pub(crate) handler: Arc<dyn SessionHandler>,
     pub(crate) shutdown: watch::Sender<bool>,
@@ -58,6 +61,20 @@ pub struct Shared {
     pub(crate) consents: Mutex<std::collections::HashMap<u64, crate::consent::Pending>>,
     pub(crate) next_consent_id: AtomicU64,
     pub(crate) started: Instant,
+    /// mDNS discovery, when enabled.
+    pub(crate) discovery: Option<nexus_discovery::Discovery>,
+}
+
+/// One live incoming session.
+pub(crate) struct ActiveEntry {
+    pub id: u64,
+    pub peer: [u8; 32],
+    pub peer_id: Vec<u8>,
+    pub name: String,
+    pub started_ms: u64,
+    pub path: nexus_proto::v1::PathKind,
+    pub grants: Vec<String>,
+    pub session: nexus_net::Session,
 }
 
 impl std::fmt::Debug for Shared {
@@ -141,6 +158,29 @@ impl Shared {
             .peers()
             .find(|p| p.identity.device_id() == wanted)
             .cloned()
+    }
+
+    /// Who is controlling this machine now, as the UIs show it.
+    pub(crate) fn active_views(&self) -> Vec<nexus_proto::v1::ActiveSession> {
+        self.active
+            .lock()
+            .iter()
+            .map(|a| nexus_proto::v1::ActiveSession {
+                id: a.id,
+                peer_device_id: a.peer_id.clone().into(),
+                peer_name: a.name.clone(),
+                started_ms: a.started_ms,
+                path: a.path as i32,
+                grants: a.grants.clone(),
+            })
+            .collect()
+    }
+
+    /// Tells every client who is connected (called whenever that changes).
+    pub(crate) fn emit_sessions(&self) {
+        self.emit(Ev::SessionsChanged(nexus_proto::v1::SessionsChanged {
+            sessions: self.active_views(),
+        }));
     }
 
     pub(crate) fn status(&self) -> Status {

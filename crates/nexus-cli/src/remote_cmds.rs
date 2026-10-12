@@ -63,6 +63,9 @@ pub enum RemoteCommand {
         /// Do not swap ⌘ and Ctrl between a Mac and a PC.
         #[arg(long)]
         no_key_remap: bool,
+        /// Play the device's sound on this machine.
+        #[arg(long)]
+        audio: bool,
     },
     /// List a paired device's monitors.
     Monitors {
@@ -178,6 +181,7 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
             view_only,
             no_clipboard,
             no_key_remap,
+            audio,
         } => {
             let flags = ViewFlags {
                 monitor,
@@ -186,6 +190,7 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
                 view_only,
                 clipboard: !no_clipboard,
                 key_remap: !no_key_remap,
+                audio,
             };
             view(ctx, &device, flags).await
         }
@@ -265,6 +270,7 @@ struct ViewFlags {
     view_only: bool,
     clipboard: bool,
     key_remap: bool,
+    audio: bool,
 }
 
 async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCode> {
@@ -282,6 +288,7 @@ async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCod
         view_only: flags.view_only,
         clipboard: flags.clipboard,
         key_remap: flags.key_remap,
+        audio: flags.audio,
     };
     // The window owns the main thread; it runs its own network thread.
     let reason = tokio::task::block_in_place(|| nexus_render::run(options))

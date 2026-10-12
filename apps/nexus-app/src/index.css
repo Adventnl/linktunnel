@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/* Tokens: light by default, dark via the OS preference or an explicit choice (Settings → Theme). */
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --panel-2: #eef0f4;
+  --text: #14171f;
+  --muted: #5b6475;
+  --border: #d9dde5;
+  --accent: #2f6df6;
+  --accent-text: #ffffff;
+  --danger: #d6293e;
+  --danger-text: #ffffff;
+  --ok: #1f9d55;
+  --focus: #2f6df6;
+  --dot-green: #1fb15a;
+  --dot-blue: #2f6df6;
+  --dot-yellow: #e0a800;
+  --dot-orange: #f08a00;
+  --dot-red: #d6293e;
+  --dot-grey: #9aa3b2;
+  --shadow: 0 8px 30px rgb(15 23 42 / 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1116;
+    --panel: #171b22;
+    --panel-2: #1f242d;
+    --text: #e8ebf1;
+    --muted: #9aa3b2;
+    --border: #2a303b;
+    --accent: #5b8cff;
+    --accent-text: #0b1020;
+    --danger: #ff5c70;
+    --danger-text: #1a0509;
+    --ok: #3ecf7e;
+    --focus: #8fb0ff;
+    --dot-green: #3ecf7e;
+    --dot-blue: #5b8cff;
+    --dot-yellow: #f2c230;
+    --dot-orange: #ff9f2e;
+    --dot-red: #ff5c70;
+    --dot-grey: #6b7485;
+    --shadow: 0 8px 30px rgb(0 0 0 / 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --panel: #171b22;
+  --panel-2: #1f242d;
+  --text: #e8ebf1;
+  --muted: #9aa3b2;
+  --border: #2a303b;
+  --accent: #5b8cff;
+  --accent-text: #0b1020;
+  --danger: #ff5c70;
+  --danger-text: #1a0509;
+  --ok: #3ecf7e;
+  --focus: #8fb0ff;
+  --dot-green: #3ecf7e;
+  --dot-blue: #5b8cff;
+  --dot-yellow: #f2c230;
+  --dot-orange: #ff9f2e;
+  --dot-red: #ff5c70;
+  --dot-grey: #6b7485;
+  --shadow: 0 8px 30px rgb(0 0 0 / 0.5);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel-2);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-text);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-text);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+/* A visible keyboard focus everywhere (accessibility; the app is keyboard-first). */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+
+@media (forced-colors: active) {
+  :focus-visible { outline: 3px solid Highlight; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }

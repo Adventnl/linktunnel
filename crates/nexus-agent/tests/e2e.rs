@@ -89,8 +89,11 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         // has its own tests.
         default_consent: nexus_core::config::ConsentMode::Unattended,
         consent_timeout: Duration::from_secs(30),
+        resume_window: Duration::from_secs(120),
         presence_sensor: None,
         presence_interval: Duration::from_millis(200),
+        lan_discovery: false,
+        consent_prompter: None,
     }
 }
 
@@ -1553,6 +1556,128 @@ async fn presence_follows_what_the_machine_is_doing() {
     }
     eventually("the PC to show as in use", || async {
         state_seen_by_mac().await.0 == PresenceState::InUse as i32
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paired_devices_find_each_other_on_the_lan_without_any_server() {
+    // Pair through a signaling server...
+    let server = Server::start().await;
+    let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut a = start_device("Desk", 31, dir_a.path(), Some(server.url())).await;
+    let mut b = start_device("Laptop", 32, dir_b.path(), Some(server.url())).await;
+    wait_signal(&a).await;
+    wait_signal(&b).await;
+    pair(&mut a, &mut b).await;
+    drop(a.client);
+    a.agent.shutdown().await;
+    drop(b.client);
+    b.agent.shutdown().await;
+    drop(server);
+
+    // ...then run with no server at all, only mDNS. The nodes listen on every interface so the
+    // advertised LAN address is reachable.
+    let lan = |c: &mut AgentConfig| {
+        c.lan_discovery = true;
+        c.node.bind = Some("0.0.0.0:0".parse().unwrap());
+        c.publish_loopback_hints = false;
+    };
+    let nohandler = || Arc::new(DiagnosticsHandler) as Arc<dyn nexus_agent::SessionHandler>;
+    let a = start_device_cfg("Desk", 31, dir_a.path(), None, nohandler(), lan).await;
+    let b = start_device_cfg("Laptop", 32, dir_b.path(), None, nohandler(), lan).await;
+
+    let req = ping_request(&b);
+    let mut last = None;
+    for _ in 0..40 {
+        match a.client.ping(req.clone()).await {
+            Ok(report) => {
+                last = Some(report);
+                break;
+            }
+            Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+        }
+    }
+    let Some(report) = last else {
+        // Some CI sandboxes have no multicast; set NEXUS_TEST_REQUIRE_LAN=1 where it must work.
+        assert!(
+            std::env::var_os("NEXUS_TEST_REQUIRE_LAN").is_none(),
+            "mDNS did not connect the paired devices"
+        );
+        eprintln!("mDNS did not deliver on this host; skipping the assertion");
+        return;
+    };
+    assert!(report.control.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_person_at_a_machine_can_see_and_end_who_is_connected() {
+    let server = Server::start().await;
+    let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut mac = start_device("MacBook", 41, dir_a.path(), Some(server.url())).await;
+    let mut pc = start_device("Windows PC", 42, dir_b.path(), Some(server.url())).await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+
+    assert!(pc.client.list_sessions().await.unwrap().sessions.is_empty());
+    let open = |mac: &Device, pc: &Device| {
+        let (client, id) = (mac.client.clone(), pc.id());
+        async move {
+            client
+                .open_session(nexus_proto::v1::OpenSession {
+                    device_id: id.into(),
+                    want_video: false,
+                    ..Default::default()
+                })
+                .await
+        }
+    };
+    let sid = open(&mac, &pc).await.unwrap().session_id;
+
+    // The PC's user is told who is connected, as an event and on request.
+    let pushed = next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if !s.sessions.is_empty() => Some(s.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(pushed.sessions.len(), 1);
+    assert_eq!(pushed.sessions[0].peer_name, "MacBook");
+    assert!(pushed.sessions[0].grants.iter().any(|g| g == "screen"));
+    assert_eq!(pc.client.list_sessions().await.unwrap().sessions.len(), 1);
+    assert_eq!(pc.client.status().await.unwrap().active_sessions, 1);
+
+    // One switch ends it: the controller learns it was deliberate (so it does not retry)...
+    pc.client.disconnect_sessions(vec![]).await.unwrap();
+    let ended = next_matching(&mut mac.events, |ev| match &ev.body {
+        Some(Ev::SessionEnded(e)) if e.session_id == sid => Some(e.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(
+        !ended.connection_lost,
+        "a local disconnect is deliberate: {ended:?}"
+    );
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if s.sessions.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
+    assert!(pc.client.list_sessions().await.unwrap().sessions.is_empty());
+
+    // ...and it is not blocked: a fresh session works, and ending one device's sessions by id works too.
+    let sid2 = open(&mac, &pc).await.unwrap().session_id;
+    assert_ne!(sid, sid2);
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if !s.sessions.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
+    pc.client.disconnect_sessions(mac.id()).await.unwrap();
+    next_matching(&mut pc.events, |ev| match &ev.body {
+        Some(Ev::SessionsChanged(s)) if s.sessions.is_empty() => Some(()),
+        _ => None,
     })
     .await;
 }

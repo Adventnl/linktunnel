@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened runtime, no exceptions: the agent needs no JIT, no unsigned memory, no library
+     validation bypass. Screen Recording, Accessibility and Input Monitoring are TCC permissions
+     the user grants in System Settings, not entitlements. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict>
+</plist>

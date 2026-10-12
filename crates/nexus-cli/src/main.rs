@@ -9,6 +9,7 @@
 mod agent_cmds;
 mod audit_cmds;
 mod consent_cmds;
+mod dashboard;
 mod files_cmds;
 mod forward_cmds;
 mod identity_cmd;
@@ -44,6 +45,11 @@ struct Cli {
     /// Keep all state under this directory instead of the OS defaults.
     #[arg(long, global = true, env = "NEXUS_HOME")]
     home: Option<PathBuf>,
+
+    /// Talk to the machine-wide service agent (`nexus-agent --system`, as installed by the
+    /// packages) instead of the per-user one. Usually needs `sudo` / an elevated terminal.
+    #[arg(long, global = true)]
+    system: bool,
 
     /// Store the identity in an owner-only file instead of the OS keychain.
     #[arg(long, global = true)]
@@ -120,6 +126,15 @@ enum Command {
         #[arg(short, long)]
         recursive: bool,
     },
+    /// Live dashboard of your devices: state at a glance, one key to connect, wake or lock.
+    Dashboard {
+        /// Print one text snapshot and exit (scripts, bug reports).
+        #[arg(long)]
+        snapshot: bool,
+        /// Width of the snapshot in columns.
+        #[arg(long, default_value_t = 110)]
+        width: u16,
+    },
     /// Reach a service on a paired device through a local port (`nexus forward pc 5432`).
     Forward {
         /// Device name or ID.
@@ -127,6 +142,18 @@ enum Command {
         /// `[LOCAL_PORT:]HOST:PORT`, `LOCAL_PORT:PORT` or just `PORT` (HOST defaults to
         /// localhost as seen from the device).
         spec: String,
+    },
+    /// Pipe stdin/stdout to a TCP service on a paired device, for use as an SSH `ProxyCommand`:
+    /// `Host box` / `ProxyCommand nexus proxy box` in ~/.ssh/config, then `ssh box`.
+    Proxy {
+        /// Device name or ID.
+        device: String,
+        /// Host as seen from the device.
+        #[arg(default_value = "localhost")]
+        host: String,
+        /// Port on that host.
+        #[arg(default_value_t = 22)]
+        port: u16,
     },
     /// Open a terminal on a paired device (`--name` keeps it running when you disconnect).
     Shell {
@@ -176,6 +203,13 @@ enum Command {
     /// Turn the emergency lockdown switch on or off.
     #[command(subcommand)]
     Lockdown(agent_cmds::LockdownCommand),
+    /// Show who is connected to this machine right now.
+    Sessions,
+    /// Cut off whoever is connected to this machine (one device, or everyone).
+    Disconnect {
+        /// Device name or ID; omit to disconnect everyone.
+        device: Option<String>,
+    },
     /// Ask the running agent to exit.
     Stop,
 }
@@ -185,6 +219,8 @@ pub(crate) struct AppContext {
     pub locale: Locale,
     pub paths: Paths,
     pub store: Box<dyn SecretStore>,
+    /// Global flags to repeat when this process starts another `nexus` (the dashboard does).
+    pub passthrough: Vec<String>,
 }
 
 #[tokio::main]
@@ -217,26 +253,41 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         .as_deref()
         .and_then(Locale::parse)
         .unwrap_or_else(Locale::detect);
-    let paths = match &cli.home {
-        Some(home) => Paths::under(home),
-        None => Paths::resolve(Scope::User).context("locating state directories")?,
+    let paths = match (&cli.home, cli.system) {
+        (Some(home), _) => Paths::under(home),
+        (None, true) => Paths::resolve(Scope::System).context("locating state directories")?,
+        (None, false) => Paths::resolve(Scope::User).context("locating state directories")?,
     };
     let store = open_default(&DefaultStoreOptions {
         service: KEYCHAIN_SERVICE.into(),
         file_dir: paths.data_dir.join("keys"),
-        prefer_os_store: !cli.file_store && cli.home.is_none(),
+        prefer_os_store: !cli.file_store && !cli.system && cli.home.is_none(),
         allow_file_fallback: true,
     })
     .context("opening the secret store")?;
 
+    let mut passthrough = Vec::new();
+    if let Some(home) = &cli.home {
+        passthrough.extend(["--home".to_owned(), home.display().to_string()]);
+    }
+    if let Some(lang) = &cli.lang {
+        passthrough.extend(["--lang".to_owned(), lang.clone()]);
+    }
+    if cli.file_store {
+        passthrough.push("--file-store".into());
+    }
+    if cli.system {
+        passthrough.push("--system".into());
+    }
     let ctx = AppContext {
         locale,
         paths,
         store,
+        passthrough,
     };
     match cli.command {
         Command::Id(cmd) => identity_cmd::run(&ctx, &cmd),
-        Command::Doctor => doctor(&ctx),
+        Command::Doctor => doctor(&ctx).await,
         Command::Status => agent_cmds::status(&ctx).await,
         Command::Devices => agent_cmds::devices(&ctx).await,
         Command::Pair(cmd) => agent_cmds::pair(&ctx, &cmd).await,
@@ -255,7 +306,11 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         } => files_cmds::cp(&ctx, &src, &dst, overwrite).await,
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
+        Command::Dashboard { snapshot, width } => dashboard::run(&ctx, snapshot, width).await,
         Command::Forward { device, spec } => forward_cmds::forward(&ctx, &device, &spec).await,
+        Command::Proxy { device, host, port } => {
+            forward_cmds::proxy(&ctx, &device, &host, port).await
+        }
         Command::Shell {
             device,
             name,
@@ -273,11 +328,13 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Consent => consent_cmds::watch(&ctx).await,
         Command::Trust(cmd) => consent_cmds::trust(&ctx, cmd).await,
         Command::Lockdown(cmd) => agent_cmds::lockdown(&ctx, &cmd).await,
+        Command::Sessions => agent_cmds::sessions(&ctx).await,
+        Command::Disconnect { device } => agent_cmds::disconnect(&ctx, device.as_deref()).await,
         Command::Stop => agent_cmds::stop(&ctx).await,
     }
 }
 
-fn doctor(ctx: &AppContext) -> Result<ExitCode> {
+async fn doctor(ctx: &AppContext) -> Result<ExitCode> {
     println!("{}\n", tr(ctx.locale, "cli.doctor.title"));
     let mut healthy = true;
     let mut report = |label: &str, result: Result<String>| {
@@ -289,6 +346,13 @@ fn doctor(ctx: &AppContext) -> Result<ExitCode> {
             }
         };
         println!("  [{status}] {label}: {detail}");
+    };
+    // Things worth knowing that are not faults (LAN-only use, headless machines).
+    let note = |label: &str, detail: String| {
+        println!(
+            "  [{}] {label}: {detail}",
+            tr(ctx.locale, "cli.doctor.note")
+        );
     };
 
     report(
@@ -324,6 +388,74 @@ fn doctor(ctx: &AppContext) -> Result<ExitCode> {
                 None => Err(anyhow::anyhow!(tr(ctx.locale, "cli.identity.missing"))),
             }),
     );
+
+    // The running agent: is it up, can it reach the signaling server, who is connected.
+    match agent_cmds::connect(ctx).await {
+        Ok(client) => match client.status().await {
+            Ok(st) => {
+                report(
+                    "agent",
+                    Ok(format!(
+                        "{} {} ({})",
+                        st.device_name, st.agent_version, st.fingerprint
+                    )),
+                );
+                if st.signal_connected {
+                    report("signaling", Ok(st.signal_url.clone()));
+                } else if st.signal_url.is_empty() {
+                    note(
+                        "signaling",
+                        "not configured: LAN and direct connections only".into(),
+                    );
+                } else {
+                    note(
+                        "signaling",
+                        format!(
+                            "{} is unreachable: devices on other networks cannot find this one",
+                            st.signal_url
+                        ),
+                    );
+                }
+                note("paired devices", st.paired_devices.to_string());
+                if st.lockdown {
+                    note(
+                        "lockdown",
+                        "ON: every remote access request is refused".into(),
+                    );
+                }
+                match client.list_sessions().await {
+                    Ok(list) if !list.sessions.is_empty() => {
+                        let names: Vec<&str> =
+                            list.sessions.iter().map(|s| s.peer_name.as_str()).collect();
+                        note("connected now", names.join(", "));
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => report("agent", Err(e.into())),
+        },
+        Err(_) => report(
+            "agent",
+            Err(anyhow::anyhow!(
+                "not running (start `nexus-agent`, or enable the service; `--system` for the system service)"
+            )),
+        ),
+    }
+
+    // Screen capture needs a display; a headless server uses the virtual one.
+    #[cfg(target_os = "linux")]
+    {
+        let has_display =
+            std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let has_xvfb = std::env::var_os("PATH")
+            .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("Xvfb").is_file()));
+        match (has_display, has_xvfb) {
+            (true, _) => note("display", "a desktop session is available".into()),
+            (false, true) => note("display", "no desktop session: Xvfb is installed, so the agent can serve a virtual screen".into()),
+            (false, false) => note("display", "no desktop session and no Xvfb: screen sharing is unavailable (terminal and files still work); install xvfb for a virtual screen".into()),
+        }
+    }
+
     Ok(if healthy {
         ExitCode::SUCCESS
     } else {

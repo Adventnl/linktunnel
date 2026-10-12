@@ -32,3 +32,22 @@ jobs:
         with:
           name: sbom
           path: "**/*.cdx.json"
+
+  fuzz:
+    # Every parser that touches bytes from the network, a peer, a file or the signaling server
+    # gets a few minutes of coverage-guided fuzzing each night. Any crash fails the job and the
+    # reproducer is attached.
+    name: fuzz (nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo install cargo-fuzz --locked
+      - run: ./scripts/fuzz-smoke.sh 240
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts

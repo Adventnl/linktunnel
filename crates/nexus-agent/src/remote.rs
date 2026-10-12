@@ -29,6 +29,9 @@ pub struct RemoteHandler {
     wake_relay: bool,
     terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
+    audio: Option<target::AudioSourceFactory>,
+    /// Keeps a virtual screen alive for as long as this handler serves it.
+    vdisplay: Option<Arc<parking_lot::Mutex<nexus_vdisplay::VirtualDisplay>>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -62,6 +65,8 @@ impl RemoteHandler {
             wake_relay: false,
             terminal: None,
             portfwd: None,
+            audio: None,
+            vdisplay: None,
         }
     }
 
@@ -95,6 +100,13 @@ impl RemoteHandler {
         self
     }
 
+    /// Lets controllers holding the `audio` grant hear what this machine plays.
+    #[must_use]
+    pub fn with_audio(mut self, source: target::AudioSourceFactory) -> Self {
+        self.audio = Some(source);
+        self
+    }
+
     /// Lets controllers holding the `wake` grant use this machine to wake others on its LAN.
     #[must_use]
     pub fn with_wake_relay(mut self, on: bool) -> Self {
@@ -111,6 +123,7 @@ impl RemoteHandler {
             || self.clipboard.is_some()
             || self.terminal.is_some()
             || self.portfwd.is_some()
+            || self.audio.is_some()
     }
 
     /// Syncs this machine's clipboard with controllers holding the `clipboard` grant.
@@ -166,6 +179,62 @@ impl RemoteHandler {
         };
         Self::new(capture, injector, max_fps)
     }
+
+    /// Like [`detect`](Self::detect), but gives a screen-less Linux machine a virtual one
+    /// according to `cfg` (see [`nexus_core::config::DisplayConfig`]).
+    #[must_use]
+    pub fn detect_with_display(max_fps: u32, cfg: &nexus_core::config::DisplayConfig) -> Self {
+        use nexus_core::config::VirtualScreen;
+        let real = match cfg.virtual_screen {
+            VirtualScreen::Always => Self::new(None, None, max_fps),
+            _ => Self::detect(max_fps),
+        };
+        if cfg.virtual_screen == VirtualScreen::Never || real.capture.is_some() {
+            return real;
+        }
+        match Self::start_virtual(max_fps, cfg) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(error = %e, "no virtual screen; this machine serves terminal, files and ports only");
+                real
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn start_virtual(
+        max_fps: u32,
+        cfg: &nexus_core::config::DisplayConfig,
+    ) -> Result<Self, String> {
+        let vcfg = nexus_vdisplay::VirtualDisplayConfig {
+            dpi: cfg.dpi,
+            session: cfg.session.clone(),
+            ..nexus_vdisplay::VirtualDisplayConfig::default()
+        }
+        .with_size(&cfg.size)
+        .map_err(|e| e.to_string())?;
+        let vd = nexus_vdisplay::VirtualDisplay::start(&vcfg).map_err(|e| e.to_string())?;
+        let name = vd.name().to_owned();
+        let backend =
+            nexus_capture::x11::X11Backend::connect(Some(&name)).map_err(|e| e.to_string())?;
+        info!(display = %name, size = %cfg.size, "serving a virtual screen");
+        let injector_display = name.clone();
+        let injector: InjectorFactory = Arc::new(move || {
+            nexus_input::x11::X11Injector::connect(Some(&injector_display))
+                .map(|i| Box::new(i) as Box<dyn nexus_input::Injector>)
+        });
+        let mut h = Self::new(Some(Arc::new(backend)), Some(injector), max_fps);
+        h.vdisplay = Some(Arc::new(parking_lot::Mutex::new(vd)));
+        Ok(h)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn start_virtual(
+        _max_fps: u32,
+        _cfg: &nexus_core::config::DisplayConfig,
+    ) -> Result<Self, String> {
+        Err("virtual screens are only available on Linux".into())
+    }
 }
 
 #[async_trait]
@@ -204,6 +273,9 @@ impl SessionHandler for RemoteHandler {
         }
         if self.portfwd.is_some() {
             features_list.push(features::PORT_FORWARD.to_owned());
+        }
+        if self.audio.is_some() {
+            features_list.push(features::AUDIO_OPUS.to_owned());
         }
         caps.features = features_list;
         caps
@@ -244,12 +316,21 @@ impl SessionHandler for RemoteHandler {
                 }) as Arc<dyn PowerBackend>
             }),
             wake_relay: self.wake_relay,
+            audio: self.audio.clone(),
             terminal: self.terminal.clone(),
             portfwd: self.portfwd.clone(),
         };
         let stats = Arc::new(TargetStats::default());
         let reason = target::serve(ctx.session, ctx.established.control, config, stats).await;
         info!(peer = %ctx.peer.name, ?reason, "remote session finished");
+        // A dropped link may come straight back without a new prompt; a goodbye, a refusal or a
+        // local stop may not.
+        if !matches!(reason, target::EndReason::ConnectionLost(_)) {
+            ctx.shared
+                .limits
+                .lock()
+                .ended_on_purpose(&ctx.peer.identity.ed25519_bytes());
+        }
     }
 }
 
