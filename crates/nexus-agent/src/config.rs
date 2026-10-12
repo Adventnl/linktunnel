@@ -38,6 +38,9 @@ pub struct AgentConfig {
     /// Advertise on and listen to the local network (mDNS) so paired devices find each other
     /// without a server.
     pub lan_discovery: bool,
+    /// Asks the person at this machine directly (without a connected UI client), for example with
+    /// a message box on the console session. `None` relies on IPC clients (`nexus consent`).
+    pub consent_prompter: Option<std::sync::Arc<dyn crate::consent::ConsentPrompter>>,
 }
 
 impl AgentConfig {
@@ -60,6 +63,7 @@ impl AgentConfig {
             presence_sensor: None,
             presence_interval: Duration::from_secs(10),
             lan_discovery: cfg.net.lan_discovery,
+            consent_prompter: None,
         })
     }
 

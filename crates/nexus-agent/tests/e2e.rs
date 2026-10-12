@@ -92,6 +92,7 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         presence_sensor: None,
         presence_interval: Duration::from_millis(200),
         lan_discovery: false,
+        consent_prompter: None,
     }
 }
 

@@ -1,0 +1,23 @@
+# Nexus Remote agent for a Linux desktop, in the logged-in user's session (so it can capture the
+# screen and inject input). Enable with:  systemctl --user enable --now nexus-agent-user
+[Unit]
+Description=Nexus Remote agent (desktop session)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nexus-agent
+Restart=on-failure
+RestartSec=3
+Environment=RUST_LOG=info
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=graphical-session.target

@@ -13,6 +13,26 @@ use tracing::{info, warn};
 use crate::error::AgentError;
 use crate::state::Shared;
 
+/// Something that can ask the person at this machine without going through an IPC client: a
+/// message box on the console session, a desktop notification, ...
+pub trait ConsentPrompter: Send + Sync {
+    /// Asks whether `peer_name` (with this key `fingerprint` and these `grants`) may use the
+    /// machine. `Some(true)` = yes, `Some(false)` = no, `None` = no answer in time.
+    fn ask(
+        &self,
+        peer_name: String,
+        fingerprint: String,
+        grants: Vec<String>,
+        timeout: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + Send>>;
+}
+
+impl std::fmt::Debug for dyn ConsentPrompter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConsentPrompter")
+    }
+}
+
 /// A prompt waiting for an answer.
 #[derive(Debug)]
 pub(crate) struct Pending {
@@ -60,7 +80,8 @@ pub(crate) async fn request(
     // Nobody to ask means nobody can say yes: refuse straight away instead of making the
     // controller wait out the timeout. (A headless machine is made unattended on purpose with
     // `nexus trust unattended`.)
-    if shared.events.receiver_count() == 0 {
+    let prompter = shared.cfg.consent_prompter.clone();
+    if shared.events.receiver_count() == 0 && prompter.is_none() {
         warn!(peer = %peer.name, "nobody is connected to approve this request; refusing (see `nexus consent`)");
         return Consent::Denied;
     }
@@ -89,7 +110,23 @@ pub(crate) async fn request(
         .audit
         .record("consent.requested", Some(&actor), &[("name", &peer.name)]);
     let mut shutdown = shared.shutdown.subscribe();
+    // The direct prompter races the IPC clients; the first answer wins.
+    let direct = async {
+        match &prompter {
+            Some(p) => {
+                p.ask(
+                    peer.name.clone(),
+                    peer.identity.fingerprint().to_string(),
+                    peer.grants_from_peer.iter().cloned().collect(),
+                    timeout,
+                )
+                .await
+            }
+            None => std::future::pending().await,
+        }
+    };
     let outcome = tokio::select! {
+        said = direct => if said == Some(true) { Consent::Allowed } else { Consent::Denied },
         answer = rx => match answer {
             Ok(d) if d.allow => {
                 if d.remember {

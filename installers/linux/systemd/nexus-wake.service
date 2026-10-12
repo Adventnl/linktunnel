@@ -1,0 +1,37 @@
+# Wake-on-LAN helper: an always-on machine on the home LAN (a Raspberry Pi, the home server) that
+# sends magic packets for paired devices holding the `wake` grant. It offers nothing else.
+[Unit]
+Description=Nexus Remote wake helper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+ExecStart=/usr/bin/nexus-agent --system --file-store --wake-helper
+Restart=on-failure
+RestartSec=3
+StateDirectory=nexus-wake
+StateDirectoryMode=0700
+RuntimeDirectory=nexus-wake
+Environment=RUST_LOG=info
+Environment=NEXUS_HOME=/var/lib/nexus-wake
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

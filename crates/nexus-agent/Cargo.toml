@@ -22,6 +22,7 @@ audio-device = ["nexus-audio/device"]
 [dependencies]
 anyhow.workspace = true
 nexus-audio.workspace = true
+nexus-winservice.workspace = true
 nexus-discovery.workspace = true
 nexus-vdisplay.workspace = true
 async-trait.workspace = true

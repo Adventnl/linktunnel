@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent: the agent must run inside the logged-in user's GUI session (Aqua) to capture the
+     screen and post input events. Installed to /Library/LaunchAgents so it starts for every user. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>app.nexus-remote.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Nexus Remote.app/Contents/MacOS/nexus-agent</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardErrorPath</key><string>/tmp/nexus-agent.err.log</string>
+</dict>
+</plist>

@@ -23,6 +23,8 @@ pub mod sysinfo;
 mod terminal_bridge;
 mod viewer_bridge;
 mod wakebook;
+#[cfg(windows)]
+mod wts_prompter;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
@@ -38,12 +40,15 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 pub use config::AgentConfig;
+pub use consent::ConsentPrompter;
 pub use error::AgentError;
 pub use remote::RemoteHandler;
 pub use sessions::{
     CLOSE_LOCKDOWN, CLOSE_RATE_LIMITED, DiagnosticsHandler, SessionContext, SessionHandler,
 };
 pub use state::Shared;
+#[cfg(windows)]
+pub use wts_prompter::WtsPrompter;
 
 /// Why the agent could not start.
 #[derive(Debug, thiserror::Error)]

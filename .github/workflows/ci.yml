@@ -98,6 +98,9 @@ jobs:
       - run: >-
           cargo clippy --locked --target ${{ matrix.target }} --all-targets
           -p nexus-capture -p nexus-input -p nexus-codec --no-default-features -- -D warnings
+      - run: >-
+          cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets
+          -p nexus-desktop -p nexus-winservice -- -D warnings
 
   bench-gate:
     # Fails the PR if a gated p95 latency regressed by more than 10 % against the base branch,

@@ -75,6 +75,8 @@ nexus-render = { path = "crates/nexus-render" }
 nexus-testkit = { path = "crates/nexus-testkit" }
 nexus-vdisplay = { path = "crates/nexus-vdisplay" }
 nexus-discovery = { path = "crates/nexus-discovery" }
+nexus-desktop = { path = "crates/nexus-desktop" }
+nexus-winservice = { path = "crates/nexus-winservice" }
 nexus-audio = { path = "crates/nexus-audio" }
 nexus-agent = { path = "crates/nexus-agent" }
 

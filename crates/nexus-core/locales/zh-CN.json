@@ -158,5 +158,7 @@
   "cli.dash.seen_mins": "{n} 分钟前",
   "cli.dash.seen_hours": "{n} 小时前",
   "cli.dash.seen_days": "{n} 天前",
-  "cli.dash.seen_never": "从未"
+  "cli.dash.seen_never": "从未",
+  "agent.consent.title": "Nexus Remote：是否允许访问？",
+  "agent.consent.body": "“{name}”（密钥 {fingerprint}）想要使用这台电脑。\n\n它可以：{grants}。\n\n是否允许？如果 {secs} 秒内没有回应，请求将被拒绝。"
 }

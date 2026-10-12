@@ -22,6 +22,7 @@ nexus-testkit.workspace = true
 x11rb = { version = "0.14", features = ["xtest"] }
 
 [target.'cfg(windows)'.dependencies]
+nexus-desktop.workspace = true
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
