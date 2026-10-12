@@ -136,6 +136,80 @@ pub(crate) async fn forward(ctx: &AppContext, device: &str, spec: &str) -> Resul
     Ok(ExitCode::SUCCESS)
 }
 
+/// How long the remote service gets to finish replying after stdin has ended.
+const HALF_CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `nexus proxy`: a stdio bridge to `host:port` as seen from the device.
+///
+/// It reuses the port-forward machinery: a forward is opened on a free loopback port, stdin and
+/// stdout are joined to it, and everything is torn down when either side closes. Nothing is ever
+/// written to stdout except the tunnelled bytes (ssh reads it as the protocol stream), and
+/// diagnostics go to stderr.
+pub(crate) async fn proxy(
+    ctx: &AppContext,
+    device: &str,
+    host: &str,
+    port: u16,
+) -> Result<ExitCode> {
+    use tokio::io::{AsyncWriteExt, copy};
+    use tokio::net::TcpStream;
+
+    if port == 0 {
+        bail!("{}", tr(ctx.locale, "cli.forward.bad_spec"));
+    }
+    let client = crate::agent_cmds::connect(ctx).await?;
+    let devices = client.list_devices().await?.devices;
+    let dev = resolve(ctx.locale, &devices, device)?;
+    let opened = client
+        .open_session(OpenSession {
+            device_id: dev.device_id.clone(),
+            want_video: false,
+            ..Default::default()
+        })
+        .await?;
+    let started = match client.start_forward(opened.session_id, 0, host, port).await {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = client.close_session(opened.session_id).await;
+            return Err(e.into());
+        }
+    };
+    let result = async {
+        let sock = TcpStream::connect(("127.0.0.1", u16::try_from(started.local_port)?)).await?;
+        sock.set_nodelay(true)?;
+        let (mut rd, mut wr) = sock.into_split();
+        let up = async {
+            let r = copy(&mut tokio::io::stdin(), &mut wr).await;
+            let _ = wr.shutdown().await;
+            r
+        };
+        let down = async {
+            let mut out = tokio::io::stdout();
+            let r = copy(&mut rd, &mut out).await;
+            let _ = out.flush().await;
+            r
+        };
+        // The remote closing ends everything. stdin ending (ssh exited, or a script finished
+        // writing) is a half-close: the service gets time to send what it still has.
+        let mut down = std::pin::pin!(down);
+        tokio::select! {
+            r = &mut down => { r?; }
+            r = up => {
+                r?;
+                if let Ok(r) = tokio::time::timeout(HALF_CLOSE_GRACE, &mut down).await {
+                    r?;
+                }
+            }
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    let _ = client.stop_forward(started.forward_id).await;
+    let _ = client.close_session(opened.session_id).await;
+    result?;
+    Ok(ExitCode::SUCCESS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

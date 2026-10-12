@@ -3535,6 +3535,7 @@ dependencies = [
  "nexus-signal-client",
  "nexus-terminal",
  "nexus-trust",
+ "nexus-vdisplay",
  "os_info",
  "parking_lot",
  "serde",
@@ -3986,6 +3987,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nexus-vdisplay"
+version = "0.1.0"
+dependencies = [
+ "nexus-capture",
+ "nexus-input",
+ "nexus-testkit",
+ "thiserror 2.0.21",
  "tracing",
 ]
 

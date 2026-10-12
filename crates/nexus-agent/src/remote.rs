@@ -30,6 +30,8 @@ pub struct RemoteHandler {
     terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
     audio: Option<target::AudioSourceFactory>,
+    /// Keeps a virtual screen alive for as long as this handler serves it.
+    vdisplay: Option<Arc<parking_lot::Mutex<nexus_vdisplay::VirtualDisplay>>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -64,6 +66,7 @@ impl RemoteHandler {
             terminal: None,
             portfwd: None,
             audio: None,
+            vdisplay: None,
         }
     }
 
@@ -175,6 +178,62 @@ impl RemoteHandler {
             None
         };
         Self::new(capture, injector, max_fps)
+    }
+
+    /// Like [`detect`](Self::detect), but gives a screen-less Linux machine a virtual one
+    /// according to `cfg` (see [`nexus_core::config::DisplayConfig`]).
+    #[must_use]
+    pub fn detect_with_display(max_fps: u32, cfg: &nexus_core::config::DisplayConfig) -> Self {
+        use nexus_core::config::VirtualScreen;
+        let real = match cfg.virtual_screen {
+            VirtualScreen::Always => Self::new(None, None, max_fps),
+            _ => Self::detect(max_fps),
+        };
+        if cfg.virtual_screen == VirtualScreen::Never || real.capture.is_some() {
+            return real;
+        }
+        match Self::start_virtual(max_fps, cfg) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(error = %e, "no virtual screen; this machine serves terminal, files and ports only");
+                real
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn start_virtual(
+        max_fps: u32,
+        cfg: &nexus_core::config::DisplayConfig,
+    ) -> Result<Self, String> {
+        let vcfg = nexus_vdisplay::VirtualDisplayConfig {
+            dpi: cfg.dpi,
+            session: cfg.session.clone(),
+            ..nexus_vdisplay::VirtualDisplayConfig::default()
+        }
+        .with_size(&cfg.size)
+        .map_err(|e| e.to_string())?;
+        let vd = nexus_vdisplay::VirtualDisplay::start(&vcfg).map_err(|e| e.to_string())?;
+        let name = vd.name().to_owned();
+        let backend =
+            nexus_capture::x11::X11Backend::connect(Some(&name)).map_err(|e| e.to_string())?;
+        info!(display = %name, size = %cfg.size, "serving a virtual screen");
+        let injector_display = name.clone();
+        let injector: InjectorFactory = Arc::new(move || {
+            nexus_input::x11::X11Injector::connect(Some(&injector_display))
+                .map(|i| Box::new(i) as Box<dyn nexus_input::Injector>)
+        });
+        let mut h = Self::new(Some(Arc::new(backend)), Some(injector), max_fps);
+        h.vdisplay = Some(Arc::new(parking_lot::Mutex::new(vd)));
+        Ok(h)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn start_virtual(
+        _max_fps: u32,
+        _cfg: &nexus_core::config::DisplayConfig,
+    ) -> Result<Self, String> {
+        Err("virtual screens are only available on Linux".into())
     }
 }
 

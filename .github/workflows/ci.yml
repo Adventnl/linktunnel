@@ -113,6 +113,17 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: ./scripts/bench-gate.sh origin/${{ github.base_ref }}
 
+  server-demo:
+    # Phase 7 end to end on a real (virtual) headless server: GUI session, terminal, port
+    # forward, SSH-style proxy and file transfer through one encrypted session.
+    name: headless server demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: sudo apt-get update && sudo apt-get install -y xvfb python3
+      - run: ./scripts/demo-server.sh
+
   traceability:
     name: threat-model traceability
     runs-on: ubuntu-latest

@@ -128,6 +128,18 @@ enum Command {
         /// localhost as seen from the device).
         spec: String,
     },
+    /// Pipe stdin/stdout to a TCP service on a paired device, for use as an SSH `ProxyCommand`:
+    /// `Host box` / `ProxyCommand nexus proxy box` in ~/.ssh/config, then `ssh box`.
+    Proxy {
+        /// Device name or ID.
+        device: String,
+        /// Host as seen from the device.
+        #[arg(default_value = "localhost")]
+        host: String,
+        /// Port on that host.
+        #[arg(default_value_t = 22)]
+        port: u16,
+    },
     /// Open a terminal on a paired device (`--name` keeps it running when you disconnect).
     Shell {
         /// Device name or ID.
@@ -256,6 +268,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Mkdir { target } => files_cmds::mkdir(&ctx, &target).await,
         Command::Rm { target, recursive } => files_cmds::rm(&ctx, &target, recursive).await,
         Command::Forward { device, spec } => forward_cmds::forward(&ctx, &device, &spec).await,
+        Command::Proxy { device, host, port } => {
+            forward_cmds::proxy(&ctx, &device, &host, port).await
+        }
         Command::Shell {
             device,
             name,

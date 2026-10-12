@@ -65,6 +65,49 @@ pub struct NexusConfig {
     pub update: UpdateConfig,
     /// Sharing this device's sound.
     pub audio: AudioConfig,
+    /// The screen of a machine that has none.
+    pub display: DisplayConfig,
+}
+
+/// When to create a virtual screen (headless Linux servers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VirtualScreen {
+    /// Only if the machine has no screen that can be captured.
+    #[default]
+    Auto,
+    /// Always serve a separate virtual screen, even on a machine with a monitor (a private
+    /// desktop for the remote user that does not disturb the one on the monitor).
+    Always,
+    /// Never; a machine with no screen offers terminal, files and ports only.
+    Never,
+}
+
+/// The virtual screen that makes a monitor-less Linux server remotely usable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DisplayConfig {
+    /// When to create it.
+    #[serde(rename = "virtual")]
+    pub virtual_screen: VirtualScreen,
+    /// Size, `WIDTHxHEIGHT`.
+    pub size: String,
+    /// Dots per inch reported to applications.
+    pub dpi: u32,
+    /// Program (and arguments) to run on it and keep running, e.g. `["openbox-session"]` or
+    /// `["startxfce4"]`. Empty = a bare screen.
+    pub session: Vec<String>,
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        Self {
+            virtual_screen: VirtualScreen::Auto,
+            size: "1920x1080".into(),
+            dpi: 96,
+            session: Vec::new(),
+        }
+    }
 }
 
 /// Streaming what this device is playing to controllers that hold the `audio` grant.
@@ -398,6 +441,20 @@ impl NexusConfig {
             return Err(ConfigError::Invalid {
                 key: "security.consent_timeout_secs",
                 reason: "must be between 1 and 600".into(),
+            });
+        }
+        let size_ok = self
+            .display
+            .size
+            .split_once(['x', 'X'])
+            .is_some_and(|(w, h)| {
+                matches!((w.trim().parse::<u32>(), h.trim().parse::<u32>()),
+                (Ok(w), Ok(h)) if (320..=7680).contains(&w) && (240..=4320).contains(&h))
+            });
+        if !size_ok {
+            return Err(ConfigError::Invalid {
+                key: "display.size",
+                reason: "must be WIDTHxHEIGHT between 320x240 and 7680x4320".into(),
             });
         }
         if !(6..=510).contains(&self.audio.bitrate_kbps) {

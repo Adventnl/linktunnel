@@ -73,6 +73,7 @@ nexus-files = { path = "crates/nexus-files" }
 nexus-media = { path = "crates/nexus-media" }
 nexus-render = { path = "crates/nexus-render" }
 nexus-testkit = { path = "crates/nexus-testkit" }
+nexus-vdisplay = { path = "crates/nexus-vdisplay" }
 nexus-audio = { path = "crates/nexus-audio" }
 nexus-agent = { path = "crates/nexus-agent" }
 

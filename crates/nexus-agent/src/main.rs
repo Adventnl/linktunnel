@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
             let base = if args.no_screen {
                 RemoteHandler::new(None, None, args.max_fps)
             } else {
-                RemoteHandler::detect(args.max_fps)
+                RemoteHandler::detect_with_display(args.max_fps, &nexus.display)
             };
             let base = base
                 .with_files(roots, max_upload)
