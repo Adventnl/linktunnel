@@ -37,6 +37,14 @@ PIDS+=($!)
 SIGNAL_URL="ws://127.0.0.1:$PORT/v1/ws"
 
 A="$WORK/mac"; B="$WORK/pc"
+# This noninteractive synthetic demo uses isolated temporary homes. Production unattended
+# installs require enrollment; the real step-up path is covered by the agent/auth tests.
+mkdir -p "$B/config"
+cat >"$B/config/config.toml" <<'DEMO_CONFIG'
+[security]
+unattended_requires_stepup = false
+DEMO_CONFIG
+
 DISPLAY="$DISP" "$BIN/nexus-agent" --home "$B" --name "Windows PC" --file-store --signal-url "$SIGNAL_URL" >"$WORK/pc.log" 2>&1 &
 PIDS+=($!)
 env -u DISPLAY "$BIN/nexus-agent" --home "$A" --name "MacBook" --file-store --signal-url "$SIGNAL_URL" --no-screen >"$WORK/mac.log" 2>&1 &

@@ -71,7 +71,8 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 ## 6. Safety features
 * Nothing connects to a device that did not pair with you; an unpaired device cannot even see that yours exists.
 * By default a person at the target must approve each new session (attended); `nexus trust unattended <device>` pre-authorises
-  one device. Three refusals in a row lock a device out of prompts for a while.
+  one device, and the default policy also requires a passkey/TOTP. Enroll a factor with `nexus auth enroll-passkey` or
+  `nexus auth enroll-totp`; the native viewer prompts automatically. See [STEP_UP.md](STEP_UP.md). Three refusals in a row lock a device out of prompts for a while.
 * `nexus unpair <name>` ends the relationship immediately and closes live sessions. `nexus lockdown on` refuses everything,
   survives restarts.
 * Everything a controller does (screen, input, files with paths, terminals, forwards, power) is written to a signed,
@@ -105,3 +106,11 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 | No sound | the device needs the `audio` grant (re-pair: grants are fixed at pairing); on Linux the *monitor* source of the output must exist (PipeWire/PulseAudio) and `PULSE_SOURCE=<sink>.monitor` may be needed; macOS needs the *System Audio Recording* permission and 14.6+ |
 | `terminal` refused on a Windows service | by design (`--no-terminal`, else it would be a SYSTEM shell); see WINDOWS.md |
 | Attended prompt never appears on a headless box | nobody is connected to answer: use `nexus trust unattended` for that device, or run `nexus consent` |
+
+## Native viewer additions
+
+The viewer uses native GPU presentation where available. `NEXUS_SOFTWARE_VIEWER=1` forces the
+software fallback. Ctrl+Alt+Shift+B toggles the target's Windows normal-desktop privacy shield
+and local-input block (needs the `privacy` pairing grant). Physical Esc on the target restores
+its display; disconnect also restores it. Unsupported platforms report refusal.
+See [ACCELERATION.md](ACCELERATION.md) for optional vendor encoder builds and their current limits.

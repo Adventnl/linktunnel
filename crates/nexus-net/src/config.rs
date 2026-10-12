@@ -23,7 +23,7 @@ pub enum RelaySetting {
 }
 
 /// A self-hosted relay server.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RelayServer {
     /// `https://relay.example.com`.
     pub url: String,
@@ -32,6 +32,19 @@ pub struct RelayServer {
     pub quic_port: Option<u16>,
     /// Bearer token presented to the relay if it restricts who may use it.
     pub auth_token: Option<String>,
+}
+
+impl std::fmt::Debug for RelayServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelayServer")
+            .field("url", &self.url)
+            .field("quic_port", &self.quic_port)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 impl RelayServer {
@@ -104,7 +117,11 @@ impl NodeConfig {
             RelaySetting::Custom(
                 cfg.relay_urls
                     .iter()
-                    .map(|u| RelayServer::new(u.to_string()))
+                    .map(|u| {
+                        let mut server = RelayServer::new(u.to_string());
+                        server.auth_token = cfg.relay_token.clone();
+                        server
+                    })
                     .collect(),
             )
         };

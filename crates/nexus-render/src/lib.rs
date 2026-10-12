@@ -5,14 +5,16 @@
 //!   added latency regardless of video latency (spec §2.1);
 //! * keys go out as physical HID usages, so the target's own layout interprets them;
 //! * local hotkeys (always with Ctrl+Alt+Shift so they never collide with remote shortcuts):
-//!   `Q` disconnect, `F` fullscreen, `P` fit ↔ pixel-perfect.
+//!   `Q` disconnect, `F` fullscreen, `P` fit ↔ pixel-perfect, `M` monitor, `B` target privacy.
 //!
-//! Presentation is CPU-based (`softbuffer`) so it works on every platform and under Xvfb; a
-//! `wgpu` presenter for zero-copy GPU paths is Phase 4 work (docs/adr/0012).
+//! Presentation uses a native wgpu surface (Metal / D3D12 / Vulkan). Decoded CPU BGRA is
+//! uploaded once per frame; scaling happens on the GPU. Software presentation remains available
+//! when no GPU adapter exists or `NEXUS_SOFTWARE_VIEWER=1` is set.
 
 #![forbid(unsafe_code)]
 
 mod app;
+mod gpu;
 mod keymap;
 pub mod layout;
 pub mod session;

@@ -30,6 +30,7 @@ struct App {
     commands: UnboundedSender<Command>,
     window: Option<Arc<Window>>,
     surface: Option<Surf>,
+    gpu: Option<crate::gpu::Gpu>,
     picture: Option<Picture>,
     scale: ScaleMode,
     dest: Rect,
@@ -45,6 +46,7 @@ struct App {
     /// The monitor being viewed, and how many there are.
     monitor: u32,
     monitor_count: u32,
+    privacy: bool,
 }
 
 /// Opens the viewer window and runs until it closes. Returns why the session ended.
@@ -63,6 +65,7 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         commands: handle.commands,
         window: None,
         surface: None,
+        gpu: None,
         picture: None,
         scale: ScaleMode::Fit,
         dest: Rect {
@@ -81,6 +84,7 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         native: None,
         monitor: initial_monitor,
         monitor_count: 1,
+        privacy: false,
     };
     event_loop
         .run_app(&mut app)
@@ -109,6 +113,20 @@ impl App {
     }
 
     fn paint(&mut self) {
+        if let (Some(window), Some(gpu)) = (&self.window, &mut self.gpu) {
+            let size = window.inner_size();
+            if let Some(pic) = &self.picture {
+                self.dest = dest_rect(
+                    (pic.width, pic.height),
+                    (size.width, size.height),
+                    self.scale,
+                );
+            }
+            if let Err(e) = gpu.paint(size.width, size.height, self.dest, self.picture.is_some()) {
+                tracing::error!(error = %e, "GPU presentation failed");
+            }
+            return;
+        }
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
         };
@@ -201,6 +219,16 @@ impl ApplicationHandler<UiEvent> for App {
             }
         };
         window.set_ime_allowed(true);
+        if std::env::var_os("NEXUS_SOFTWARE_VIEWER").is_none() {
+            match pollster::block_on(crate::gpu::Gpu::new(Arc::clone(&window))) {
+                Ok(gpu) => {
+                    self.gpu = Some(gpu);
+                    self.window = Some(window);
+                    return;
+                }
+                Err(e) => tracing::warn!(error = %e, "GPU unavailable; using software presenter"),
+            }
+        }
         let surface =
             Context::new(Arc::clone(&window)).and_then(|c| Surface::new(&c, Arc::clone(&window)));
         match surface {
@@ -241,6 +269,13 @@ impl ApplicationHandler<UiEvent> for App {
                 self.picture = None;
             }
             UiEvent::Picture(pic) => {
+                if let Some(gpu) = &mut self.gpu
+                    && let Err(e) = gpu.upload(&pic)
+                {
+                    self.exit_reason = Some(e);
+                    event_loop.exit();
+                    return;
+                }
                 self.picture = Some(*pic);
                 if let Some(w) = &self.window {
                     w.request_redraw();
@@ -291,6 +326,7 @@ impl ApplicationHandler<UiEvent> for App {
                     self.shape_in_use = None;
                 }
             }
+            UiEvent::Privacy(enabled) => self.privacy = enabled,
             UiEvent::Stats(s) => {
                 self.title_stats = s;
                 self.update_title();
@@ -335,8 +371,14 @@ impl ApplicationHandler<UiEvent> for App {
                 // Local hotkeys (Ctrl+Alt+Shift+…): never forwarded.
                 let local = self.mods.control_key() && self.mods.alt_key() && self.mods.shift_key();
                 if pressed && local {
-                    use winit::keyboard::KeyCode::{KeyF, KeyM, KeyP, KeyQ};
+                    use winit::keyboard::KeyCode::{KeyB, KeyF, KeyM, KeyP, KeyQ};
                     match code {
+                        KeyB => {
+                            self.send(InputEvent::ReleaseAll);
+                            self.privacy = !self.privacy;
+                            let _ = self.commands.send(Command::Privacy(self.privacy));
+                            return;
+                        }
                         KeyM if self.monitor_count > 1 => {
                             self.send(InputEvent::ReleaseAll);
                             let next = (self.monitor + 1) % self.monitor_count;

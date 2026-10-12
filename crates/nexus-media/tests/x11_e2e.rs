@@ -54,6 +54,8 @@ async fn a_real_x_desktop_is_viewed_and_controlled_over_quic() {
 
     let display = xvfb.display().to_owned();
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: [grants::SCREEN, grants::INPUT]
             .iter()
             .map(|s| (*s).to_owned())

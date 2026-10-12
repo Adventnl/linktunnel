@@ -51,6 +51,8 @@ module_name_repetitions = "allow"
 
 [workspace.dependencies]
 # --- internal crates -------------------------------------------------------
+nexus-auth = { path = "crates/nexus-auth" }
+nexus-privacy = { path = "crates/nexus-privacy" }
 nexus-audit = { path = "crates/nexus-audit" }
 nexus-core = { path = "crates/nexus-core" }
 nexus-proto = { path = "crates/nexus-proto" }

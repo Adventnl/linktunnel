@@ -70,10 +70,13 @@ impl SessionHandler for DiagnosticsHandler {
 pub(crate) fn local_hello(shared: &Shared) -> Hello {
     let mut nonce = [0u8; 16];
     let _ = getrandom::fill(&mut nonce);
+    let mut caps = shared.handler.capabilities();
+    caps.features
+        .push(nexus_proto::features::AUTH_STEPUP.to_owned());
     Hello {
         version: Some(PROTOCOL_VERSION),
         min_version: Some(MIN_PROTOCOL_VERSION),
-        capabilities: Some(shared.handler.capabilities()),
+        capabilities: Some(caps),
         os: Some(sysinfo::os_info()),
         agent_version: env!("CARGO_PKG_VERSION").to_owned(),
         session_nonce: nonce.to_vec().into(),
@@ -195,7 +198,7 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
         return;
     }
     let hello = local_hello(&shared);
-    let established = match session
+    let mut established = match session
         .establish(&hello, SessionRole::Target, &[VideoCodec::H264])
         .await
     {
@@ -206,6 +209,17 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
             return;
         }
     };
+    if let Err(e) = crate::auth::incoming(&shared, &peer, &session, &hello, &mut established).await
+    {
+        shared.audit.record(
+            "auth.refused",
+            Some(&peer.identity.device_id().to_string()),
+            &[],
+        );
+        debug!(error = %e, "step-up refused");
+        session.close(CLOSE_DISCONNECTED, "step-up required or invalid");
+        return;
+    }
     info!(peer = %peer.identity.device_id(), path = ?session.path().kind, "session established");
     let _guard = SessionGuard::new(&shared, key, session.path().kind, &peer, &session);
     let actor = peer.identity.device_id().to_string();
@@ -250,7 +264,7 @@ async fn serve_incoming(shared: Arc<Shared>, session: Session) {
 }
 
 /// Opens a session to the paired device `device_id` as its controller.
-pub(crate) async fn dial(
+pub(crate) async fn dial_raw(
     shared: &Arc<Shared>,
     device_id: &[u8],
 ) -> Result<(Session, Established), AgentError> {
@@ -284,5 +298,33 @@ pub(crate) async fn dial(
         .establish(&hello, SessionRole::Controller, &[VideoCodec::H264])
         .await
         .map_err(|e: NetError| AgentError::Failed(format!("session setup failed: {e}")))?;
+    Ok((session, established))
+}
+
+/// Reuses the exact connection approved by `nexus auth unlock`, once, or negotiates a fresh one.
+pub(crate) async fn dial(
+    shared: &Arc<Shared>,
+    device_id: &[u8],
+) -> Result<(Session, Established), AgentError> {
+    if shared.is_locked_down() {
+        return Err(AgentError::Denied("lockdown".into()));
+    }
+    if shared.find_peer(device_id).is_none() {
+        return Err(AgentError::NotFound("no paired device with that id".into()));
+    }
+    if let Some(ready) = shared.ready_auth.lock().remove(device_id)
+        && ready.expires > Instant::now()
+        && !ready.session.is_closed()
+    {
+        return Ok((ready.session, ready.established));
+    }
+    let (session, mut established) = dial_raw(shared, device_id).await?;
+    if crate::auth::challenge(&mut established).await?.is_some() {
+        session.close(CLOSE_DISCONNECTED, "step-up required");
+        return Err(AgentError::StepUpRequired(
+            "this device requires a passkey or TOTP; run `nexus auth unlock DEVICE` then retry"
+                .into(),
+        ));
+    }
     Ok((session, established))
 }

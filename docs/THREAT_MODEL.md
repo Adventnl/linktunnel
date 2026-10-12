@@ -276,5 +276,36 @@ The person at a machine must be able to see that someone is connected and end it
 | Residual: a full-screen app hides the UI; a malicious local process could swallow the hotkey | **accepted**; `nexus lockdown on` from a terminal is the fallback | — |
 
 ### 8.15 What v2 still does not cover
-Independent review; the macOS helper split; WebAuthn/TOTP step-up; the always-on-top "session active" border; supply-chain
-attestation of release binaries; behaviour of any Windows/macOS-specific path on real machines.
+Independent review; the macOS helper split; account login/hardware-key-only policy and recovery; the always-on-top
+"session active" border; supply-chain attestation of release binaries; real Windows GPU/privacy/UAC/login validation.
+Device-local WebAuthn/TOTP step-up is covered by the implementation update below.
+
+## 2026-10-12 additions: step-up, privacy and relay
+
+Step-up runs before any target resource task can accept streams. It is separate from device
+key authentication and attended consent. Challenges are target-owned, expire after two minutes,
+are consumed on every response, and bind device keys and both session nonces. TOTP accepted-step
+floors and passkey credential updates persist before access; enrollment proves possession and
+uses authenticated local IPC. Replay and wrong-device tests, signed WebAuthn assertions, and the
+two-agent resource gate test cover these invariants. Authentication success preserves only its
+exact connection for one subsequent command; it is never a reusable bearer authorization token.
+Lockdown and revocation are rechecked before admitting the verified session. See ADR 0020.
+
+The loopback browser bridge validates Host, a random 256-bit token and POST Origin, exposes no
+CORS, expires, uses no external resources and removes the token fragment from browser history.
+RP localhost permits portable/synced passkeys and ephemeral ports; same-user malware remains
+inside the existing local administrator/IPC trust boundary. Vendored OpenSSL is confined to the
+vetted WebAuthn verifier; QUIC/signaling/relay TLS stays rustls. Hardware-key-only policy and
+account authentication remain outside this implementation.
+
+Privacy uses an explicit grant, consent and scoped lease; the physical user can escape with Esc.
+Disconnect/timeout restores it. Windows hooks are convenience input suppression, not an OS-level
+security boundary; raw-input drivers/secure attention and secure-desktop behavior remain OS
+controlled. A physical Windows test must verify the shield is excluded from DXGI captures and
+all monitors are obscured. macOS/Linux unsupported responses never claim privacy. See ADR 0022.
+
+The relay is an opaque end-to-end encrypted packet carrier. Admission tokens limit use of the
+infrastructure, while device allowlisting controls resource access. Tokens are redacted from Debug.
+Direct TLS is 1.3 only; the plain proxy hop is loopback-only even in Compose. Actual standalone
+binary tests cover pinned TLS, encrypted relay-only transport and refused tokens. Operators still
+need TLS/proxy connection limits, patching and real WAN deployment checks. See ADR 0023.

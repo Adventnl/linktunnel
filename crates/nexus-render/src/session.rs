@@ -80,6 +80,8 @@ pub enum UiEvent {
         /// Seconds until the next attempt.
         in_secs: u64,
     },
+    /// Confirmed physical-screen privacy state.
+    Privacy(bool),
     /// The session ended (or could not start). The window should close.
     Ended(String),
 }
@@ -91,6 +93,8 @@ pub enum Command {
     Input(InputEvent),
     /// Show another monitor.
     SwitchMonitor(u32),
+    /// Toggle physical target-screen privacy and local-input blocking.
+    Privacy(bool),
     /// Close the session.
     Quit,
 }
@@ -233,23 +237,35 @@ async fn run_session(
     notify: &(impl Fn(UiEvent) + Send),
     resuming: bool,
 ) -> Outcome {
-    let opened = match client
-        .open_session(OpenSession {
-            device_id: options.device_id.clone().into(),
-            monitor: options.monitor,
-            max_fps: options.max_fps,
-            bitrate_bps: options.bitrate_bps,
-            want_video: true,
-            clipboard: options.clipboard,
-            audio: options.audio,
-            key_remap: if options.key_remap {
-                "auto".into()
-            } else {
-                String::new()
-            },
+    let request = OpenSession {
+        device_id: options.device_id.clone().into(),
+        monitor: options.monitor,
+        max_fps: options.max_fps,
+        bitrate_bps: options.bitrate_bps,
+        want_video: true,
+        clipboard: options.clipboard,
+        audio: options.audio,
+        key_remap: if options.key_remap {
+            "auto".into()
+        } else {
+            String::new()
+        },
+    };
+    let mut opening = client.open_session(request.clone()).await;
+    if matches!(
+        &opening,
+        Err(nexus_ipc::IpcError::Agent {
+            code: nexus_proto::v1::IpcErrorCode::StepUpRequired,
+            ..
         })
-        .await
-    {
+    ) {
+        notify(UiEvent::Stats("Verify access in your browser".into()));
+        match authenticate(client, options).await {
+            Ok(()) => opening = client.open_session(request).await,
+            Err(e) => return Outcome::Done(e),
+        }
+    }
+    let opened = match opening {
         Ok(o) => o,
         Err(e) => {
             let text = format!("could not connect to {}: {e}", options.device_name);
@@ -301,6 +317,7 @@ async fn run_session(
             ev = events.next() => {
                 let Some(ev) = ev else { break Outcome::Done("the agent closed the connection".to_owned()) };
                 match ev.body {
+                    Some(Ev::SessionPrivacyState(state)) if state.session_id == id => notify(UiEvent::Privacy(state.enabled)),
                     Some(Ev::SessionVideo(v)) if v.session_id == id => {
                         let arrived = Instant::now();
                         let Some(frame) = parse_frame(&v.frame) else { continue };
@@ -336,6 +353,15 @@ async fn run_session(
             cmd = commands.recv() => {
                 let Some(cmd) = cmd else { break Outcome::Done("closed".to_owned()) };
                 match cmd {
+                    Command::Privacy(enabled) => {
+                        match client.session_privacy(id, enabled, true).await {
+                            Ok(()) => {
+                                notify(UiEvent::Privacy(enabled));
+                                notify(UiEvent::Stats(if enabled { "Privacy screen enabled".into() } else { "Privacy screen disabled".into() }));
+                            },
+                            Err(e) => { notify(UiEvent::Privacy(false)); notify(UiEvent::Stats(format!("Privacy screen: {e}"))); },
+                        }
+                    }
                     Command::Quit => break Outcome::Done("closed".to_owned()),
                     Command::SwitchMonitor(n) => {
                         if let Err(e) = client.session_monitor(id, n).await {
@@ -348,6 +374,7 @@ async fn run_session(
                         while input_buf.len() < MAX_EVENTS {
                             match commands.try_recv() {
                                 Ok(Command::Input(e)) => input_buf.push(e),
+                                Ok(Command::Privacy(enabled)) => { let _ = client.session_privacy(id, enabled, true).await; }
                                 Ok(Command::SwitchMonitor(n)) => { let _ = client.session_monitor(id, n).await; }
                                 Ok(Command::Quit) => { let _ = client.close_session(id).await; return Outcome::Done("closed".to_owned()); }
                                 Err(_) => break,
@@ -374,6 +401,58 @@ async fn run_session(
     };
     let _ = client.close_session(id).await;
     outcome
+}
+
+async fn authenticate(client: &IpcClient, options: &ViewerOptions) -> Result<(), String> {
+    use nexus_proto::v1::AuthRequest;
+    let begin = client
+        .auth(AuthRequest {
+            operation: "remote-begin".into(),
+            device_id: options.device_id.clone().into(),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    if begin.handle.is_empty() {
+        return Ok(());
+    }
+    let challenge: serde_json::Value =
+        serde_json::from_str(&begin.json).map_err(|e| e.to_string())?;
+    if challenge["public_key"].is_null() && challenge["totp"] != true {
+        return Err("The target has no enrolled passkey or TOTP. Enroll a factor on that device before unattended access.".into());
+    }
+    let mut browser_options = challenge["public_key"].clone();
+    if browser_options.is_null() {
+        browser_options = serde_json::json!({});
+    }
+    browser_options["totp"] = challenge["totp"].clone();
+    let prompt = nexus_auth::browser::BrowserPrompt::start(
+        browser_options,
+        false,
+        &options.device_name,
+        nexus_core::i18n::Locale::detect() == nexus_core::i18n::Locale::ZhCn,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    prompt.open().map_err(|e| e.to_string())?;
+    let response = prompt.wait().await.map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&response).map_err(|e| e.to_string())?;
+    let (totp, response_json) = if let Some(code) = json["totp"].as_str() {
+        (code.to_owned(), String::new())
+    } else {
+        (String::new(), response)
+    };
+    client
+        .auth(AuthRequest {
+            operation: "remote-finish".into(),
+            handle: begin.handle,
+            totp,
+            response_json,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]

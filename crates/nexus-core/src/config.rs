@@ -339,13 +339,15 @@ impl Default for LogConfig {
 }
 
 /// Networking settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct NetConfig {
     /// WebSocket URL of the signaling/presence server (`wss://…/v1/ws`).
     pub signal_url: Option<Url>,
-    /// Self-hosted relay URLs. Empty means "use the built-in default relay set".
+    /// Self-hosted relay URLs. Empty disables relays (third-party services are opt-in).
     pub relay_urls: Vec<Url>,
+    /// Admission token for self-hosted relays. Prefer NEXUS_NET__RELAY_TOKEN to a config file.
+    pub relay_token: Option<String>,
     /// Local UDP port for direct connections. `0` picks an ephemeral port; servers should
     /// pin a port so a firewall rule can allow it.
     pub udp_port: u16,
@@ -358,11 +360,28 @@ pub struct NetConfig {
     pub allow_insecure_signal: bool,
 }
 
+impl std::fmt::Debug for NetConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NetConfig")
+            .field("signal_url", &self.signal_url)
+            .field("relay_urls", &self.relay_urls)
+            .field(
+                "relay_token",
+                &self.relay_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("udp_port", &self.udp_port)
+            .field("lan_discovery", &self.lan_discovery)
+            .field("allow_insecure_signal", &self.allow_insecure_signal)
+            .finish()
+    }
+}
+
 impl Default for NetConfig {
     fn default() -> Self {
         Self {
             signal_url: None,
             relay_urls: Vec::new(),
+            relay_token: None,
             udp_port: 0,
             lan_discovery: true,
             allow_insecure_signal: false,

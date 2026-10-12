@@ -17,6 +17,8 @@ pure-blake3 = ["nexus-crypto/pure-blake3"]
 workspace = true
 
 [dependencies]
+nexus-auth.workspace = true
+rpassword = "7"
 anyhow.workspace = true
 bytes.workspace = true
 clap.workspace = true

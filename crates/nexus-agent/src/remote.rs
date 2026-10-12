@@ -30,8 +30,9 @@ pub struct RemoteHandler {
     terminal: Option<Arc<nexus_terminal::TerminalHost>>,
     portfwd: Option<Arc<nexus_portfwd::ForwardHost>>,
     audio: Option<target::AudioSourceFactory>,
+    privacy: Option<Arc<dyn nexus_privacy::PrivacyBackend>>,
     /// Keeps a virtual screen alive for as long as this handler serves it.
-    vdisplay: Option<Arc<parking_lot::Mutex<nexus_vdisplay::VirtualDisplay>>>,
+    _vdisplay: Option<Arc<parking_lot::Mutex<nexus_vdisplay::VirtualDisplay>>>,
 }
 
 impl std::fmt::Debug for RemoteHandler {
@@ -66,8 +67,16 @@ impl RemoteHandler {
             terminal: None,
             portfwd: None,
             audio: None,
-            vdisplay: None,
+            privacy: nexus_privacy::detect(),
+            _vdisplay: None,
         }
+    }
+
+    /// Installs an explicit privacy backend (embedding and lifecycle tests).
+    #[must_use]
+    pub fn with_privacy(mut self, backend: Arc<dyn nexus_privacy::PrivacyBackend>) -> Self {
+        self.privacy = Some(backend);
+        self
     }
 
     /// Also serves the file panel from these shared folders to peers holding the `files` grant.
@@ -224,7 +233,7 @@ impl RemoteHandler {
                 .map(|i| Box::new(i) as Box<dyn nexus_input::Injector>)
         });
         let mut h = Self::new(Some(Arc::new(backend)), Some(injector), max_fps);
-        h.vdisplay = Some(Arc::new(parking_lot::Mutex::new(vd)));
+        h._vdisplay = Some(Arc::new(parking_lot::Mutex::new(vd)));
         Ok(h)
     }
 
@@ -277,6 +286,9 @@ impl SessionHandler for RemoteHandler {
         if self.audio.is_some() {
             features_list.push(features::AUDIO_OPUS.to_owned());
         }
+        if self.privacy.is_some() {
+            features_list.push(features::PRIVACY_SCREEN.to_owned());
+        }
         caps.features = features_list;
         caps
     }
@@ -295,6 +307,7 @@ impl SessionHandler for RemoteHandler {
             }
         };
         let config = TargetConfig {
+            encoder: None,
             grants: ctx.peer.grants_from_peer.clone(),
             capture,
             injector: self.injector.clone(),
@@ -317,6 +330,7 @@ impl SessionHandler for RemoteHandler {
             }),
             wake_relay: self.wake_relay,
             audio: self.audio.clone(),
+            privacy: self.privacy.clone(),
             terminal: self.terminal.clone(),
             portfwd: self.portfwd.clone(),
         };

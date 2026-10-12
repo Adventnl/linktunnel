@@ -14,6 +14,8 @@ default = ["software"]
 # OpenH264, a C++ library. Turn it off to type-check the platform backends on a host without a
 # C toolchain for the target.
 software = ["dep:openh264", "dep:openh264-sys2"]
+# Links an installed FFmpeg with hardware encoder support (see docs/ACCELERATION.md).
+hardware-ffmpeg = ["dep:ffmpeg-next"]
 
 [dependencies]
 bytes.workspace = true
@@ -24,6 +26,7 @@ openh264-sys2 = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 yuv.workspace = true
+ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"], optional = true }
 
 [dev-dependencies]
 proptest.workspace = true

@@ -16,17 +16,19 @@ An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause 
 * **Hardware-level control (BIOS, power-off machines)** needs vPro/AMT/IPMI/smart-plug drivers: not implemented.
 
 ## Not built yet (planned in the brief)
-* **GPU encoders and decoders** (NVENC, AMF, QuickSync, VAAPI, HW decode), zero-copy capture→encode, intra-refresh, reference-frame
-  invalidation, video FEC, AV1/HEVC. Today: software OpenH264 everywhere, VideoToolbox encode on Macs (unrun). Consequence: 4K60 and
-  120 fps are not realistic yet; 1080p software encode peaks at ~80 fps on a 4-core x86-64 CPU.
-* **The wgpu native viewport.** The viewer is `winit` + `softbuffer` (CPU presentation), not a GPU swap-chain: no vsync-bypass "game
-  mode", no GPU scaling. It is functional and low-latency in loopback but not the final design (ADR-0012 still states the goal).
-* **Privacy screen** (blank the target's physical display and block its local input), **IME-aware** text entry beyond scancodes +
-  Unicode injection, pinch-zoom viewport, seamless per-window streaming.
+* **Hardware decoding, zero-copy capture→encode, intra-refresh, reference-frame invalidation, video FEC, AV1/HEVC** remain unbuilt.
+  NVENC/AMF/Quick Sync/VAAPI H.264 implementations now exist behind `hardware-ffmpeg`, but need the FFmpeg SDK/runtime
+  and matching GPU validation. Baseline installers do not bundle FFmpeg. GPU wgpu presentation is implemented and its
+  shader was executed on this Mac; decoded BGRA still crosses CPU memory. See [ACCELERATION.md](ACCELERATION.md).
+* **Physical privacy on macOS/Linux** remains unbuilt. Windows normal-desktop shields and local-input hooks are implemented
+  and cross-compiled, with cleanup verified using a recording backend; they have not run against a real Windows GPU/DXGI
+  desktop. Privacy is refused on unsupported platforms/secure desktops. Local Esc restores the screen. See ADR 0022.
+* **IME-aware** text entry beyond scancodes + Unicode injection, pinch-zoom viewport and seamless per-window streaming.
 * **Windows secure-desktop control: written, never executed** (no Windows machine). Same for the whole Windows and macOS runtime:
   capture, input, presence sensors, service, installers.
-* **Step-up authentication** (WebAuthn passkeys, TOTP) from the spec: designed in ADR-0006, not implemented. Unattended access is a
-  per-device switch, not a passkey ceremony.
+* **Account login, hardware-key-only policy, factor recovery/removal UI and unattended reconnect without a fresh factor** remain unbuilt.
+  Device-local, session-bound WebAuthn/TOTP step-up is implemented and enforced before resources. Browser and two-agent
+  verification tests pass. See [STEP_UP.md](STEP_UP.md).
 * **An always-on-top "session active" border/badge drawn over the screen, and push/email notifications to your *other* devices.** What
   exists: tray/menu and dashboard banners, `nexus sessions`, a desktop notification on each new connection, and a panic hotkey. All of
   these live in the agent/app UI: someone looking only at a full-screen game or video would not see them, and the notification and
@@ -34,7 +36,8 @@ An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause 
 * **Encrypted local session recording, quiet hours, geofence, per-device allowed-controller lists beyond pairing grants.**
 * **Horizontal scaling of the signaling server** (presence/envelope routing is per-process: run one replica; state is in PostgreSQL/Redis
   so restarts are safe).
-* **`nexus-relay` as a product.** Relays are stock `iroh-relay` (see ADR-0003); we ship configuration guidance, not a custom relay.
+* **Production relay operations/WAN validation** remain unverified. `nexus-relay` now ships TLS, admission and traffic limits
+  around upstream iroh-relay; the real binary passes an encrypted relay-only/admission test. The Compose bundle is authored, unrun.
 * **Mobile apps and a browser controller; session sharing / guest links; multi-user teams.**
 * **Crash reporting, auto-update daemon loop** (the signed-update library and CLI exist; nothing polls and applies by itself).
 * **Wayland headless compositor and KMS capture.** Headless servers use Xvfb (X11). Wayland desktops: capture goes through X11/Xwayland

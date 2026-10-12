@@ -25,3 +25,8 @@ An ADR that depends on a measurement says so and links the result.
 | [0017](0017-lan-discovery-and-privacy.md) | LAN discovery (mDNS) without leaking presence | Accepted |
 | [0018](0018-windows-service-and-secure-desktop.md) | Windows service and secure-desktop control | Accepted (unrun on Windows) |
 | [0019](0019-desktop-app-over-agent-ipc.md) | Desktop app as a thin client of the agent | Accepted |
+
+* [0020 — Session-bound WebAuthn/TOTP step-up](0020-session-stepup.md)
+* [0021 — GPU presentation and optional hardware encoders](0021-gpu-presentation-and-encoders.md)
+* [0022 — Physical-screen privacy leases](0022-physical-screen-privacy.md)
+* [0023 — Standalone relay](0023-standalone-relay.md)

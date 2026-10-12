@@ -39,6 +39,8 @@ async fn rig(
         }) as ConsentGate
     });
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant_list
             .iter()
             .map(|s| (*s).to_owned())

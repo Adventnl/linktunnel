@@ -86,19 +86,32 @@ pub async fn serve_stream<S>(
             return;
         }
     };
-    let Some(addr) = addrs
+    let permitted: Vec<_> = addrs
         .into_iter()
-        .find(|a| policy.permits_addr(&host, port, *a))
-    else {
+        .filter(|a| policy.permits_addr(&host, port, *a))
+        .collect();
+    if permitted.is_empty() {
         info!(%host, port, "port forward refused: no resolved address is allowed");
         observe(&host, port, Status::Denied);
         let _ = io.write_all(&[Status::Denied as u8]).await;
         return;
+    }
+    // localhost may resolve IPv6 first while the service listens only on IPv4 (or vice versa).
+    // Pin/check every numeric address, then try them all under one total timeout.
+    let connect = async {
+        let mut error = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        for addr in permitted {
+            match TcpStream::connect(addr).await {
+                Ok(tcp) => return Ok(tcp),
+                Err(e) => error = e,
+            }
+        }
+        Err(error)
     };
-    let tcp = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+    let tcp = match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
-            debug!(%addr, error = %e, "forward destination refused the connection");
+            debug!(%host, error = %e, "forward destination refused the connection");
             let status = if e.kind() == std::io::ErrorKind::ConnectionRefused {
                 Status::Refused
             } else {

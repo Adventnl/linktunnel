@@ -15,11 +15,14 @@ path = "src/main.rs"
 
 [features]
 default = ["audio-device"]
+hardware-ffmpeg = ["nexus-codec/hardware-ffmpeg"]
 # Real sound devices (needs ALSA headers on Linux). Without it the agent neither shares nor
 # plays sound but everything else works.
 audio-device = ["nexus-audio/device"]
 
 [dependencies]
+nexus-privacy.workspace = true
+nexus-auth.workspace = true
 anyhow.workspace = true
 nexus-audio.workspace = true
 nexus-winservice.workspace = true
@@ -60,6 +63,7 @@ tracing.workspace = true
 url = "2"
 
 [dev-dependencies]
+totp-rs = { version = "5.7", features = ["otpauth"] }
 blake3.workspace = true
 bytes.workspace = true
 nexus-signal.workspace = true

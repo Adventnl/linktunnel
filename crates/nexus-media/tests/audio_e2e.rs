@@ -37,6 +37,8 @@ async fn rig(grant_list: &[&str], audio: bool, video: bool) -> ControllerSession
             as Box<dyn nexus_audio::AudioSource>)
     });
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant_list
             .iter()
             .map(|s| (*s).to_owned())

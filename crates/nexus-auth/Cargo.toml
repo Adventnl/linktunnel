@@ -1,0 +1,29 @@
+[package]
+name = "nexus-auth"
+description = "Single-use, session-bound WebAuthn and TOTP step-up verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[lints]
+workspace = true
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+nexus-crypto.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+data-encoding.workspace = true
+subtle.workspace = true
+totp-rs = { version = "5.7", features = ["otpauth", "zeroize"] }
+webauthn-rs = "0.5.5"
+# webauthn-rs verifies signatures with OpenSSL. Vendor it for consistent native builds.
+openssl = { version = "0.10", features = ["vendored"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+[dev-dependencies]
+tempfile.workspace = true
+webauthn-authenticator-rs = { version = "0.5.5", default-features = false, features = ["softpasskey"] }

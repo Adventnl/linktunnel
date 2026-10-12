@@ -55,6 +55,8 @@ async fn rig_with(answer: Consent, delay: Duration, options: ControllerOptions) 
         })
     };
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: [grants::SCREEN, grants::INPUT]
             .iter()
             .map(|s| (*s).to_owned())

@@ -105,3 +105,20 @@ lets you take control of one, run a terminal, move files, or wake it.
 | Auditability | hash-chained, signed append-only log | ✅ |
 
 The live truth of what is implemented and *verified* is in [STATUS.md](STATUS.md).
+
+## Implementation update: 2026-10-12
+
+The native viewer now presents through wgpu (CPU BGRA upload; GPU scaling) with a software fallback.
+The agent optionally selects FFmpeg vendor encoders after probing actual immediate H.264 output;
+VideoToolbox remains macOS's default hardware path. See ADR 0021 and ACCELERATION.md.
+
+Incoming sessions negotiate step-up before any target handler/resources run. Authenticated local
+IPC manages factor enrollment and the controller's ephemeral browser prompt. A successful ceremony
+preserves the exact encrypted connection for one next command (60-second expiry), with no reusable
+authorization token. See ADR 0020 and STEP_UP.md. The default unattended policy is enforced.
+
+Privacy requests travel over the existing encrypted control stream and require a `privacy` grant.
+A target holds an OS privacy lease and restores it on termination or watchdog/local escape. Windows
+normal-desktop shields are implemented; unsupported platforms refuse explicitly. See ADR 0022.
+`nexus-relay` now embeds the upstream iroh server with TLS/admission/traffic limits; it never sees
+plaintext media/input. See ADR 0023 and the separate Compose relay bundle.

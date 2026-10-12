@@ -90,10 +90,14 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         default_consent: nexus_core::config::ConsentMode::Unattended,
         consent_timeout: Duration::from_secs(30),
         resume_window: Duration::from_secs(120),
-        presence_sensor: None,
+        presence_sensor: Some(Arc::new(nexus_presence::FixedSensor(
+            nexus_presence::Snapshot::default(),
+        ))),
         presence_interval: Duration::from_millis(200),
         lan_discovery: false,
         consent_prompter: None,
+        unattended_requires_stepup: false,
+        auth_store: None,
     }
 }
 
@@ -1680,4 +1684,121 @@ async fn the_person_at_a_machine_can_see_and_end_who_is_connected() {
         _ => None,
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unattended_resources_require_stepup_and_the_approved_connection_is_used_once() {
+    use nexus_proto::v1::{AuthRequest, IpcErrorCode, OpenSession};
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let share = dir.path().join("share-stepup");
+    std::fs::create_dir_all(&share).unwrap();
+    let store: Arc<dyn nexus_crypto::store::SecretStore> =
+        Arc::new(nexus_crypto::store::MemoryStore::new());
+    let mut verifier = nexus_auth::Verifier::new(store.clone()).unwrap();
+    let (enrollment, options) = verifier.enroll(false, "owner").unwrap();
+    let otp = totp_rs::TOTP::from_url(options["uri"].as_str().unwrap()).unwrap();
+    let now = nexus_core::clock::unix_ms() / 1000;
+    verifier
+        .finish_enrollment(
+            &enrollment,
+            &otp.generate(now.saturating_sub(60)),
+            now.saturating_sub(60),
+        )
+        .unwrap();
+    let handler = nexus_agent::RemoteHandler::new(None, None, 60).with_files(
+        nexus_files::FileRoots::new(vec![nexus_files::SharedRoot {
+            path: share,
+            writable: true,
+        }]),
+        1 << 30,
+    );
+    let mut mac = start_device("Mac", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_cfg(
+        "PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(handler),
+        |cfg| {
+            cfg.unattended_requires_stepup = true;
+            cfg.auth_store = Some(store);
+        },
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+    let request = OpenSession {
+        device_id: pc.id().into(),
+        want_video: false,
+        ..Default::default()
+    };
+    assert!(matches!(
+        mac.client.open_session(request.clone()).await,
+        Err(nexus_ipc::IpcError::Agent {
+            code: IpcErrorCode::StepUpRequired,
+            ..
+        })
+    ));
+    let begin = mac
+        .client
+        .auth(AuthRequest {
+            operation: "remote-begin".into(),
+            device_id: pc.id().into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(!begin.handle.is_empty());
+    mac.client
+        .auth(AuthRequest {
+            operation: "remote-finish".into(),
+            handle: begin.handle,
+            totp: otp.generate(now),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let opened = mac.client.open_session(request.clone()).await.unwrap();
+    assert!(
+        !mac.client
+            .file_list(opened.session_id, "")
+            .await
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    mac.client.close_session(opened.session_id).await.unwrap();
+    assert!(matches!(
+        mac.client.open_session(request).await,
+        Err(nexus_ipc::IpcError::Agent {
+            code: IpcErrorCode::StepUpRequired,
+            ..
+        })
+    ));
+    // Reusing the same code for a second connection fails even with a new challenge.
+    let begin = mac
+        .client
+        .auth(AuthRequest {
+            operation: "remote-begin".into(),
+            device_id: pc.id().into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(
+        mac.client
+            .auth(AuthRequest {
+                operation: "remote-finish".into(),
+                handle: begin.handle,
+                totp: otp.generate(now),
+                ..Default::default()
+            })
+            .await
+            .is_err()
+    );
+    mac.agent.shutdown().await;
+    pc.agent.shutdown().await;
 }

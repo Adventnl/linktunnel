@@ -73,6 +73,8 @@ message IpcRequest {
     StopForward stop_forward = 49;
     ListSessions list_sessions = 50;
     DisconnectSessions disconnect_sessions = 51;
+    AuthRequest auth = 52;
+    SessionPrivacy session_privacy = 53;
   }
 }
 
@@ -140,6 +142,7 @@ message IpcResponse {
     TerminalStarted terminal_started = 33;
     ForwardStarted forward_started = 34;
     SessionList session_list = 17;
+    AuthResponse auth = 18;
   }
 }
 
@@ -153,6 +156,7 @@ enum IpcErrorCode {
   IPC_ERROR_CODE_UNAVAILABLE = 4;
   IPC_ERROR_CODE_FAILED = 5;
   IPC_ERROR_CODE_PERMISSION_DENIED = 6;
+  IPC_ERROR_CODE_STEP_UP_REQUIRED = 7;
 }
 
 message IpcError {
@@ -249,6 +253,7 @@ message IpcEvent {
     TerminalEnded terminal_ended = 17;
     // Who is currently controlling THIS machine (pushed whenever it changes).
     SessionsChanged sessions_changed = 18;
+    SessionPrivacyState session_privacy_state = 19;
   }
 }
 
@@ -602,3 +607,17 @@ message SessionList {
 message SessionsChanged {
   repeated ActiveSession sessions = 1;
 }
+
+// Authenticated local IPC only. Operations: status, enroll-totp, enroll-passkey,
+// enroll-finish, remote-begin, remote-finish. JSON is bounded by IPC frame limits.
+message AuthRequest {
+  string operation = 1;
+  bytes device_id = 2;
+  string handle = 3;
+  string response_json = 4;
+  string totp = 5;
+}
+message AuthResponse { string handle = 1; string json = 2; }
+message SessionPrivacy { uint64 session_id = 1; bool enabled = 2; bool block_local_input = 3; }
+
+message SessionPrivacyState { uint64 session_id = 1; bool enabled = 2; bool local_input_blocked = 3; }

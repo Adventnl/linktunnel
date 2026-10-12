@@ -44,6 +44,8 @@ async fn rig(
     let (ea, eb) = (ea.unwrap(), eb.unwrap());
     let (backend, _probe) = SyntheticBackend::new(SyntheticConfig::default());
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant_list
             .iter()
             .map(|s| (*s).to_owned())

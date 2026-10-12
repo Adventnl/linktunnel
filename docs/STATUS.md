@@ -9,6 +9,39 @@ claims a capability this page does not.
 🔲 not started ·
 ⛔ cannot be verified from the available environment (reason given)
 
+## Implementation update — 2026-10-12 (macOS Apple Silicon)
+
+* ✅ Native wgpu viewer: Metal shader executed and checked for BGRA colour order, orientation,
+  opaque alpha and letterboxing; software fallback retained. CPU decoding/upload remains.
+* 🟡 NVENC/AMF/Quick Sync/VAAPI: real FFmpeg backends compile and pass strict lint; device probe,
+  low-delay H.264 output and rate-change code implemented behind `hardware-ffmpeg`. Matching
+  Windows/Linux vendor GPUs are unavailable here. Hardware decoding and zero-copy remain unbuilt.
+* ✅ WebAuthn/TOTP: actual Chrome browser registration/authentication with a temporary virtual
+  authenticator; verifier expiry/binding/replay/persistence tests; two real agents refuse resource
+  access before step-up and reuse the approved exact connection once. Viewer prompts automatically.
+  The default `unattended_requires_stepup` flag is now enforced. Fresh unattended reconnects need a factor.
+* 🟡 Windows physical privacy: cross-target compile/lint; ✅ encrypted request/consent/grant and
+  lease restoration tests with a recording OS backend. No Windows physical-screen test yet.
+  macOS/Linux physical privacy remains unsupported.
+* ✅ Standalone `nexus-relay`: actual binary, pinned TLS, relay-only encrypted traffic and denied
+  token test; Compose bundle authored (not deployed). No WAN/NAT performance assertion.
+* ✅ All 22 agent end-to-end tests passed on this Mac, including synthetic live video/input,
+  files, terminals, forwarding, consent, revocation, disconnect and step-up. **583 workspace Rust
+  tests pass**, strict workspace/FFmpeg/Windows-privacy lint and cargo-deny are clean; frontend
+  20 tests, typecheck and build pass. Synthetic noninteractive demo scripts explicitly disable
+  step-up only in their isolated temporary target configuration. Tauri backend testing is unavailable (locked dependency absent
+  from cache; registry DNS failure). Existing transport/resource behavior now includes IPv4 fallback
+  after an IPv6-first localhost resolution and correct deliberate-disconnect status.
+
+Measurement and validation details: [Mac verification report](benchmarks/2026-10-12-macos-live-control.md).
+
+Setup: [STEP_UP.md](STEP_UP.md), [ACCELERATION.md](ACCELERATION.md), [SELF_HOSTING.md](SELF_HOSTING.md).
+The remaining product acceptance gate is [FULL_CONTROL_QA.md](FULL_CONTROL_QA.md), particularly
+Mac→Windows UAC/login, vendor GPUs, physical privacy and measured real-LAN/WAN control latency.
+
+The ledger below describes the **earlier implementation and its original evidence**; this update
+supersedes its unbuilt rows for these five components without changing the historical measurements.
+
 **Verification environments.** The Phase 1-2 evidence in the earlier version of this ledger (Keychain store, real
 PostgreSQL/Redis containers, relay tests) came from a MacBook (macOS 26, Apple M4). **Everything built since then, including
 the whole media/control stack, ran in Linux x86-64 cloud containers** (Ubuntu 24.04, 4 cores, no GPU, no audio hardware, Xvfb
@@ -48,7 +81,7 @@ VideoToolbox encoder 🟡 (type-checked for both Mac targets, tests only run on 
 local cursor stream, input injection (XTest ✅; CGEvent 🟡; SendInput 🟡), viewer window
 (`nexus remote view`, winit + softbuffer) ✅, `nexus remote screenshot/type/key/click/monitors` ✅ end to end through two
 real agents (`scripts/demo-remote.sh`, Linux).
-Note: the viewer renders with `softbuffer`, not `wgpu`: ADR-0012's "wgpu viewport" is **not** what was built (see LIMITATIONS).
+Earlier viewer used `softbuffer`; the 2026-10-12 update above implements wgpu.
 
 ## Phase 4: Hardware acceleration and the latency war: 🟡 partial
 Adaptive bitrate (delay-gradient + AIMD) with quality ladder ✅ (tests + shaped-link benchmark: on a 4 Mbit/s,
@@ -57,7 +90,7 @@ dirty-rect skipping ✅, live encoder rate changes ✅, latency telemetry ✅, b
 (script; CI job unrun).
 **Measured (Linux x86-64, software OpenH264, loopback, synthetic content):** glass-to-glass **p50 7.9 ms, p95 10.8 ms**
 (encode 5.5 ms, network 0.2 ms, decode 1.1 ms). 1080p software encode p50 12.4 ms (81 fps max).
-🔲 NVENC / AMF / QuickSync / VAAPI encoders, hardware decode, zero-copy GPU paths, intra-refresh, reference-frame
+🟡 NVENC / AMF / QuickSync / VAAPI encoders now implemented behind FFmpeg (update above). 🔲 Hardware decode, zero-copy GPU paths, intra-refresh, reference-frame
 invalidation, FEC for video: **not built**. Software H.264 only (+ VideoToolbox on Mac). The "≤ 40 ms LAN p50" target
 is met in the synthetic loopback measurement; real-LAN / real-desktop numbers are ⛔ (no second machine) and the WAN
 numbers are ⛔ (no WAN).
@@ -72,7 +105,7 @@ numbers are ⛔ (no WAN).
 | Power actions + Wake-on-LAN (direct, or relayed through an always-on device) | ✅ | `a_granted_request_is_performed_after_the_reply`, `wake::tests::a_packet_goes_out_on_the_wire` |
 | **Audio streaming (new)**: Opus 48 kHz, FEC + loss concealment, adaptive jitter buffer, mute/bitrate/loss feedback, `audio` grant | ✅ pipeline & transport / 🟡 devices | 19 `nexus-audio` tests; QUIC e2e `tone_arrives_and_is_audible`; fuzzed. **Device capture/playback (cpal: WASAPI loopback, CoreAudio loopback, PulseAudio/PipeWire monitor) is type-checked on Linux but never ran against real sound hardware** (the container has none); macOS ScreenCaptureKit audio is not used (cpal's CoreAudio loopback needs macOS 14.6+) |
 | **Auto-reconnect and session resume (new)**: the viewer reconnects after a lost link (1 s→8 s back-off, 5 min), the target skips the attended prompt for a device whose approved session *dropped* in the last 2 minutes (never after a deliberate disconnect), audit-logged | ✅ | `a_lost_link_is_retried_and_a_deliberate_end_is_not` (fake agent speaking the real IPC), `a_dropped_link_may_resume_briefly_and_a_deliberate_end_may_not`, and `scripts/demo-resume.sh`: two real agents, attended, the controller agent SIGKILLed mid-terminal, same persistent shell re-attached with **no second prompt** (and a clean stop *does* ask again). QUIC connection *migration* (IP change without a drop) is quinn's and was not separately tested |
-| Privacy screen (blank target display, block local input) | 🔲 | not implemented (LIMITATIONS) |
+| Privacy screen (blank target display, block local input) | 🟡 Windows | 2026-10-12 update; cross-compiled; recording-backend cleanup tests; real Windows pending |
 | IME / international layouts beyond scancode + Unicode text injection | 🔲 | scancodes and `Text` events only |
 | Pinch-zoom / gesture viewport | 🔲 | |
 

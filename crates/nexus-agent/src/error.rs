@@ -5,6 +5,9 @@ use nexus_proto::v1::{IpcError, IpcErrorCode};
 /// Why an agent operation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
+    /// Target requires a user factor before accessing its resources.
+    #[error("{0}")]
+    StepUpRequired(String),
     /// The request is malformed.
     #[error("{0}")]
     Invalid(String),
@@ -28,6 +31,7 @@ pub enum AgentError {
 impl AgentError {
     pub(crate) fn code(&self) -> IpcErrorCode {
         match self {
+            Self::StepUpRequired(_) => IpcErrorCode::StepUpRequired,
             Self::Invalid(_) => IpcErrorCode::InvalidRequest,
             Self::NotFound(_) => IpcErrorCode::NotFound,
             Self::Busy(_) => IpcErrorCode::Busy,

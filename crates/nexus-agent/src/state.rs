@@ -33,6 +33,9 @@ pub(crate) struct PairingSlot {
 
 /// Everything the agent's tasks share.
 pub struct Shared {
+    pub(crate) auth: Mutex<nexus_auth::Verifier>,
+    pub(crate) remote_auth: Mutex<std::collections::HashMap<String, crate::auth::RemotePending>>,
+    pub(crate) ready_auth: Mutex<std::collections::HashMap<Vec<u8>, crate::auth::Ready>>,
     pub(crate) cfg: AgentConfig,
     pub(crate) identity: Arc<DeviceIdentity>,
     pub(crate) trust: Mutex<TrustStore>,

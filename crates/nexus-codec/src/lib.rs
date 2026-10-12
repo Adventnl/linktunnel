@@ -5,9 +5,9 @@
 //!   the fallback and the reference the other backends are tested against.
 //! * `videotoolbox` (macOS only): the Apple hardware encoder. Decoding on macOS uses OpenH264.
 //!
-//! Hardware backends for other platforms (NVENC, AMF, QuickSync, VAAPI, Media Foundation) plug
-//! into the same traits; they are not implemented because they can only be validated on matching
-//! hardware (see docs/STATUS.md).
+//! * `hardware` (`hardware-ffmpeg` feature): NVENC, AMF, Quick Sync and VAAPI through an
+//!   installed FFmpeg. Selection probes real output; a missing codec/device falls back to software.
+//!   Device validation is tracked in docs/STATUS.md.
 //!
 //! **Latency rules every backend follows:** no B-frames, no look-ahead, one output frame per input
 //! frame, keyframes only on request (plus an optional long interval), and `SPS`/`PPS` repeated in
@@ -19,6 +19,8 @@ mod convert;
 mod error;
 #[cfg(feature = "software")]
 pub mod h264;
+#[cfg(feature = "hardware-ffmpeg")]
+pub mod hardware;
 pub mod scale;
 mod types;
 #[cfg(target_os = "macos")]
@@ -40,11 +42,11 @@ use nexus_proto::v1::VideoCodec;
 /// Codecs this build can encode, best first.
 #[must_use]
 pub fn supported_encode() -> Vec<VideoCodec> {
-    #[cfg(any(feature = "software", target_os = "macos"))]
+    #[cfg(any(feature = "software", feature = "hardware-ffmpeg", target_os = "macos"))]
     {
         vec![VideoCodec::H264]
     }
-    #[cfg(not(any(feature = "software", target_os = "macos")))]
+    #[cfg(not(any(feature = "software", feature = "hardware-ffmpeg", target_os = "macos")))]
     {
         Vec::new()
     }
@@ -73,6 +75,15 @@ pub fn create_encoder(config: EncoderConfig) -> Result<Box<dyn Encoder>, CodecEr
             Ok(e) => return Ok(Box::new(e)),
             Err(e) => {
                 tracing::warn!(error = %e, "VideoToolbox encoder unavailable; falling back to software")
+            }
+        }
+    }
+    #[cfg(feature = "hardware-ffmpeg")]
+    {
+        match hardware::HardwareEncoder::best(&config) {
+            Ok(encoder) => return Ok(Box::new(encoder)),
+            Err(e) => {
+                tracing::warn!(error = %e, "FFmpeg hardware encoders unavailable; falling back")
             }
         }
     }

@@ -16,7 +16,7 @@ const dev = (d: Partial<Device> & Pick<Device, "id" | "name">): Device => ({
   batteryPercent: null,
   fingerprint: "S2TX-XX7H-3NSH-A56H-PRC7",
   unattended: false,
-  grantsOnPeer: ["screen", "input", "clipboard", "files", "terminal", "power", "wake", "audio"],
+  grantsOnPeer: ["screen", "input", "clipboard", "files", "terminal", "power", "wake", "audio", "privacy"],
   ...d,
 });
 

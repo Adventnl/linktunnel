@@ -29,6 +29,10 @@ pub struct AgentConfig {
     /// Whether a person must approve each session of a paired device that has not been
     /// pre-authorised (the default for new pairings).
     pub default_consent: ConsentMode,
+    /// Enforce passkey or TOTP verification before unattended sessions.
+    pub unattended_requires_stepup: bool,
+    /// Secret store shared with identity; embedded agents default to the private file store.
+    pub auth_store: Option<std::sync::Arc<dyn nexus_crypto::store::SecretStore>>,
     /// How long that prompt waits before the request is refused.
     pub consent_timeout: Duration,
     /// How long after an approved session *loses its link* the same device may reconnect
@@ -62,6 +66,8 @@ impl AgentConfig {
             publish_loopback_hints: false,
             start_locked_down: cfg.security.lockdown,
             default_consent: cfg.security.consent,
+            unattended_requires_stepup: cfg.security.unattended_requires_stepup,
+            auth_store: None,
             consent_timeout: Duration::from_secs(u64::from(cfg.security.consent_timeout_secs)),
             resume_window: Duration::from_secs(u64::from(cfg.security.resume_window_secs)),
             presence_sensor: None,

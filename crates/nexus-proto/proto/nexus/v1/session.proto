@@ -59,6 +59,12 @@ message ControlMessage {
     StopAudio stop_audio = 42;
     // Controller → target: mute / change bitrate / report observed loss while streaming.
     SetAudio set_audio = 43;
+    // Session-bound step-up, before any media or privileged stream is opened.
+    StepUpChallenge step_up_challenge = 50;
+    StepUpProof step_up_proof = 51;
+    StepUpResult step_up_result = 52;
+    PrivacyRequest privacy = 53;
+    PrivacyResult privacy_result = 54;
   }
 }
 
@@ -278,3 +284,16 @@ message SetAudio {
   // Packet loss the receiver observes, percent (0..=100). 0xFFFFFFFF = leave unchanged.
   uint32 loss_percent = 3;
 }
+
+message StepUpChallenge {
+  bool required = 1;
+  string challenge_json = 2;
+}
+message StepUpProof {
+  string challenge_id = 1;
+  string totp = 2;
+  string assertion_json = 3;
+}
+message StepUpResult { bool ok = 1; }
+message PrivacyRequest { bool enabled = 1; bool block_local_input = 2; }
+message PrivacyResult { bool enabled = 1; bool local_input_blocked = 2; }

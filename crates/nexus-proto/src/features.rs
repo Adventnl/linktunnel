@@ -43,3 +43,6 @@ pub const DIRTY_RECTS: &str = "video.dirty_rects";
 pub const REF_INVALIDATION: &str = "video.ref_invalidation";
 /// Keyboard, mouse, scroll and committed-text injection.
 pub const INPUT_BASIC: &str = "input.basic";
+
+/// Session-bound passkey / TOTP verification before unattended access.
+pub const AUTH_STEPUP: &str = "auth.stepup.v1";

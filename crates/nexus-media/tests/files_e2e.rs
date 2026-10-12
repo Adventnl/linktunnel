@@ -31,6 +31,8 @@ async fn rig(grant_list: &[&str], root: &std::path::Path) -> ControllerSession {
         writable: true,
     }]);
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant_list
             .iter()
             .map(|s| (*s).to_owned())

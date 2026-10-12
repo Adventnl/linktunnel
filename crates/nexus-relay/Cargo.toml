@@ -1,0 +1,26 @@
+[package]
+name = "nexus-relay"
+description = "Standalone encrypted iroh relay with TLS, access control and traffic limits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[lints]
+workspace = true
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+iroh-relay = { workspace = true, features = ["server"] }
+rustls.workspace = true
+rustls-pki-types.workspace = true
+subtle.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+nexus-net.workspace = true
+nexus-crypto.workspace = true
+nexus-proto.workspace = true
+tempfile.workspace = true
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }

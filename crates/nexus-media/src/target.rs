@@ -60,9 +60,15 @@ pub type AudioSourceFactory = Arc<
         + Sync,
 >;
 
+/// Encoder creation policy, also used to keep regression measurements on a fixed backend.
+pub type EncoderFactory =
+    Arc<dyn Fn(EncoderConfig) -> Result<Box<dyn Encoder>, nexus_codec::CodecError> + Send + Sync>;
+
 /// Everything the target needs to serve a session.
 #[derive(Clone)]
 pub struct TargetConfig {
+    /// Optional fixed encoder policy. None chooses available hardware before software.
+    pub encoder: Option<EncoderFactory>,
     /// What the controller is allowed to do (`screen`, `input`, …) — from the pairing record.
     pub grants: BTreeSet<String>,
     /// Where pictures come from.
@@ -96,6 +102,8 @@ pub struct TargetConfig {
     pub wake_relay: bool,
     /// Where system audio comes from for controllers holding the `audio` grant; `None` refuses.
     pub audio: Option<AudioSourceFactory>,
+    /// Physical screen privacy; unsupported backends refuse requests.
+    pub privacy: Option<Arc<dyn nexus_privacy::PrivacyBackend>>,
 }
 
 /// Who is doing things on this machine, and where to write it down.
@@ -345,6 +353,9 @@ pub async fn serve(
     let mut cursor_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut audio: Option<nexus_audio::StreamHandle> = None;
     let mut closed = Box::pin(session.closed());
+    let mut privacy: Option<Box<dyn nexus_privacy::PrivacyLease>> = None;
+    let mut privacy_blocks_input = false;
+    let mut privacy_tick = tokio::time::interval(Duration::from_secs(1));
 
     let reason = loop {
         tokio::select! {
@@ -355,6 +366,38 @@ pub async fn serve(
                     Err(e) => break EndReason::ConnectionLost(e.to_string()),
                 };
                 match msg.body {
+                    Some(Body::Privacy(req)) => {
+                        if !config.grants.contains(grants::PRIVACY) {
+                            let _ = out_tx.send(error_reply(msg.id, ErrorCode::PermissionDenied, "privacy is not granted"));
+                        } else if !req.enabled {
+                            privacy = None;
+                            privacy_blocks_input = false;
+                            note(&config.audit, "privacy.disabled", &[]);
+                            let _ = out_tx.send(ControlMessage { in_reply_to: msg.id, body: Some(Body::PrivacyResult(nexus_proto::v1::PrivacyResult { enabled: false, local_input_blocked: false })), ..Default::default() });
+                        } else if consent.check().await != Consent::Allowed {
+                            break EndReason::ConsentRefused(consent.check().await);
+                        } else if let Some(backend) = config.privacy.clone() {
+                            if privacy.is_some() && privacy_blocks_input != req.block_local_input {
+                                let _ = out_tx.send(error_reply(msg.id, ErrorCode::InvalidRequest, "disable privacy before changing local-input policy"));
+                                continue;
+                            }
+                            if privacy.is_none() {
+                                match tokio::task::spawn_blocking(move || backend.enable(req.block_local_input)).await {
+                                    Ok(Ok(lease)) => { privacy = Some(lease); privacy_blocks_input = req.block_local_input; },
+                                    other => {
+                                        let _ = other;
+                                        debug!("privacy refused");
+                                        let _ = out_tx.send(error_reply(msg.id, ErrorCode::Unsupported, "physical screen privacy could not be established"));
+                                        continue;
+                                    }
+                                }
+                            }
+                            note(&config.audit, "privacy.enabled", &[]);
+                            let _ = out_tx.send(ControlMessage { in_reply_to: msg.id, body: Some(Body::PrivacyResult(nexus_proto::v1::PrivacyResult { enabled: true, local_input_blocked: privacy_blocks_input })), ..Default::default() });
+                        } else {
+                            let _ = out_tx.send(error_reply(msg.id, ErrorCode::Unsupported, "privacy is unavailable on this target"));
+                        }
+                    }
                     Some(Body::StartVideo(req)) if !can_view => {
                         let _ = out_tx.send(error_reply(msg.id, ErrorCode::PermissionDenied, "screen viewing is not granted"));
                         debug!(?req.monitor, "StartVideo refused: no screen grant");
@@ -465,6 +508,14 @@ pub async fn serve(
                     }
                 }
             }
+            _ = privacy_tick.tick() => {
+                if privacy.as_ref().is_some_and(|p| p.renew().is_err()) {
+                    privacy = None;
+                    privacy_blocks_input = false;
+                    note(&config.audit, "privacy.restored_locally", &[]);
+                    let _ = out_tx.send(ControlMessage { body: Some(Body::PrivacyResult(nexus_proto::v1::PrivacyResult { enabled: false, local_input_blocked: false })), ..Default::default() });
+                }
+            }
             Some(outgoing) = out_rx.recv() => {
                 if let Err(e) = control.send(&outgoing).await {
                     break EndReason::ConnectionLost(e.to_string());
@@ -474,6 +525,7 @@ pub async fn serve(
         }
     };
 
+    drop(privacy);
     for (_, mut p) in pipelines.drain() {
         p.stop();
     }
@@ -729,7 +781,11 @@ fn start_video(
         screen_content: true,
         keyframe_interval: None,
     };
-    let encoder = nexus_codec::create_encoder(enc_cfg)?;
+    let encoder_factory = config
+        .encoder
+        .clone()
+        .unwrap_or_else(|| Arc::new(nexus_codec::create_encoder));
+    let encoder = encoder_factory(enc_cfg)?;
     let encoder_name = encoder.name();
     let capturer = config.capture.open(index)?;
 
@@ -751,6 +807,7 @@ fn start_video(
                 encode_loop(
                     capturer,
                     encoder,
+                    encoder_factory,
                     index,
                     codec,
                     flags,
@@ -802,6 +859,7 @@ pub fn default_bitrate(width: u32, height: u32, fps: u32) -> u32 {
 fn encode_loop(
     mut capturer: Box<dyn Capturer>,
     mut encoder: Box<dyn Encoder>,
+    encoder_factory: EncoderFactory,
     monitor: u8,
     codec: VideoCodec,
     flags: Arc<PipelineFlags>,
@@ -887,7 +945,7 @@ fn encode_loop(
                     screen_content: true,
                     keyframe_interval: None,
                 };
-                match nexus_codec::create_encoder(cfg) {
+                match encoder_factory(cfg) {
                     Ok(e) => {
                         encoder = e;
                         current_bitrate = target_bitrate;

@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+mod auth;
 mod config;
 mod consent;
 mod devices;
@@ -54,6 +55,9 @@ pub use wts_prompter::WtsPrompter;
 /// Why the agent could not start.
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
+    /// Step-up credential store could not be loaded.
+    #[error(transparent)]
+    Auth(#[from] nexus_auth::AuthError),
     /// State directories could not be created.
     #[error("preparing state directories: {0}")]
     Paths(std::io::Error),
@@ -120,7 +124,16 @@ impl Agent {
         let (events, _) = broadcast::channel(256);
         let (shutdown, _) = watch::channel(false);
         let discovery = start_discovery(&config, &identity, &node);
+        let auth_store = config.auth_store.clone().unwrap_or_else(|| {
+            Arc::new(nexus_crypto::store::FileStore::new(
+                config.paths.data_dir.join("keys"),
+            ))
+        });
+        let verifier = nexus_auth::Verifier::new(auth_store)?;
         let shared = Arc::new(Shared {
+            auth: Mutex::new(verifier),
+            remote_auth: Mutex::default(),
+            ready_auth: Mutex::default(),
             cfg: config,
             identity,
             trust: Mutex::new(trust),
@@ -152,6 +165,7 @@ impl Agent {
         info!(device = %shared.identity.device_id(), locked, "agent starting");
 
         let mut tasks = vec![
+            tokio::spawn(auth::expire(Arc::clone(&shared))),
             tokio::spawn(supervisor::run(Arc::clone(&shared))),
             tokio::spawn(sessions::accept_loop(Arc::clone(&shared))),
             tokio::spawn(ipc_server::serve(Arc::clone(&shared), ipc)),

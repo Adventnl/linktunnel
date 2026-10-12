@@ -118,6 +118,7 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
             }
         }
     }
+    crate::auth::close_owned(&shared, &ctx);
     forward_bridge::close_all(&shared, &ctx);
     terminal_bridge::close_all(&shared, &ctx);
     viewer_bridge::close_all(&shared, &ctx).await;
@@ -143,6 +144,13 @@ async fn dispatch(
 ) -> Result<Resp, AgentError> {
     let ack = Resp::Ack(IpcAck {});
     match body.ok_or_else(|| AgentError::Invalid("empty request".into()))? {
+        Req::Auth(request) => crate::auth::dispatch(shared, ctx, request)
+            .await
+            .map(Resp::Auth),
+        Req::SessionPrivacy(request) => {
+            viewer_bridge::privacy(shared, ctx, request).await?;
+            Ok(ack)
+        }
         Req::Status(_) => Ok(Resp::Status(shared.status())),
         Req::ListDevices(_) => Ok(Resp::Devices(DeviceList {
             devices: shared.device_views(),

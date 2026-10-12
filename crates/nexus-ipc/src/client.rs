@@ -92,6 +92,39 @@ async fn open_stream(endpoint: &IpcEndpoint) -> Result<BoxedStream, IpcError> {
 }
 
 impl IpcClient {
+    /// Changes physical display privacy for a session owned by this client.
+    pub async fn session_privacy(
+        &self,
+        session_id: u64,
+        enabled: bool,
+        block_local_input: bool,
+    ) -> Result<(), IpcError> {
+        self.request(Req::SessionPrivacy(nexus_proto::v1::SessionPrivacy {
+            session_id,
+            enabled,
+            block_local_input,
+        }))
+        .await?;
+        Ok(())
+    }
+
+    /// Manages enrollment or session-bound step-up over authenticated local IPC.
+    pub async fn auth(
+        &self,
+        request: nexus_proto::v1::AuthRequest,
+    ) -> Result<nexus_proto::v1::AuthResponse, IpcError> {
+        match self
+            .request_with_timeout(
+                nexus_proto::v1::ipc_request::Body::Auth(request),
+                Duration::from_secs(30),
+            )
+            .await?
+        {
+            nexus_proto::v1::ipc_response::Body::Auth(response) => Ok(response),
+            _ => Err(IpcError::Protocol("expected auth response")),
+        }
+    }
+
     /// Connects to the agent described by `paths` and authenticates as `client_name`.
     pub async fn connect(
         paths: &IpcPaths,

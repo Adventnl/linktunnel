@@ -10,6 +10,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+nexus-auth.workspace = true
+serde_json.workspace = true
 bytes.workspace = true
 nexus-core.workspace = true
 nexus-input.workspace = true
@@ -17,6 +19,8 @@ nexus-ipc.workspace = true
 nexus-media.workspace = true
 nexus-proto.workspace = true
 softbuffer = "0.4"
+wgpu = "30"
+pollster = "0.4"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

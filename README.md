@@ -52,3 +52,13 @@ default, per-device pre-authorisation, lockdown, a signed tamper-evident audit l
 
 ## License
 Not yet chosen; all crates are `publish = false`. Pick a license before distributing.
+
+### Live control implementation update
+
+The native viewer now uses wgpu; optional FFmpeg backends provide NVENC/AMF/Quick Sync/VAAPI
+H.264 encode. Unattended passkey/TOTP step-up is enforced before resource access, and the viewer
+opens a browser prompt automatically. Windows session-scoped privacy and a standalone TLS relay
+are implemented. See [setup](docs/STEP_UP.md), [acceleration](docs/ACCELERATION.md),
+[self hosting](docs/SELF_HOSTING.md), and [verified status](docs/STATUS.md).
+The acceptance target remains full live Mac↔Windows desktop/input control including elevated
+Windows/UAC/login sessions. Real Windows secure-desktop and GPU/privacy validation are still needed.

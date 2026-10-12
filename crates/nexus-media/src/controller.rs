@@ -125,6 +125,8 @@ pub enum MediaEvent {
         /// Diagnostic text.
         message: String,
     },
+    /// Target restored physical privacy locally or through its watchdog.
+    Privacy(nexus_proto::v1::PrivacyResult),
     /// The session is over. Always the last event.
     Closed(String),
 }
@@ -428,6 +430,30 @@ impl ControllerSession {
         }));
     }
 
+    /// Enables session-scoped privacy on the target; it is restored automatically on disconnect.
+    pub async fn privacy(
+        &self,
+        enabled: bool,
+        block_local_input: bool,
+    ) -> Result<nexus_proto::v1::PrivacyResult, MediaError> {
+        let reply = self
+            .request(
+                Body::Privacy(nexus_proto::v1::PrivacyRequest {
+                    enabled,
+                    block_local_input,
+                }),
+                Duration::from_secs(10),
+            )
+            .await?;
+        match reply.body {
+            Some(Body::PrivacyResult(result)) => Ok(result),
+            Some(Body::Error(e)) => Err(MediaError::Denied(e.message)),
+            _ => Err(MediaError::Protocol(
+                "target did not confirm privacy".into(),
+            )),
+        }
+    }
+
     /// Sends a control request and waits for the matching reply.
     pub async fn request(&self, body: Body, wait: Duration) -> Result<ControlMessage, MediaError> {
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
@@ -614,6 +640,7 @@ async fn control_task(
                                 start_bps: v.bitrate_bps.clamp(min_bps, max_bps),
                             }));
                         } let _ = events.send(MediaEvent::Started(v)).await; }
+                    Some(Body::PrivacyResult(state)) => { let _ = events.send(MediaEvent::Privacy(state)).await; }
                     Some(Body::CursorShape(c)) => { let _ = events.send(MediaEvent::CursorShape(c)).await; }
                     Some(Body::Error(e)) => { let _ = events.send(MediaEvent::Refused { code: e.code, message: e.message }).await; }
                     Some(Body::Pong(p)) => {
@@ -692,6 +719,10 @@ async fn control_task(
             }
         }
     };
+    if lost && session.is_closed() {
+        let (_, deliberate) = session.closed_detail().await;
+        lost = !deliberate;
+    }
     stats.ended_by_loss.store(lost, Ordering::SeqCst);
     let _ = events.send(MediaEvent::Closed(reason)).await;
 }

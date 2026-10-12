@@ -148,7 +148,7 @@ pub(crate) async fn open(
                         })),
                     });
                 }
-                MediaEvent::Frame(_) => {}
+                MediaEvent::Frame(_) | MediaEvent::Privacy(_) => {}
             }
         }
     }
@@ -248,6 +248,7 @@ async fn pump_events(
 ) {
     let stats = Arc::clone(controller.stats());
     let mut monitors: Vec<MonitorInfo> = Vec::new();
+    let mut cursor_alive = true;
     let reason = loop {
         tokio::select! {
             ev = streams.events.recv() => {
@@ -262,6 +263,7 @@ async fn pump_events(
                         let upstream = (f.recv_us as i64 - (f.header.capture_us as i64 - offset)).max(0) as u64;
                         Ev::SessionVideo(SessionVideo { session_id: id, frame: buf.freeze(), upstream_us: upstream })
                     }
+                    MediaEvent::Privacy(state) => Ev::SessionPrivacyState(nexus_proto::v1::SessionPrivacyState { session_id: id, enabled: state.enabled, local_input_blocked: state.local_input_blocked }),
                     MediaEvent::CursorShape(shape) => Ev::SessionCursorShape(SessionCursorShape { session_id: id, shape: Some(shape) }),
                     MediaEvent::Closed(reason) => break reason,
                     MediaEvent::Refused { message, .. } => { debug!(%message, "target refused a request"); continue; }
@@ -285,8 +287,8 @@ async fn pump_events(
                     break "viewer disconnected".to_owned();
                 }
             }
-            changed = streams.cursor.changed() => {
-                if changed.is_err() { break "session ended".to_owned(); }
+            changed = streams.cursor.changed(), if cursor_alive => {
+                if changed.is_err() { cursor_alive = false; continue; }
                 let update: Option<CursorUpdate> = *streams.cursor.borrow_and_update();
                 if let Some(u) = update {
                     let mut buf = BytesMut::with_capacity(nexus_proto::wire::cursor::LEN);
@@ -386,4 +388,28 @@ pub(crate) async fn close_all(shared: &Shared, ctx: &Arc<ConnCtx>) {
             entry.controller.close().await;
         }
     }
+}
+
+pub(crate) async fn privacy(
+    shared: &Shared,
+    owner: &Arc<ConnCtx>,
+    req: nexus_proto::v1::SessionPrivacy,
+) -> Result<(), AgentError> {
+    let controller = {
+        let viewers = shared.viewers.lock();
+        let entry = viewers
+            .get(&req.session_id)
+            .ok_or_else(|| AgentError::NotFound("no such session".into()))?;
+        if !Arc::ptr_eq(owner, &entry.owner) {
+            return Err(AgentError::Denied(
+                "session belongs to another client".into(),
+            ));
+        }
+        entry.controller.clone()
+    };
+    controller
+        .privacy(req.enabled, req.block_local_input)
+        .await
+        .map_err(|e| AgentError::Denied(e.to_string()))?;
+    Ok(())
 }

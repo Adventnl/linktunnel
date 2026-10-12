@@ -64,6 +64,8 @@ async fn rig_with(
     let (injector, recorded) = RecordingInjector::new();
     let injector = std::sync::Mutex::new(Some(injector));
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant_list
             .iter()
             .map(|s| (*s).to_owned())
@@ -178,7 +180,14 @@ async fn video_flows_and_a_flash_is_seen_with_measured_latency() {
         "the monitor list comes before the stream starts"
     );
     assert_eq!((started.width, started.height), (640, 360));
-    assert_eq!(started.encoder, "openh264");
+    assert!(
+        matches!(
+            started.encoder.as_str(),
+            "openh264" | "videotoolbox" | "h264_nvenc" | "h264_amf" | "h264_qsv" | "h264_vaapi"
+        ),
+        "unexpected encoder: {}",
+        started.encoder
+    );
 
     let mut dec = VideoDecoder::new();
     let first = picture_where(
@@ -211,7 +220,8 @@ async fn video_flows_and_a_flash_is_seen_with_measured_latency() {
     }
     latencies.sort();
     println!(
-        "glass-to-glass over loopback QUIC (software H.264, 640x360): p50 {:?} max {:?}",
+        "glass-to-glass over loopback QUIC ({}, 640x360): p50 {:?} max {:?}",
+        started.encoder,
         latencies[latencies.len() / 2],
         latencies.last().unwrap()
     );

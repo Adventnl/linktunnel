@@ -47,6 +47,14 @@ PY
 PIDS+=($!)
 
 SRV="$WORK/server"; CTL="$WORK/controller"; SHARE="$WORK/share"; mkdir -p "$SHARE"
+# This noninteractive synthetic demo uses isolated temporary homes. Production unattended
+# installs require enrollment; the real step-up path is covered by the agent/auth tests.
+mkdir -p "$SRV/config"
+cat >"$SRV/config/config.toml" <<'DEMO_CONFIG'
+[security]
+unattended_requires_stepup = false
+DEMO_CONFIG
+
 # The server: no DISPLAY at all, so the agent must create its own screen.
 env -u DISPLAY -u WAYLAND_DISPLAY "$BIN/nexus-agent" --home "$SRV" --name "Server" --file-store \
   --signal-url "$SIGNAL_URL" --share-rw "$SHARE" >"$WORK/server.log" 2>&1 &

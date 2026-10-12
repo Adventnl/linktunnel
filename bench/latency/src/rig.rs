@@ -90,6 +90,8 @@ pub async fn rig(
     let (ea, eb) = (ea?, eb?);
     let stats = Arc::new(TargetStats::default());
     let config = TargetConfig {
+        encoder: None,
+        privacy: None,
         grants: grant
             .iter()
             .map(|s| (*s).to_owned())

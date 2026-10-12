@@ -151,6 +151,7 @@ async fn main() -> Result<()> {
     let name = args.name.unwrap_or_else(nexus_agent::sysinfo::hostname);
     #[allow(unused_mut)]
     let mut config = AgentConfig::from_nexus_config(&nexus, paths, name)?;
+    config.auth_store = Some(Arc::from(store));
     // A SYSTEM agent in a user's session asks the person with a message box on their desktop.
     #[cfg(windows)]
     if args.system {

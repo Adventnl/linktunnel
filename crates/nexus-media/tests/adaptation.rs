@@ -58,6 +58,11 @@ async fn run(adaptive: bool, rate_mbps: f64, delay_ms: u64, secs: f64, window: f
         ..Default::default()
     });
     let config = TargetConfig {
+        encoder: Some(Arc::new(|cfg| {
+            nexus_codec::H264Encoder::new(cfg)
+                .map(|encoder| Box::new(encoder) as Box<dyn nexus_codec::Encoder>)
+        })),
+        privacy: None,
         grants: [grants::SCREEN]
             .iter()
             .map(|s| (*s).to_owned())

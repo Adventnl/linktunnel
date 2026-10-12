@@ -17,6 +17,8 @@ pub const TERMINAL: &str = "terminal";
 pub const POWER: &str = "power";
 /// Wake-on-LAN requests.
 pub const WAKE: &str = "wake";
+/// Obscure physical monitors and optionally block local input.
+pub const PRIVACY: &str = "privacy";
 /// Hear what the machine is playing.
 pub const AUDIO: &str = "audio";
 
@@ -24,7 +26,7 @@ pub const AUDIO: &str = "audio";
 #[must_use]
 pub fn all() -> Vec<String> {
     [
-        SCREEN, INPUT, CLIPBOARD, FILES, TERMINAL, POWER, WAKE, AUDIO,
+        SCREEN, INPUT, CLIPBOARD, FILES, TERMINAL, POWER, WAKE, AUDIO, PRIVACY,
     ]
     .iter()
     .map(ToString::to_string)

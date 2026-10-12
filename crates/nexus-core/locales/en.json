@@ -169,5 +169,11 @@
   "cli.dash.seen_days": "{n}d ago",
   "cli.dash.seen_never": "never",
   "agent.consent.title": "Nexus Remote: allow access?",
-  "agent.consent.body": "“{name}” (key {fingerprint}) wants to use this computer.\n\nIt may: {grants}.\n\nAllow it? If you do not answer within {secs} seconds the request is refused."
+  "agent.consent.body": "“{name}” (key {fingerprint}) wants to use this computer.\n\nIt may: {grants}.\n\nAllow it? If you do not answer within {secs} seconds the request is refused.",
+  "cli.auth.browser": "Open this passkey prompt:",
+  "cli.auth.enroll": "Add this URI to your authenticator app, then enter its code:",
+  "cli.auth.enrolled": "Factor enrolled.",
+  "cli.auth.code": "Authenticator code: ",
+  "cli.auth.unlocked": "Access verified for the next connection (60 seconds).",
+  "privacy.local_restore": "Remote session active. Press Esc to restore this screen."
 }

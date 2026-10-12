@@ -169,5 +169,11 @@
   "cli.dash.seen_days": "{n} 天前",
   "cli.dash.seen_never": "从未",
   "agent.consent.title": "Nexus Remote：是否允许访问？",
-  "agent.consent.body": "“{name}”（密钥 {fingerprint}）想要使用这台电脑。\n\n它可以：{grants}。\n\n是否允许？如果 {secs} 秒内没有回应，请求将被拒绝。"
+  "agent.consent.body": "“{name}”（密钥 {fingerprint}）想要使用这台电脑。\n\n它可以：{grants}。\n\n是否允许？如果 {secs} 秒内没有回应，请求将被拒绝。",
+  "cli.auth.browser": "打开通行密钥验证页面：",
+  "cli.auth.enroll": "将此 URI 添加到身份验证器应用，然后输入验证码：",
+  "cli.auth.enrolled": "已添加身份验证方式。",
+  "cli.auth.code": "身份验证器验证码：",
+  "cli.auth.unlocked": "已验证下一次连接的访问权限（60 秒）。",
+  "privacy.local_restore": "远程会话正在进行。按 Esc 恢复本机屏幕。"
 }

@@ -59,10 +59,8 @@ wildcards = "deny"
 allow-wildcard-paths = true
 highlight = "all"
 deny = [
-    # We use rustls everywhere; linking the system OpenSSL would add an unaudited C attack
-    # surface and a packaging headache on three OSes.
-    { name = "openssl" },
-    { name = "openssl-sys" },
+    # Transport remains rustls-only. WebAuthn signature verification uses the vetted
+    # webauthn-rs verifier and vendored OpenSSL (ADR-0020).
     { name = "native-tls" },
 ]
 

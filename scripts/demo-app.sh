@@ -29,6 +29,14 @@ cargo build -q --manifest-path "$ROOT/apps/nexus-app/src-tauri/Cargo.toml"
 PIDS+=($!)
 SIGNAL_URL="ws://127.0.0.1:$PORT/v1/ws"
 SRV="$WORK/server"; CTL="$WORK/controller"
+# This noninteractive synthetic demo uses isolated temporary homes. Production unattended
+# installs require enrollment; the real step-up path is covered by the agent/auth tests.
+mkdir -p "$SRV/config"
+cat >"$SRV/config/config.toml" <<'DEMO_CONFIG'
+[security]
+unattended_requires_stepup = false
+DEMO_CONFIG
+
 env -u DISPLAY "$BIN/nexus-agent" --home "$SRV" --name "Home server" --file-store --signal-url "$SIGNAL_URL" >"$WORK/server.log" 2>&1 &
 PIDS+=($!)
 env -u DISPLAY "$BIN/nexus-agent" --home "$CTL" --name "MacBook" --file-store --signal-url "$SIGNAL_URL" --no-screen >"$WORK/controller.log" 2>&1 &

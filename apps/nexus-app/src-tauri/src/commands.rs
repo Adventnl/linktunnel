@@ -177,6 +177,7 @@ fn nexus_core_grants() -> Vec<String> {
         "power",
         "wake",
         "audio",
+        "privacy",
     ]
     .iter()
     .map(ToString::to_string)

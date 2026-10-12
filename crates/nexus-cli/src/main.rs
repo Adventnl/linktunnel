@@ -8,6 +8,7 @@
 
 mod agent_cmds;
 mod audit_cmds;
+mod auth_cmds;
 mod consent_cmds;
 mod dashboard;
 mod files_cmds;
@@ -65,6 +66,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Enroll passkeys/TOTP and verify unattended access.
+    #[command(subcommand)]
+    Auth(auth_cmds::AuthCommand),
     /// Manage this device's cryptographic identity.
     #[command(subcommand)]
     Id(identity_cmd::IdCommand),
@@ -286,6 +290,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         passthrough,
     };
     match cli.command {
+        Command::Auth(cmd) => auth_cmds::run(&ctx, cmd).await,
         Command::Id(cmd) => identity_cmd::run(&ctx, &cmd),
         Command::Doctor => doctor(&ctx).await,
         Command::Status => agent_cmds::status(&ctx).await,

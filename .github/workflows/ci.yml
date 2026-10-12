@@ -100,7 +100,7 @@ jobs:
           -p nexus-capture -p nexus-input -p nexus-codec --no-default-features -- -D warnings
       - run: >-
           cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets
-          -p nexus-desktop -p nexus-winservice -- -D warnings
+          -p nexus-desktop -p nexus-winservice -p nexus-privacy -- -D warnings
 
   bench-gate:
     # Fails the PR if a gated p95 latency regressed by more than 10 % against the base branch,
@@ -167,3 +167,13 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  hardware-encoder-build:
+    name: Optional FFmpeg encoders (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: sudo apt-get install -y pkg-config clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+      - run: cargo clippy --locked -p nexus-codec --features hardware-ffmpeg --all-targets -- -D warnings
+      - run: cargo test --locked -p nexus-codec --features hardware-ffmpeg
