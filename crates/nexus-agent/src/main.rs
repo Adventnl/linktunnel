@@ -50,6 +50,9 @@ struct Args {
     /// UAC prompt and the lock screen. Installed by the MSI; not for interactive use.
     #[arg(long)]
     windows_service: bool,
+    /// Internal SYSTEM-only secure-attention broker event created by the SCM service.
+    #[arg(long, hide = true)]
+    windows_sas_event: Option<String>,
     /// Keep remote terminals in the SYSTEM service (they then run as SYSTEM: administrator-grade
     /// access for anyone holding the `terminal` grant).
     #[arg(long)]
@@ -75,6 +78,13 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = Args::parse();
+    #[cfg(windows)]
+    {
+        if let Some(name) = &args.windows_sas_event {
+            nexus_input::windows_inject::configure_secure_attention(name.clone())
+                .context("configuring the service secure-attention broker")?;
+        }
+    }
     if args.wake_helper {
         args.no_screen = true;
         args.share.clear();

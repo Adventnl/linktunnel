@@ -82,6 +82,12 @@ impl ThreadDesktop {
     }
 }
 
+/// Makes screen and pointer coordinates physical pixels on mixed-DPI Windows desktops.
+/// Call before creating windows. An embedded manifest can establish the same context first.
+pub fn enable_physical_coordinates() -> Result<(), DesktopError> {
+    imp::enable_physical_coordinates()
+}
+
 /// The name of the desktop that currently receives input, without attaching to it.
 pub fn input_desktop_name() -> Result<String, DesktopError> {
     imp::input_desktop_name()
@@ -94,11 +100,25 @@ mod imp {
     use tracing::debug;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::StationsAndDesktops::{
-        CloseDesktop, DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, GetUserObjectInformationW,
-        HDESK, OpenInputDesktop, SetThreadDesktop, UOI_NAME,
+        CloseDesktop, DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, GetThreadDesktop,
+        GetUserObjectInformationW, HDESK, OpenInputDesktop, SetThreadDesktop, UOI_NAME,
     };
 
     use super::DesktopError;
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+    };
+
+    pub(super) fn enable_physical_coordinates() -> Result<(), DesktopError> {
+        // SAFETY: establishes process-wide DPI awareness before any UI is created.
+        match unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } {
+            Ok(()) => Ok(()),
+            // ERROR_ACCESS_DENIED means the manifest or an earlier call already set awareness.
+            Err(e) if e.code().0 as u32 == 0x80070005 => Ok(()),
+            Err(e) => Err(os(e)),
+        }
+    }
 
     /// `GENERIC_ALL`: the access the capture and injection APIs need on the desktop.
     const DESKTOP_ALL_ACCESS: u32 = 0x1000_0000;
@@ -149,10 +169,12 @@ mod imp {
     #[derive(Default)]
     pub(super) struct Inner {
         current: Option<(HDESK, String)>,
+        original: Option<HDESK>,
+        owner: Option<u32>,
     }
 
-    // SAFETY: an HDESK is a process-wide kernel handle value; moving the tracker between threads
-    // is harmless (it is only *used* to attach the calling thread).
+    // SAFETY: an unused tracker may be moved to its capture/input worker. Once attached,
+    // sync enforces the owning thread; handles remain process-wide kernel object references.
     unsafe impl Send for Inner {}
 
     impl Inner {
@@ -161,6 +183,15 @@ mod imp {
         }
 
         pub(super) fn sync(&mut self) -> Result<Option<String>, DesktopError> {
+            // SAFETY: thread-id query and borrowed handle for this thread's current desktop.
+            let thread = unsafe { GetCurrentThreadId() };
+            if self.owner.is_some_and(|owner| owner != thread) {
+                return Err(os(
+                    "an attached desktop tracker cannot move to another thread",
+                ));
+            }
+            // SAFETY: GetThreadDesktop returns a borrowed handle for the current live thread.
+            let actual = unsafe { GetThreadDesktop(thread) }.map_err(os)?;
             let desk = open_input()?;
             let name = match name_of(desk) {
                 Ok(n) => n,
@@ -170,7 +201,15 @@ mod imp {
                     return Err(e);
                 }
             };
-            if self.name() == Some(name.as_str()) {
+            let unchanged = match name_of(actual) {
+                Ok(actual_name) => self.name() == Some(name.as_str()) && actual_name == name,
+                Err(e) => {
+                    // SAFETY: freshly opened handle is not attached or retained.
+                    let _ = unsafe { CloseDesktop(desk) };
+                    return Err(e);
+                }
+            };
+            if unchanged {
                 // SAFETY: opened above, not stored.
                 let _ = unsafe { CloseDesktop(desk) };
                 return Ok(None);
@@ -181,6 +220,8 @@ mod imp {
                 let _ = unsafe { CloseDesktop(desk) };
                 return Err(os(e));
             }
+            self.owner = Some(thread);
+            self.original.get_or_insert(actual);
             debug!(desktop = %name, "thread attached to the input desktop");
             if let Some((old, _)) = self.current.replace((desk, name.clone())) {
                 // SAFETY: the previous desktop handle is no longer used by this thread.
@@ -193,7 +234,14 @@ mod imp {
     impl Drop for Inner {
         fn drop(&mut self) {
             if let Some((desk, _)) = self.current.take() {
-                // SAFETY: stored handle, closed exactly once.
+                // SAFETY: original is borrowed from GetThreadDesktop and remains owned by the
+                // OS. Detach before closing; Windows refuses to close an attached desktop.
+                if self.owner == Some(unsafe { GetCurrentThreadId() }) {
+                    if let Some(original) = self.original {
+                        let _ = unsafe { SetThreadDesktop(original) };
+                    }
+                }
+                // SAFETY: stored owned handle, closed exactly once.
                 let _ = unsafe { CloseDesktop(desk) };
             }
         }
@@ -203,6 +251,10 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use super::DesktopError;
+
+    pub(super) fn enable_physical_coordinates() -> Result<(), DesktopError> {
+        Ok(())
+    }
 
     pub(super) fn input_desktop_name() -> Result<String, DesktopError> {
         Err(DesktopError::Unsupported)

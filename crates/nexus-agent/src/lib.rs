@@ -80,6 +80,8 @@ pub struct Agent {
     shared: Arc<Shared>,
     tasks: Vec<JoinHandle<()>>,
     ipc_paths: IpcPaths,
+    #[cfg(windows)]
+    _session_ui: Option<nexus_winservice::session_ui::SessionUi>,
 }
 
 impl std::fmt::Debug for Agent {
@@ -185,10 +187,49 @@ impl Agent {
                 }
             }));
         }
+        #[cfg(windows)]
+        let session_ui = {
+            let state = Arc::downgrade(&shared);
+            let panic = Arc::downgrade(&shared);
+            let label =
+                nexus_core::i18n::tr(nexus_core::i18n::Locale::detect(), "session.local_active");
+            match nexus_winservice::session_ui::SessionUi::start(
+                label,
+                move || {
+                    state.upgrade().map_or((false, true), |s| {
+                        (
+                            s.sessions.load(std::sync::atomic::Ordering::SeqCst) != 0,
+                            *s.shutdown.borrow(),
+                        )
+                    })
+                },
+                move || {
+                    if let Some(shared) = panic.upgrade() {
+                        sessions::disconnect(&shared, &[]);
+                        // A physical panic must take effect even if writing the marker fails.
+                        shared
+                            .lockdown
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        shared.refresh_allowlist();
+                        if let Err(e) = ipc_server::set_lockdown(&shared, true) {
+                            warn!(error = %e, "could not persist locally requested lockdown");
+                        }
+                    }
+                },
+            ) {
+                Ok(ui) => Some(ui),
+                Err(e) => {
+                    warn!(error = %e, "could not start Windows session indicator");
+                    None
+                }
+            }
+        };
         Ok(Self {
             shared,
             tasks,
             ipc_paths,
+            #[cfg(windows)]
+            _session_ui: session_ui,
         })
     }
 

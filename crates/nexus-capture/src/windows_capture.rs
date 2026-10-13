@@ -1,7 +1,7 @@
 //! Windows screen capture with DXGI Desktop Duplication.
 //!
-//! **Verification status:** type-checked for `x86_64-pc-windows-msvc`; not run here
-//! (docs/STATUS.md).
+//! **Verification status:** Windows control revisions are source-only; no builds or tests were
+//! run for this change (docs/STATUS.md).
 //!
 //! * `AcquireNextFrame` blocks until the desktop actually changes, so an idle desktop costs
 //!   nothing; per-frame dirty rectangles are forwarded.
@@ -10,20 +10,20 @@
 //!   re-attaches itself to the current input desktop (`nexus-desktop`) and rebuilds the
 //!   duplication if the desktop changed, so the picture follows the UAC prompt and the lock
 //!   screen. Capturing the *secure* desktop needs a SYSTEM process in the session
-//!   (`nexus-winservice`); for a normal user token the attach is refused and capture carries on
-//!   with the user's own desktop (which goes black while UAC is up: a Windows rule).
+//!   (`nexus-winservice`); an ordinary user agent waits without sending new frames until an
+//!   accessible input desktop returns.
 //! * Cursor: position, visibility and shape come from `GetCursorInfo` / `GetIconInfo`
 //!   (the duplication's own pointer data is ignored; the cursor is never part of the picture
 //!   because Desktop Duplication does not composite it).
 //! * Monitor `x`/`y`/`width`/`height` are physical pixels (the process must be per-monitor
-//!   DPI aware, which the agent manifest declares); `scale` is 1.0.
+//!   DPI aware, which the agent manifest declares); `scale` reports display DPI metadata.
 
 use std::time::Duration;
 
 use bytes::Bytes;
 use nexus_codec::{Frame, FrameFormat, Rect};
 use nexus_core::clock::now_us;
-use windows::Win32::Foundation::{HMODULE, RECT};
+use windows::Win32::Foundation::{HMODULE, LPARAM, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
@@ -31,17 +31,22 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_MODE_ROTATION_ROTATE90, DXGI_MODE_ROTATION_ROTATE180, DXGI_MODE_ROTATION_ROTATE270,
+};
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
-    DXGI_OUTPUT_DESC, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput, IDXGIOutput1,
-    IDXGIOutputDuplication, IDXGIResource,
+    CreateDXGIFactory1, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTPUT_DESC,
+    IDXGIAdapter1, IDXGIFactory1, IDXGIOutput, IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDC, GetDIBits,
-    GetObjectW, HGDIOBJ, ReleaseDC,
+    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleDC,
+    CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC,
+    GetDIBits, GetMonitorInfoW, GetObjectW, HDC, HGDIOBJ, HMONITOR, MONITORINFOEXW, ReleaseDC,
+    SRCCOPY, SelectObject,
 };
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CURSOR_SHOWING, CURSORINFO, GetCursorInfo, GetIconInfo, ICONINFO,
+    CURSOR_SHOWING, CURSORINFO, GetCursorInfo, GetIconInfo, ICONINFO, MONITORINFOF_PRIMARY,
 };
 use windows::core::Interface;
 
@@ -61,6 +66,7 @@ pub struct WindowsBackend;
 impl WindowsBackend {
     /// Creates the backend.
     pub fn new() -> Result<Self, CaptureError> {
+        nexus_desktop::enable_physical_coordinates().map_err(failed)?;
         Ok(Self)
     }
 }
@@ -112,6 +118,9 @@ fn info(index: usize, o: &OutputRef) -> MonitorInfo {
         .iter()
         .position(|c| *c == 0)
         .unwrap_or(o.desc.DeviceName.len());
+    let (mut dpi_x, mut dpi_y) = (96, 96);
+    // SAFETY: the monitor handle comes from DXGI and the output pointers are valid.
+    let _ = unsafe { GetDpiForMonitor(o.desc.Monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
     MonitorInfo {
         index: u8::try_from(index).unwrap_or(u8::MAX),
         name: String::from_utf16_lossy(&o.desc.DeviceName[..name_len]),
@@ -119,10 +128,69 @@ fn info(index: usize, o: &OutputRef) -> MonitorInfo {
         y: r.top,
         width: u32::try_from(r.right - r.left).unwrap_or(0),
         height: u32::try_from(r.bottom - r.top).unwrap_or(0),
-        scale: 1.0,
+        // Input coordinates remain physical pixels (MonitorRect uses scale=1 on Windows).
+        // This value describes the display's logical/UI scale for the controller.
+        scale: dpi_x as f32 / 96.0,
         refresh_hz: 0.0,
         primary: r.left == 0 && r.top == 0,
     }
+}
+
+fn gdi_monitors() -> Result<Vec<MonitorInfo>, CaptureError> {
+    let mut monitors: Vec<MonitorInfo> = Vec::new();
+    // SAFETY: synchronous enumeration; the Vec outlives every callback and is never aliased.
+    let ok = unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(gdi_monitor),
+            LPARAM(std::ptr::from_mut(&mut monitors) as isize),
+        )
+    };
+    if !ok.as_bool() {
+        return Err(failed("EnumDisplayMonitors"));
+    }
+    monitors.sort_by_key(|m| (!m.primary, m.x, m.y));
+    for (index, monitor) in monitors.iter_mut().enumerate() {
+        monitor.index = u8::try_from(index).unwrap_or(u8::MAX);
+    }
+    Ok(monitors)
+}
+unsafe extern "system" fn gdi_monitor(
+    handle: HMONITOR,
+    _dc: HDC,
+    _rect: *mut RECT,
+    data: LPARAM,
+) -> windows::core::BOOL {
+    let mut native = MONITORINFOEXW::default();
+    native.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    // SAFETY: the enumeration supplies a live monitor and the structure includes the EX size.
+    if !unsafe { GetMonitorInfoW(handle, &mut native.monitorInfo) }.as_bool() {
+        return true.into();
+    }
+    let rect = native.monitorInfo.rcMonitor;
+    let (mut dpi_x, mut dpi_y) = (96, 96);
+    // SAFETY: live monitor handle and valid writable outputs.
+    let _ = unsafe { GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+    let length = native
+        .szDevice
+        .iter()
+        .position(|c| *c == 0)
+        .unwrap_or(native.szDevice.len());
+    // SAFETY: gdi_monitors passes its exclusively borrowed Vec through LPARAM synchronously.
+    let monitors = unsafe { &mut *(data.0 as *mut Vec<MonitorInfo>) };
+    monitors.push(MonitorInfo {
+        index: 0,
+        name: String::from_utf16_lossy(&native.szDevice[..length]),
+        x: rect.left,
+        y: rect.top,
+        width: (rect.right - rect.left).max(0) as u32,
+        height: (rect.bottom - rect.top).max(0) as u32,
+        scale: dpi_x as f32 / 96.0,
+        refresh_hz: 0.0,
+        primary: native.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+    });
+    true.into()
 }
 
 impl CaptureBackend for WindowsBackend {
@@ -131,19 +199,25 @@ impl CaptureBackend for WindowsBackend {
     }
 
     fn monitors(&self) -> Result<Vec<MonitorInfo>, CaptureError> {
-        Ok(enumerate()?
-            .iter()
-            .enumerate()
-            .map(|(i, o)| info(i, o))
-            .collect())
+        if let Ok(outputs) = enumerate() {
+            if !outputs.is_empty() {
+                return Ok(outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| info(i, o))
+                    .collect());
+            }
+        }
+        gdi_monitors()
     }
 
     fn open(&self, index: u8) -> Result<Box<dyn Capturer>, CaptureError> {
-        let outputs = enumerate()?;
-        let o = outputs
-            .get(usize::from(index))
+        let monitor = self
+            .monitors()?
+            .into_iter()
+            .find(|m| m.index == index)
             .ok_or(CaptureError::NoSuchMonitor(index))?;
-        Ok(Box::new(DxgiCapturer::new(info(usize::from(index), o), o)?))
+        Ok(Box::new(DxgiCapturer::new(monitor)))
     }
 
     fn cursor_source(&self) -> Result<Option<Box<dyn CursorSource>>, CaptureError> {
@@ -153,16 +227,19 @@ impl CaptureBackend for WindowsBackend {
 
 struct DxgiCapturer {
     monitor: MonitorInfo,
-    adapter: IDXGIAdapter1,
-    output: IDXGIOutput,
+    gpu: Option<DxgiResources>,
+    first: bool,
+    desktop: nexus_desktop::ThreadDesktop,
+    retry_after: Option<std::time::Instant>,
+}
+
+struct DxgiResources {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     dup: IDXGIOutputDuplication,
-    staging: ID3D11Texture2D,
-    first: bool,
-    /// Attached lazily on the capture thread (the thread that calls `next_frame`).
-    desktop: nexus_desktop::ThreadDesktop,
-    last_desktop_check: Option<std::time::Instant>,
+    staging: Option<ID3D11Texture2D>,
+    staging_size: (u32, u32),
+    rotation: windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_ROTATION,
 }
 
 // SAFETY: the D3D11/DXGI objects are used from the single capture thread that owns this value;
@@ -232,59 +309,71 @@ fn staging_texture(device: &ID3D11Device, w: u32, h: u32) -> Result<ID3D11Textur
 }
 
 impl DxgiCapturer {
-    fn new(monitor: MonitorInfo, o: &OutputRef) -> Result<Self, CaptureError> {
-        let (device, context) = create_device(&o.adapter)?;
-        let dup = duplicate(&o.output, &device)?;
-        let staging = staging_texture(&device, monitor.width, monitor.height)?;
-        Ok(Self {
+    fn new(monitor: MonitorInfo) -> Self {
+        // Desktop-bound GPU objects MUST be created on the dedicated capture thread, after
+        // attaching it. Opening a stream while Winlogon is active must not duplicate Default.
+        Self {
             monitor,
-            adapter: o.adapter.clone(),
-            output: o.output.clone(),
-            device,
-            context,
-            dup,
-            staging,
+            gpu: None,
             first: true,
             desktop: nexus_desktop::ThreadDesktop::new(),
-            last_desktop_check: None,
-        })
+            retry_after: None,
+        }
     }
 
     fn recreate(&mut self) -> Result<(), CaptureError> {
-        // The old duplication is dead after a desktop switch; build a fresh one on the desktop
-        // this thread is now attached to.
-        let _ = self.desktop.sync();
-        self.dup = duplicate(&self.output, &self.device)?;
-        let _ = &self.adapter;
+        self.gpu = None;
+        let outputs = enumerate()?;
+        // Stream indices address the latest announced monitor list; preserve the index across
+        // hot-plug so video and absolute input continue referring to the same current output.
+        let output = outputs
+            .get(usize::from(self.monitor.index))
+            .ok_or(CaptureError::NoSuchMonitor(self.monitor.index))?;
+        self.monitor = info(usize::from(self.monitor.index), output);
+        let (device, context) = create_device(&output.adapter)?;
+        let dup = duplicate(&output.output, &device)?;
+        self.gpu = Some(DxgiResources {
+            device,
+            context,
+            dup,
+            staging: None,
+            staging_size: (0, 0),
+            rotation: output.desc.Rotation,
+        });
+        self.first = true;
+        self.retry_after = None;
         Ok(())
     }
 
-    /// Re-attaches to the input desktop when it changed (at most five checks a second) and
-    /// rebuilds the duplication. Returns true if the duplication was rebuilt.
-    fn follow_desktop(&mut self) -> Result<bool, CaptureError> {
-        let due = self
-            .last_desktop_check
-            .is_none_or(|t| t.elapsed() >= Duration::from_millis(200));
-        if !due {
-            return Ok(false);
+    fn follow_desktop(&mut self) -> Result<(), CaptureError> {
+        let input = nexus_desktop::input_desktop_name().map_err(failed)?;
+        if self.desktop.attached().is_none_or(|name| name != input) {
+            // Release duplication and D3D state before attaching to the new desktop.
+            self.gpu = None;
+            self.retry_after = None;
+            self.desktop.sync().map_err(failed)?;
+            self.first = true;
         }
-        self.last_desktop_check = Some(std::time::Instant::now());
-        // Refused for a non-SYSTEM process facing the secure desktop: keep what we have.
-        match self.desktop.sync() {
-            Ok(Some(_)) => {
-                self.dup = duplicate(&self.output, &self.device)?;
-                self.first = true;
-                Ok(true)
-            }
-            Ok(None) | Err(_) => Ok(false),
-        }
+        Ok(())
     }
 
     fn dirty_rects(&self) -> Vec<Rect> {
+        let Some(gpu) = &self.gpu else {
+            return Vec::new();
+        };
+        let mut moved_bytes = 0u32;
+        // SAFETY: zero-sized query returns the byte count without writing rectangle data.
+        let _ = unsafe {
+            gpu.dup
+                .GetFrameMoveRects(0, std::ptr::null_mut(), &mut moved_bytes)
+        };
+        if moved_bytes != 0 {
+            return Vec::new();
+        }
         let mut needed = 0u32;
         // SAFETY: first call only queries the required size.
         let probe = unsafe {
-            self.dup
+            gpu.dup
                 .GetFrameDirtyRects(0, std::ptr::null_mut(), &mut needed)
         };
         if probe.is_err() && needed == 0 {
@@ -294,7 +383,7 @@ impl DxgiCapturer {
         let mut rects = vec![RECT::default(); count];
         // SAFETY: the buffer holds `needed` bytes.
         if unsafe {
-            self.dup
+            gpu.dup
                 .GetFrameDirtyRects(needed, rects.as_mut_ptr(), &mut needed)
         }
         .is_err()
@@ -328,36 +417,69 @@ impl Capturer for DxgiCapturer {
     }
 
     fn next_frame(&mut self, timeout: Duration) -> Result<Option<Frame>, CaptureError> {
+        // Desktop transitions are expected, including the brief no-input-desktop interval.
+        // Return no frame and retry instead of permanently ending a remote video pipeline.
+        if let Err(e) = self.follow_desktop() {
+            tracing::debug!(error = %e, "waiting for an accessible Windows desktop");
+            std::thread::sleep(timeout.max(Duration::from_millis(16)));
+            return Ok(None);
+        }
+        if self.gpu.is_none()
+            && self
+                .retry_after
+                .is_none_or(|t| std::time::Instant::now() >= t)
+        {
+            if let Err(e) = self.recreate() {
+                tracing::debug!(error = %e, "DXGI unavailable; using desktop GDI capture");
+                self.retry_after = Some(std::time::Instant::now() + Duration::from_secs(1));
+            }
+        }
+        if self.gpu.is_none() {
+            // DXGI may be absent on RDP virtual displays or during secure-desktop transitions.
+            // This runs on the already authenticated/attached capture thread, never Session 0.
+            std::thread::sleep(timeout.max(Duration::from_millis(16)));
+            if let Ok(monitors) = gdi_monitors() {
+                if let Some(monitor) = monitors.into_iter().find(|m| m.index == self.monitor.index)
+                {
+                    self.monitor = monitor;
+                }
+            }
+            return match gdi_frame(&self.monitor) {
+                Ok(frame) => Ok(Some(frame)),
+                Err(e) => {
+                    tracing::debug!(error = %e, "waiting for Windows display resources");
+                    Ok(None)
+                }
+            };
+        }
         let timeout_ms = u32::try_from(timeout.as_millis())
             .unwrap_or(u32::MAX)
             .max(1);
-        // A new desktop means a new picture; `first` makes the next frame a full one.
-        if self.follow_desktop()? {
-            return Ok(None);
-        }
-        let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
+        let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource: Option<IDXGIResource> = None;
-        // SAFETY: valid out-pointers; the duplication is live.
+        let gpu = self
+            .gpu
+            .as_ref()
+            .ok_or_else(|| failed("no DXGI resources"))?;
+        // SAFETY: valid output pointers and live duplication owned by this capture thread.
         let acquired = unsafe {
-            self.dup.AcquireNextFrame(
-                if self.first { 1000 } else { timeout_ms },
-                &mut info,
-                &mut resource,
-            )
+            gpu.dup
+                .AcquireNextFrame(timeout_ms, &mut frame_info, &mut resource)
         };
         match acquired {
             Ok(()) => {}
             Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(None),
-            Err(e) if e.code() == DXGI_ERROR_ACCESS_LOST => {
-                self.recreate()?;
+            Err(e) => {
+                // Access lost, session disconnected and device reset all require reconstruction.
+                tracing::debug!(error = %e, "rebuilding Windows capture after display transition");
+                self.gpu = None;
+                self.first = true;
+                std::thread::sleep(Duration::from_millis(16));
                 return Ok(None);
             }
-            Err(e) => return Err(failed(e)),
         }
-        // A frame that only moved the mouse has no new picture.
-        let picture_changed = info.LastPresentTime != 0 || info.AccumulatedFrames > 0;
         let result = (|| -> Result<Option<Frame>, CaptureError> {
-            if !picture_changed && !self.first {
+            if frame_info.LastPresentTime == 0 && frame_info.AccumulatedFrames == 0 && !self.first {
                 return Ok(None);
             }
             let tex: ID3D11Texture2D = resource
@@ -365,41 +487,181 @@ impl Capturer for DxgiCapturer {
                 .ok_or_else(|| failed("no desktop resource"))?
                 .cast()
                 .map_err(failed)?;
-            let dirty = if self.first {
+            // Move rectangles can relocate unchanged pixels. Send full damage rather than omit
+            // those destinations; rotated monitors also need damage in display coordinates.
+            let gpu = self
+                .gpu
+                .as_ref()
+                .ok_or_else(|| failed("no DXGI resources"))?;
+            let dirty = if self.first
+                || gpu.rotation
+                    != windows::Win32::Graphics::Dxgi::Common::DXGI_MODE_ROTATION_IDENTITY
+            {
                 Vec::new()
             } else {
                 self.dirty_rects()
             };
-            // SAFETY: both textures are live and same-sized; the mapped pointer is only read
-            // between Map and Unmap.
-            unsafe {
-                self.context.CopyResource(&self.staging, &tex);
-                let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-                self.context
-                    .Map(&self.staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                    .map_err(failed)?;
-                let (w, h) = (self.monitor.width as usize, self.monitor.height as usize);
-                let pitch = mapped.RowPitch as usize;
-                let src = mapped.pData.cast::<u8>();
-                let mut data = Vec::with_capacity(w * h * 4);
-                for row in 0..h {
-                    data.extend_from_slice(std::slice::from_raw_parts(src.add(row * pitch), w * 4));
-                }
-                self.context.Unmap(&self.staging, 0);
-                self.first = false;
-                Ok(Some(Frame {
-                    width: self.monitor.width,
-                    height: self.monitor.height,
-                    stride: w * 4,
-                    format: FrameFormat::Bgra8,
-                    data: Bytes::from(data),
-                    captured_us: now_us(),
-                    dirty,
-                }))
+            let gpu = self
+                .gpu
+                .as_mut()
+                .ok_or_else(|| failed("no DXGI resources"))?;
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            // SAFETY: live texture and writable descriptor.
+            unsafe { tex.GetDesc(&mut desc) };
+            if gpu.staging_size != (desc.Width, desc.Height) {
+                gpu.staging = Some(staging_texture(&gpu.device, desc.Width, desc.Height)?);
+                gpu.staging_size = (desc.Width, desc.Height);
             }
+            let staging = gpu
+                .staging
+                .as_ref()
+                .ok_or_else(|| failed("no staging texture"))?;
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            // SAFETY: same-sized BGRA textures; mapped memory is only read before Unmap.
+            unsafe {
+                gpu.context.CopyResource(staging, &tex);
+                gpu.context
+                    .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+                    .map_err(failed)?;
+            }
+            let (source_w, source_h) = (desc.Width as usize, desc.Height as usize);
+            let rotated = gpu.rotation == DXGI_MODE_ROTATION_ROTATE90
+                || gpu.rotation == DXGI_MODE_ROTATION_ROTATE270;
+            let (w, h) = if rotated {
+                (source_h, source_w)
+            } else {
+                (source_w, source_h)
+            };
+            let mut data = vec![0u8; w * h * 4];
+            let pitch = mapped.RowPitch as usize;
+            let source = mapped.pData.cast::<u8>();
+            for y in 0..h {
+                if !rotated && gpu.rotation != DXGI_MODE_ROTATION_ROTATE180 {
+                    // SAFETY: full row lies within the mapped BGRA texture allocation.
+                    let row = unsafe { std::slice::from_raw_parts(source.add(y * pitch), w * 4) };
+                    data[y * w * 4..(y + 1) * w * 4].copy_from_slice(row);
+                    continue;
+                }
+                for x in 0..w {
+                    let (sx, sy) = match gpu.rotation {
+                        DXGI_MODE_ROTATION_ROTATE90 => (y, source_h - 1 - x),
+                        DXGI_MODE_ROTATION_ROTATE180 => (source_w - 1 - x, source_h - 1 - y),
+                        DXGI_MODE_ROTATION_ROTATE270 => (source_w - 1 - y, x),
+                        _ => (x, y),
+                    };
+                    // SAFETY: rotation maps each output pixel to an in-bounds source texel;
+                    // RowPitch describes the mapped allocation, which is still mapped here.
+                    let pixel =
+                        unsafe { std::slice::from_raw_parts(source.add(sy * pitch + sx * 4), 4) };
+                    let offset = (y * w + x) * 4;
+                    data[offset..offset + 4].copy_from_slice(pixel);
+                }
+            }
+            // SAFETY: balances the successful Map, after all mapped memory reads.
+            unsafe { gpu.context.Unmap(staging, 0) };
+            self.first = false;
+            self.monitor.width = w as u32;
+            self.monitor.height = h as u32;
+            Ok(Some(Frame {
+                width: w as u32,
+                height: h as u32,
+                stride: w * 4,
+                format: FrameFormat::Bgra8,
+                data: Bytes::from(data),
+                captured_us: now_us(),
+                dirty,
+            }))
         })();
-        // SAFETY: a frame was acquired above and must be released exactly once.
-        let _ = unsafe { self.dup.ReleaseFrame() };
+        if let Some(gpu) = &self.gpu {
+            // SAFETY: exactly one ReleaseFrame for the acquisition above, including error paths.
+            let _ = unsafe { gpu.dup.ReleaseFrame() };
+        }
+        if let Err(e) = &result {
+            tracing::debug!(error = %e, "rebuilding Windows capture after frame read failure");
+            self.gpu = None;
+            self.first = true;
+            return Ok(None);
+        }
+        result
+    }
+}
+
+/// CPU fallback for Winlogon and RDP virtual displays when desktop duplication is unavailable.
+fn gdi_frame(monitor: &MonitorInfo) -> Result<Frame, CaptureError> {
+    let (width, height) = (monitor.width as i32, monitor.height as i32);
+    if width <= 0 || height <= 0 {
+        return Err(failed("empty Windows display"));
+    }
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: GDI objects belong to this capture thread and each is released on every path.
+    unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return Err(failed("GetDC(input desktop)"));
+        }
+        let memory = CreateCompatibleDC(Some(screen));
+        if memory.is_invalid() {
+            let _ = ReleaseDC(None, screen);
+            return Err(failed("CreateCompatibleDC"));
+        }
+        let mut pixels = std::ptr::null_mut();
+        let bitmap =
+            match CreateDIBSection(Some(screen), &bmi, DIB_RGB_COLORS, &mut pixels, None, 0) {
+                Ok(bitmap) => bitmap,
+                Err(e) => {
+                    let _ = DeleteDC(memory);
+                    let _ = ReleaseDC(None, screen);
+                    return Err(failed(e));
+                }
+            };
+        let old = SelectObject(memory, HGDIOBJ(bitmap.0));
+        let result = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            Some(screen),
+            monitor.x,
+            monitor.y,
+            SRCCOPY | CAPTUREBLT,
+        )
+        .map_err(failed)
+        .and_then(|()| {
+            if pixels.is_null() {
+                return Err(failed("GDI returned no pixels"));
+            }
+            // The top-down 32-bpp DIB has width*4 bytes per row, no extra row padding.
+            let data = std::slice::from_raw_parts(
+                pixels.cast::<u8>(),
+                width as usize * height as usize * 4,
+            )
+            .to_vec();
+            Ok(Frame {
+                width: width as u32,
+                height: height as u32,
+                stride: width as usize * 4,
+                format: FrameFormat::Bgra8,
+                data: Bytes::from(data),
+                captured_us: now_us(),
+                dirty: Vec::new(),
+            })
+        });
+        let _ = SelectObject(memory, old);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(memory);
+        let _ = ReleaseDC(None, screen);
         result
     }
 }
@@ -409,10 +671,12 @@ impl Capturer for DxgiCapturer {
 struct WinCursor {
     last_handle: usize,
     shape_id: u32,
+    desktop: nexus_desktop::ThreadDesktop,
 }
 
 impl CursorSource for WinCursor {
     fn poll(&mut self) -> Result<CursorSample, CaptureError> {
+        self.desktop.sync().map_err(failed)?;
         let mut ci = CURSORINFO {
             cbSize: u32::try_from(std::mem::size_of::<CURSORINFO>()).unwrap_or(0),
             ..Default::default()

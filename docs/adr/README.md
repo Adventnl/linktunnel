@@ -30,3 +30,5 @@ An ADR that depends on a measurement says so and links the result.
 * [0021 — GPU presentation and optional hardware encoders](0021-gpu-presentation-and-encoders.md)
 * [0022 — Physical-screen privacy leases](0022-physical-screen-privacy.md)
 * [0023 — Standalone relay](0023-standalone-relay.md)
+
+* [0024 — Windows control completion](0024-windows-control-completion.md) (source-only, untested)

@@ -9,6 +9,19 @@ claims a capability this page does not.
 🔲 not started ·
 ⛔ cannot be verified from the available environment (reason given)
 
+## Windows control source update — 2026-10-12
+
+Implementation added for native Windows backend selection, service-mediated Ctrl+Alt+Del, boot/session
+retry and RDP selection, kill-on-close child jobs, strict state-tree ACLs, capture recovery/GDI fallback,
+monitor rotation/hot-plug and mixed-DPI coordinates, native viewer system shortcuts, synthetic touch/pen
+and contact release, target session badge/physical panic, and privacy desktop/monitor cleanup.
+MSVC binaries now embed a DPI/long-path manifest; MSI authors the default SAS policy only if absent.
+The Windows MSI build script offers `-HardwareFfmpeg` when the operator supplies the FFmpeg SDK/runtime.
+
+**No tests, builds, lint, dependency checks or Windows runtime validation were run for this update,
+as explicitly requested.** Earlier counts below describe earlier revisions; they do not validate
+these source changes. See [WINDOWS.md](WINDOWS.md) and [ADR 0024](adr/0024-windows-control-completion.md).
+
 ## Implementation update — 2026-10-12 (macOS Apple Silicon)
 
 * ✅ Native wgpu viewer: Metal shader executed and checked for BGRA colour order, orientation,

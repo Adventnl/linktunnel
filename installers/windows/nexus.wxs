@@ -20,6 +20,14 @@
     <MediaTemplate EmbedCab="yes" />
     <Launch Condition="Installed OR VersionNT64 &gt;= 603" Message="Nexus Remote needs 64-bit Windows 10 or later." />
 
+    <!-- Enable service-generated Ctrl+Alt+Del only when no local/domain policy was configured.
+         An existing None/Ease-of-Access-only policy is preserved and must be changed by its owner. -->
+    <Property Id="NEXUS_EXISTING_SAS_POLICY" Secure="yes">
+      <RegistrySearch Id="ExistingSoftwareSasPolicy" Root="HKLM"
+                      Key="Software\Microsoft\Windows\CurrentVersion\Policies\System"
+                      Name="SoftwareSASGeneration" Type="raw" />
+    </Property>
+
     <Feature Id="Main" Title="Nexus Remote" Level="1">
       <ComponentGroupRef Id="Program" />
       <ComponentGroupRef Id="State" />
@@ -33,6 +41,11 @@
     </StandardDirectory>
 
     <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="SoftwareSasPolicy" Guid="1cbe5d38-e9ec-4a8e-ae71-3f1878a5de2d"
+                 Condition="NOT NEXUS_EXISTING_SAS_POLICY" Permanent="yes" NeverOverwrite="yes">
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Policies\System"
+                       Name="SoftwareSASGeneration" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
       <Component Id="AgentExe" Guid="b1f3f7a0-2d6e-4c5b-8f0e-4a8d9c1e2f31">
         <File Id="nexus_agent_exe" Source="$(BinDir)\nexus-agent.exe" KeyPath="yes" />
         <!-- The service: LocalSystem so the child it starts can attach to the secure desktop. -->

@@ -182,6 +182,7 @@ pub(crate) async fn open(
         id,
         controller.clone(),
         streams,
+        monitors.clone(),
     ));
     shared.viewers.lock().insert(
         id,
@@ -245,9 +246,9 @@ async fn pump_events(
     id: u64,
     controller: ControllerSession,
     mut streams: Streams,
+    mut monitors: Vec<MonitorInfo>,
 ) {
     let stats = Arc::clone(controller.stats());
-    let mut monitors: Vec<MonitorInfo> = Vec::new();
     let mut cursor_alive = true;
     let reason = loop {
         tokio::select! {
@@ -267,7 +268,12 @@ async fn pump_events(
                     MediaEvent::CursorShape(shape) => Ev::SessionCursorShape(SessionCursorShape { session_id: id, shape: Some(shape) }),
                     MediaEvent::Closed(reason) => break reason,
                     MediaEvent::Refused { message, .. } => { debug!(%message, "target refused a request"); continue; }
-                    MediaEvent::Monitors(list) => { monitors = list; continue }
+                    MediaEvent::Monitors(list) => {
+                        monitors = list;
+                        Ev::SessionDisplaysChanged(nexus_proto::v1::SessionDisplaysChanged {
+                            session_id: id, monitors: monitors.clone(),
+                        })
+                    }
                     MediaEvent::Started(v) => {
                         // Sent again after a monitor switch: the viewer needs the new geometry.
                         let native = monitors.iter().find(|m| m.index == v.monitor).map_or((v.width, v.height), |m| (m.width, m.height));

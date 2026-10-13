@@ -76,6 +76,7 @@ struct Resources {
     window: Option<HWND>,
     keyboard: Option<HHOOK>,
     mouse: Option<HHOOK>,
+    desktop: nexus_desktop::ThreadDesktop,
 }
 impl Drop for Resources {
     fn drop(&mut self) {
@@ -101,12 +102,16 @@ fn run(
         window: None,
         keyboard: None,
         mouse: None,
+        desktop: nexus_desktop::ThreadDesktop::new(),
     };
     let setup = (|| -> Result<(), String> {
         // Only the normal interactive desktop supports these shields. UAC/login cannot be hidden.
-        let mut desktop = nexus_desktop::ThreadDesktop::new();
-        desktop.sync().map_err(|e| e.to_string())?;
-        if desktop.attached().is_some_and(|name| name != "Default") {
+        resources.desktop.sync().map_err(|e| e.to_string())?;
+        if resources
+            .desktop
+            .attached()
+            .is_some_and(|name| name != "Default")
+        {
             return Err("privacy is unavailable on the secure desktop".into());
         }
         // SAFETY: all objects are local; static class strings and wndproc remain valid for process
@@ -162,8 +167,25 @@ fn run(
     setup?;
     let mut renewed = Instant::now();
     while !ESCAPE.load(Ordering::SeqCst) && renewed.elapsed() < Duration::from_secs(10) {
-        if nexus_desktop::input_desktop_name().is_ok_and(|n| n != "Default") {
+        // Losing access to the input desktop also invalidates privacy; do not leave shields or
+        // local-input hooks active through lock/UAC/display/session transitions.
+        if !nexus_desktop::input_desktop_name().is_ok_and(|n| n == "Default") {
             break;
+        }
+        if let Some(window) = resources.window {
+            // SAFETY: live thread-owned shield; virtual metrics reflect monitor hot-plug/DPI.
+            unsafe {
+                SetWindowPos(
+                    window,
+                    Some(HWND_TOPMOST),
+                    GetSystemMetrics(SM_XVIRTUALSCREEN),
+                    GetSystemMetrics(SM_YVIRTUALSCREEN),
+                    GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                    GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                    SWP_NOACTIVATE,
+                )
+                .map_err(|e| e.to_string())?;
+            }
         }
         match rx.recv_timeout(Duration::from_millis(8)) {
             Ok(true) => renewed = Instant::now(),

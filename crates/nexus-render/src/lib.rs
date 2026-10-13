@@ -5,13 +5,17 @@
 //!   added latency regardless of video latency (spec §2.1);
 //! * keys go out as physical HID usages, so the target's own layout interprets them;
 //! * local hotkeys (always with Ctrl+Alt+Shift so they never collide with remote shortcuts):
-//!   `Q` disconnect, `F` fullscreen, `P` fit ↔ pixel-perfect, `M` monitor, `B` target privacy.
+//!   `Q` disconnect, `F` fullscreen, `P` fit ↔ pixel-perfect, `M` monitor, `B` target privacy, `D` remote Ctrl+Alt+Del.
 //!
 //! Presentation uses a native wgpu surface (Metal / D3D12 / Vulkan). Decoded CPU BGRA is
 //! uploaded once per frame; scaling happens on the GPU. Software presentation remains available
 //! when no GPU adapter exists or `NEXUS_SOFTWARE_VIEWER=1` is set.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![deny(unsafe_code)]
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_keyboard;
 
 mod app;
 mod gpu;

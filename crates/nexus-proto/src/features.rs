@@ -46,3 +46,6 @@ pub const INPUT_BASIC: &str = "input.basic";
 
 /// Session-bound passkey / TOTP verification before unattended access.
 pub const AUTH_STEPUP: &str = "auth.stepup.v1";
+
+/// Windows service routes Ctrl+Alt+Del through SendSAS in the correct session.
+pub const SECURE_ATTENTION: &str = "windows.secure_attention";

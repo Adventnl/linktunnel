@@ -24,12 +24,18 @@ An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause 
   and cross-compiled, with cleanup verified using a recording backend; they have not run against a real Windows GPU/DXGI
   desktop. Privacy is refused on unsupported platforms/secure desktops. Local Esc restores the screen. See ADR 0022.
 * **IME-aware** text entry beyond scancodes + Unicode injection, pinch-zoom viewport and seamless per-window streaming.
+* **Windows control completion is source-only, uncompiled and unexecuted for this revision.**
+  Native injector selection, service-brokered Ctrl+Alt+Del, RDP/boot/session supervision, capture recovery,
+  DPI/rotation/hot-plug, touch/pen, shortcut capture and target badge/panic are implemented. No tests,
+  builds, lint or dependency checks were run for this update by request. See ADR 0024.
 * **Windows secure-desktop control: written, never executed** (no Windows machine). Same for the whole Windows and macOS runtime:
   capture, input, presence sensors, service, installers.
 * **Account login, hardware-key-only policy, factor recovery/removal UI and unattended reconnect without a fresh factor** remain unbuilt.
   Device-local, session-bound WebAuthn/TOTP step-up is implemented and enforced before resources. Browser and two-agent
   verification tests pass. See [STEP_UP.md](STEP_UP.md).
-* **An always-on-top "session active" border/badge drawn over the screen, and push/email notifications to your *other* devices.** What
+* **macOS/Linux always-on-top session badges and push/email notifications to your other devices.**
+  Windows has a separate target badge and physical panic hook in the service child, authored without
+  runtime validation; exclusive fullscreen applications can obscure topmost windows. What
   exists: tray/menu and dashboard banners, `nexus sessions`, a desktop notification on each new connection, and a panic hotkey. All of
   these live in the agent/app UI: someone looking only at a full-screen game or video would not see them, and the notification and
   hotkey are untested on real desktops (Wayland may refuse global shortcuts, and a headless server has neither).

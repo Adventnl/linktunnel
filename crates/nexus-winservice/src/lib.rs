@@ -25,8 +25,8 @@
 //! admin-only), so the child shows them itself with `WTSSendMessage` ([`prompt`]).
 //!
 //! The portable decision logic lives in [`supervisor`] and is unit-tested everywhere; the Win32
-//! parts are compiled only on Windows and are **type-checked but not yet run** on a real machine
-//! (docs/STATUS.md says so too).
+//! parts are compiled only on Windows. This control-completion revision is **source-only**:
+//! no builds, tests or lint were run (docs/STATUS.md records the historical evidence).
 
 #![cfg_attr(not(windows), forbid(unsafe_code))]
 
@@ -40,7 +40,13 @@ pub mod launcher;
 #[cfg(windows)]
 pub mod prompt;
 #[cfg(windows)]
+#[allow(unsafe_code)]
+mod sas;
+#[cfg(windows)]
 pub mod service;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod session_ui;
 
 /// Name the service is registered under.
 pub const SERVICE_NAME: &str = "NexusAgent";

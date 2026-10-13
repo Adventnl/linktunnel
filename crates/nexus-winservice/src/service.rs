@@ -1,6 +1,6 @@
 //! The service control manager glue.
 //!
-//! Verification status: type-checked for `x86_64-pc-windows-msvc`, not run (docs/STATUS.md).
+//! Verification status: source-only Windows revision; no builds or tests (docs/STATUS.md).
 
 use std::ffi::OsString;
 use std::sync::OnceLock;
@@ -95,7 +95,10 @@ fn run_service() -> Result<(), ServiceError> {
         .map_err(|e| e.to_string())
         .and_then(|()| crate::acl::restrict_to_system_and_admins(&paths).map_err(|e| e.to_string()))
     {
-        warn!(error = %e, dir = %paths.display(), "could not restrict the state directory");
+        return Err(ServiceError::Os {
+            what: "restrict service state directory",
+            detail: e,
+        });
     }
 
     set(ServiceState::Running, accept);
@@ -105,7 +108,7 @@ fn run_service() -> Result<(), ServiceError> {
     let mut child: Option<Child> = None;
     let mut timer: Option<Instant> = None;
     let mut pending = sup.on_event(Event::Start {
-        console: launcher::active_console_session(),
+        console: launcher::interactive_session(),
     });
 
     'outer: loop {
@@ -137,6 +140,24 @@ fn run_service() -> Result<(), ServiceError> {
             }
         }
 
+        if let Some(c) = &child {
+            if let Err(e) = c.dispatch_secure_attention() {
+                if matches!(&e, ServiceError::Os { what, .. } if *what == "revert SAS impersonation")
+                {
+                    return Err(e);
+                }
+                warn!(error = %e, "could not dispatch secure attention");
+            }
+        }
+        // Poll as well as consume notifications: a missing console at boot/user switching must
+        // be queried again before a retry, rather than retrying a permanently cached None.
+        let selected = launcher::interactive_session();
+        if selected != sup.running_in() && sup.running_in().is_some() {
+            pending = sup.on_event(Event::ConsoleChanged { console: selected });
+            if !pending.is_empty() {
+                continue;
+            }
+        }
         // Wait for something to happen: a control, the timer, or the child dying.
         let tick = Duration::from_millis(250);
         let mut event = None;
@@ -144,7 +165,7 @@ fn run_service() -> Result<(), ServiceError> {
             Ok(Control::Stop) => event = Some(Event::Stop),
             Ok(Control::SessionChange) => {
                 event = Some(Event::ConsoleChanged {
-                    console: launcher::active_console_session(),
+                    console: launcher::interactive_session(),
                 });
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -164,7 +185,17 @@ fn run_service() -> Result<(), ServiceError> {
             && Instant::now() >= t
         {
             timer = None;
-            event = Some(Event::Timer);
+            // Update the desired session before consuming the timer. Do not bypass crash
+            // backoff with a duplicate ConsoleChanged notification for an unchanged session.
+            let changed = sup.on_event(Event::ConsoleChanged {
+                console: launcher::interactive_session(),
+            });
+            if changed.is_empty() {
+                event = Some(Event::Timer);
+            } else {
+                pending = changed;
+                continue;
+            }
         }
         if let Some(ev) = event {
             pending = sup.on_event(ev);

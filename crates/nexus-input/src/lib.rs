@@ -30,6 +30,9 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 pub mod windows_inject;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_pointer;
 #[cfg(target_os = "linux")]
 pub mod x11;
 pub use error::InputError;
@@ -69,6 +72,12 @@ pub trait Injector: Send {
     /// Performs one event. Events the platform cannot express return
     /// [`InputError::Unsupported`], which callers log once and otherwise ignore.
     fn inject(&mut self, event: &InputEvent) -> Result<(), InputError>;
+
+    /// Cancels native contacts/state that are not described by ordinary key/button releases.
+    /// The guard calls this on focus loss and disconnect. Backends without contacts need no work.
+    fn release_native_state(&mut self) -> Result<(), InputError> {
+        Ok(())
+    }
 }
 
 /// The best injector for this machine.
@@ -76,6 +85,14 @@ pub fn default_injector() -> Result<Box<dyn Injector>, InputError> {
     #[cfg(target_os = "linux")]
     {
         return Ok(Box::new(x11::X11Injector::connect(None)?));
+    }
+    #[cfg(windows)]
+    {
+        return Ok(Box::new(windows_inject::WindowsInjector::new()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(Box::new(macos::MacInjector::new()?));
     }
     #[allow(unreachable_code)]
     Err(InputError::Unsupported(

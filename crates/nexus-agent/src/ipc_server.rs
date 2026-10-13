@@ -313,7 +313,7 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
     Ok(())
 }
 
-fn set_lockdown(shared: &Shared, enabled: bool) -> Result<(), AgentError> {
+pub(crate) fn set_lockdown(shared: &Shared, enabled: bool) -> Result<(), AgentError> {
     use std::sync::atomic::Ordering;
     let marker = shared.cfg.lockdown_file();
     if enabled {

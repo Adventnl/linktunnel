@@ -301,7 +301,7 @@ pub async fn serve(
         can_input, can_files, can_clipboard, "remote desktop session started"
     );
 
-    let monitors = match config.capture.monitors() {
+    let mut monitors = match config.capture.monitors() {
         Ok(m) => m,
         Err(e) => {
             warn!(error = %e, "cannot enumerate monitors");
@@ -415,9 +415,8 @@ pub async fn serve(
                                 }
                                 let _ = out_tx.send(ControlMessage { in_reply_to: id, body: Some(Body::VideoStarted(started)), ..Default::default() });
                                 video_active.store(true, Ordering::SeqCst);
-                                if cursor_task.is_none() {
-                                    cursor_task = start_cursor(&session, &config, &monitors, req.monitor, out_tx.clone());
-                                }
+                                if let Some(task) = cursor_task.take() { task.abort(); }
+                                cursor_task = start_cursor(&session, &config, &monitors, req.monitor, out_tx.clone());
                             }
                             Err(e) => {
                                 warn!(error = %e, "could not start video");
@@ -509,6 +508,13 @@ pub async fn serve(
                 }
             }
             _ = privacy_tick.tick() => {
+                let capture = Arc::clone(&config.capture);
+                if let Ok(Ok(current)) = tokio::task::spawn_blocking(move || capture.monitors()).await {
+                    if current != monitors {
+                        monitors = current;
+                        if can_view { let _ = out_tx.send(monitor_list(&monitors)); }
+                    }
+                }
                 if privacy.as_ref().is_some_and(|p| p.renew().is_err()) {
                     privacy = None;
                     privacy_blocks_input = false;
@@ -711,6 +717,12 @@ fn error_reply(in_reply_to: u64, code: ErrorCode, message: &str) -> ControlMessa
         })),
         ..Default::default()
     }
+}
+
+// Windows capture/cursor APIs already return physical pixels; DPI scale is display metadata.
+// macOS CGEvent/cursor positions use logical points and must be converted to device pixels.
+fn coordinate_scale(monitor: &MonitorInfo) -> f32 {
+    if cfg!(windows) { 1.0 } else { monitor.scale }
 }
 
 /// Converts capture monitors to the wire form.
@@ -1199,16 +1211,18 @@ fn start_cursor(
         .find(|m| u32::from(m.index) == monitor)?
         .clone();
     let session = session.clone();
+    let capture = Arc::clone(&config.capture);
     Some(tokio::spawn(async move {
-        cursor_loop(session, source, mon, out).await
+        cursor_loop(session, source, mon, out, capture).await
     }))
 }
 
 async fn cursor_loop(
     session: Session,
     source: Box<dyn CursorSource>,
-    monitor: MonitorInfo,
+    mut monitor: MonitorInfo,
     out: mpsc::UnboundedSender<ControlMessage>,
+    capture: Arc<dyn CaptureBackend>,
 ) {
     // The source may block on a round trip to the display server, so it runs on its own thread
     // and publishes samples through a watch channel.
@@ -1220,7 +1234,7 @@ async fn cursor_loop(
         std::thread::Builder::new()
             .name("cursor-poll".into())
             .spawn(move || {
-                while !stop.load(Ordering::Relaxed) {
+                while !stop.load(Ordering::Relaxed) && !tx.is_closed() {
                     match source.poll() {
                         Ok(s) => {
                             if tx.send(Some(s)).is_err() {
@@ -1228,8 +1242,9 @@ async fn cursor_loop(
                             }
                         }
                         Err(e) => {
-                            debug!(error = %e, "cursor poll failed; stopping");
-                            return;
+                            debug!(error = %e, "cursor unavailable during desktop transition; retrying");
+                            std::thread::sleep(Duration::from_millis(100));
+                            continue;
                         }
                     }
                     std::thread::sleep(CURSOR_POLL);
@@ -1241,7 +1256,18 @@ async fn cursor_loop(
     }
     let mut seq: u32 = 0;
     let mut last: Option<(i32, i32, bool, u32)> = None;
+    let mut geometry_check = Instant::now();
     while rx.changed().await.is_ok() {
+        if geometry_check.elapsed() >= Duration::from_secs(1) {
+            geometry_check = Instant::now();
+            let capture = Arc::clone(&capture);
+            if let Ok(Ok(monitors)) = tokio::task::spawn_blocking(move || capture.monitors()).await
+            {
+                if let Some(current) = monitors.into_iter().find(|m| m.index == monitor.index) {
+                    monitor = current;
+                }
+            }
+        }
         let Some(sample) = rx.borrow_and_update().clone() else {
             continue;
         };
@@ -1249,8 +1275,8 @@ async fn cursor_loop(
         // device pixels, hence the scale.
         #[allow(clippy::cast_possible_truncation)]
         let (x, y) = (
-            ((sample.x - monitor.x) as f32 * monitor.scale) as i32,
-            ((sample.y - monitor.y) as f32 * monitor.scale) as i32,
+            ((sample.x - monitor.x) as f32 * coordinate_scale(&monitor)) as i32,
+            ((sample.y - monitor.y) as f32 * coordinate_scale(&monitor)) as i32,
         );
         let inside = x >= 0
             && y >= 0
@@ -1344,9 +1370,10 @@ async fn accept_streams(
                         y: m.y,
                         width: m.width,
                         height: m.height,
-                        scale: m.scale,
+                        scale: coordinate_scale(m),
                     })
                     .collect();
+                let capture = Arc::clone(&config.capture);
                 let (consent, stats, audit) =
                     (consent.clone(), Arc::clone(&stats), config.audit.clone());
                 tokio::spawn(async move {
@@ -1356,12 +1383,7 @@ async fn accept_streams(
                     // Each stream gets its own injector so a reconnecting controller never
                     // inherits another connection's held keys.
                     note(&audit, "input.attached", &[]);
-                    match factory() {
-                        Ok(injector) => run_input_stream(stream, injector, rects, stats).await,
-                        Err(e) => {
-                            warn!(error = %e, "input injection unavailable; session is view-only");
-                        }
-                    }
+                    run_input_stream(stream, factory, rects, stats, capture).await;
                 });
             }
             StreamKind::Files if can_files => {
@@ -1529,18 +1551,34 @@ async fn echo_datagrams(session: Session, video_active: Arc<AtomicBool>) {
 
 async fn run_input_stream(
     mut stream: nexus_net::Stream,
-    injector: Box<dyn Injector>,
+    factory: InjectorFactory,
     monitors: Vec<MonitorRect>,
     stats: Arc<TargetStats>,
+    capture: Arc<dyn CaptureBackend>,
 ) {
     let (tx, rx) = std::sync::mpsc::channel::<Vec<TimedInput>>();
     let injector_thread = std::thread::Builder::new().name("inject".into()).spawn({
         let stats = Arc::clone(&stats);
         move || {
+            let injector = match factory() {
+                Ok(injector) => injector,
+                Err(e) => { warn!(error = %e, "input injection unavailable; session is view-only"); return; }
+            };
             let mut guarded = Guarded::new(injector);
             guarded.set_monitors(&monitors);
+            let mut monitor_check = Instant::now();
             let mut warned_unsupported = false;
             while let Ok(first) = rx.recv() {
+                if monitor_check.elapsed() >= Duration::from_secs(1) {
+                    monitor_check = Instant::now();
+                    if let Ok(current) = capture.monitors() {
+                        let rects: Vec<_> = current.iter().map(|m| MonitorRect {
+                            index: m.index, x: m.x, y: m.y, width: m.width, height: m.height,
+                            scale: coordinate_scale(m),
+                        }).collect();
+                        guarded.set_monitors(&rects);
+                    }
+                }
                 // If events piled up while we were busy, merge the backlog so a slow frame does
                 // not replay hundreds of stale pointer positions.
                 let mut batch = first;

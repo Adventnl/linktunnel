@@ -2,6 +2,10 @@
 
 **Status:** Accepted (design and code complete; **not executed on Windows**)
 
+The later [ADR 0024](0024-windows-control-completion.md) extends this decision with active-RDP
+selection, service-generated secure attention, capture recovery and target visibility. Its source
+revision has no build/testing evidence; historical verification claims below remain historical.
+
 ## Context
 Remote control must work on the UAC prompt, the lock screen and the sign-in screen (the secure desktop), survive fast user switching
 and start at boot. See [WINDOWS.md](../WINDOWS.md) for the full analysis.

@@ -122,3 +122,13 @@ A target holds an OS privacy lease and restores it on termination or watchdog/lo
 normal-desktop shields are implemented; unsupported platforms refuse explicitly. See ADR 0022.
 `nexus-relay` now embeds the upstream iroh server with TLS/admission/traffic limits; it never sees
 plaintext media/input. See ADR 0023 and the separate Compose relay bundle.
+
+## Windows control completion
+
+The Windows service now brokers secure attention using a SYSTEM-only per-child event and a
+session-token-impersonating SendSAS call. Children start suspended, enter a kill-on-close job and
+then resume in the selected console or existing active RDP session. Capture/input own their
+Windows resources on dedicated desktop-following threads; DXGI reconstruction and GDI fallback
+cover display transitions. A separate UI thread handles the target badge and local physical panic.
+See [ADR 0024](adr/0024-windows-control-completion.md). This revision was implemented without
+running tests, builds, lint, dependency checks or Windows runtime validation, by request.

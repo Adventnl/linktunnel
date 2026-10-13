@@ -175,5 +175,6 @@
   "cli.auth.enrolled": "Factor enrolled.",
   "cli.auth.code": "Authenticator code: ",
   "cli.auth.unlocked": "Access verified for the next connection (60 seconds).",
-  "privacy.local_restore": "Remote session active. Press Esc to restore this screen."
+  "privacy.local_restore": "Remote session active. Press Esc to restore this screen.",
+  "session.local_active": "Remote session active — click to disconnect, or press Ctrl+Alt+Shift+Esc"
 }

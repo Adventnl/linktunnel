@@ -8,13 +8,21 @@
   (that is a property of running as SYSTEM, not of the signature); only UIAccess would, and we do not use it.
 .PARAMETER CertThumbprint  SHA-1 thumbprint of the code-signing certificate in the store (omit to skip signing).
 #>
-param([string]$CertThumbprint = "", [string]$TimestampUrl = "http://timestamp.digicert.com")
+param(
+  [string]$CertThumbprint = "",
+  [string]$TimestampUrl = "http://timestamp.digicert.com",
+  [switch]$HardwareFfmpeg
+)
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path "$PSScriptRoot\..\.."
 $version = (Select-String -Path "$root\Cargo.toml" -Pattern '^version\s*=\s*"(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
 Push-Location $root
-cargo build --locked --profile dist -p nexus-agent -p nexus-cli
-Pop-Location
+try {
+  $buildArgs = @("build", "--locked", "--profile", "dist", "-p", "nexus-agent", "-p", "nexus-cli")
+  if ($HardwareFfmpeg) { $buildArgs += @("--features", "nexus-agent/hardware-ffmpeg") }
+  & cargo @buildArgs
+  if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }
+} finally { Pop-Location }
 $bin = "$root\target\dist"
 function Sign($file) {
   if ($CertThumbprint) {

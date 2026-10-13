@@ -254,6 +254,7 @@ message IpcEvent {
     // Who is currently controlling THIS machine (pushed whenever it changes).
     SessionsChanged sessions_changed = 18;
     SessionPrivacyState session_privacy_state = 19;
+    SessionDisplaysChanged session_displays_changed = 20;
   }
 }
 
@@ -338,6 +339,11 @@ message SessionMonitor {
 }
 
 // The target started streaming a monitor (at session start, or after `SessionMonitor`).
+message SessionDisplaysChanged {
+  uint64 session_id = 1;
+  repeated MonitorInfo monitors = 2;
+}
+
 message SessionMonitorChanged {
   uint64 session_id = 1;
   uint32 monitor = 2;

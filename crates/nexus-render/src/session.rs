@@ -63,6 +63,8 @@ pub enum UiEvent {
         /// The monitor's native size.
         native: (u32, u32),
     },
+    /// Monitor layout changed while the viewer was connected.
+    DisplaysChanged(Vec<nexus_proto::v1::MonitorInfo>),
     /// A new picture to show.
     Picture(Box<Picture>),
     /// Cursor position update.
@@ -340,6 +342,9 @@ async fn run_session(
                     }
                     Some(Ev::SessionCursorPos(c)) if c.session_id == id => {
                         if let Ok(u) = CursorUpdate::decode(&c.update) { notify(UiEvent::Cursor(u)); }
+                    }
+                    Some(Ev::SessionDisplaysChanged(m)) if m.session_id == id => {
+                        notify(UiEvent::DisplaysChanged(m.monitors));
                     }
                     Some(Ev::SessionMonitorChanged(m)) if m.session_id == id => {
                         notify(UiEvent::MonitorChanged { monitor: m.monitor, native: (m.native_width, m.native_height) });

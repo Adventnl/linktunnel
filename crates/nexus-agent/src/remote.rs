@@ -270,6 +270,15 @@ impl SessionHandler for RemoteHandler {
         }
         if self.injector.is_some() {
             features_list.push(features::INPUT_BASIC.to_owned());
+            #[cfg(windows)]
+            {
+                features_list.push(features::INPUT_TOUCH.to_owned());
+                features_list.push(features::INPUT_PEN.to_owned());
+                if nexus_input::windows_inject::secure_attention_available() {
+                    features_list.push(features::SECURE_DESKTOP.to_owned());
+                    features_list.push(features::SECURE_ATTENTION.to_owned());
+                }
+            }
         }
         if self.files.is_some() {
             features_list.push(features::FILES_RESUME.to_owned());

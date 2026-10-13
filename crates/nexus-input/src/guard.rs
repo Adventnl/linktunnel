@@ -101,6 +101,10 @@ impl Guarded {
                 first.get_or_insert(e);
             }
         }
+        // Native backends also own touch/pen contacts and may have partially injected a batch.
+        if let Err(e) = self.inner.release_native_state() {
+            first.get_or_insert(e);
+        }
         first.map_or(Ok(()), Err)
     }
 }

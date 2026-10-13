@@ -1,9 +1,14 @@
 # Windows: service, secure desktop, UAC and the lock screen
 
-> **Verification status.** Everything here is written against the Win32 API and **type-checked and
-> linted for `x86_64-pc-windows-msvc`** from Linux; the decision logic (`nexus-winservice::supervisor`,
-> command-line quoting) is unit-tested on every platform. **None of it has been run on a Windows machine
-> yet.** The first real test is the checklist at the end of this page. [STATUS.md](STATUS.md) repeats this.
+> **Current revision: source implementation only.** No tests, builds, lint or dependency checks
+> were run for the Windows control completion update, as requested. Earlier cross-compilation
+> evidence in STATUS.md applies to earlier revisions. Real-device operation remains unverified.
+
+The Windows control source now selects the native injector, recovers capture across secure-desktop
+and display transitions, follows an active RDP session when the physical console is disconnected,
+and routes Ctrl+Alt+Del through the SCM service. Touch/pen, embedded DPI awareness, monitor changes,
+a target indicator and a physical panic shortcut are implemented. [ADR 0024](adr/0024-windows-control-completion.md)
+records the details and implementation limits.
 
 ## The problem
 | Obstacle | Why |
@@ -27,12 +32,11 @@
    (`OpenProcessToken` → `DuplicateTokenEx(TokenPrimary)`), retarget the copy with
    `SetTokenInformation(TokenSessionId = WTSGetActiveConsoleSessionId())`, build an environment block,
    `CreateProcessAsUser` on `winsta0\default`. Needs `SeTcbPrivilege`, which LocalSystem services hold.
-2. **Following the desktop** (`nexus-desktop`): before each capture attempt (at most 5×/s) and each input event
-   (at most 10×/s) the thread asks `OpenInputDesktop` for the desktop that has the user's attention, and if its
+2. **Following the desktop** (`nexus-desktop`): before each capture attempt and each input event the thread asks `OpenInputDesktop` for the desktop that has the user's attention, and if its
    name differs from the one it is attached to it `SetThreadDesktop`s to it. Capture then rebuilds the
    Desktop Duplication (which is bound to a desktop) and emits a full frame. When the thread is **not** SYSTEM,
-   attaching to `Winlogon` fails with *access denied*; the code keeps working on the desktop it has (which goes
-   black during UAC; that is a Windows rule, not a bug).
+   attaching to `Winlogon` fails with *access denied*; capture waits and input refuses the operation
+   until an accessible desktop returns.
 3. **Replacing the child** when the console session changes (`supervisor.rs`): kill, relaunch in the new session;
    crashes restart with 1 s → 30 s exponential back-off, reset after a minute of health. Lock/unlock of the same
    session does *not* restart anything: the desktop switch is handled in-process.
@@ -48,7 +52,7 @@
 | Install the service | Administrator (MSI) | writes `HKLM\...\Services` |
 | `launcher.rs` | `SeTcbPrivilege` (LocalSystem has it) | set `TokenSessionId` |
 | Attach to `Winlogon` | SYSTEM in that session | `OpenInputDesktop` access check |
-| State folder | SYSTEM + Administrators only | it holds the device identity key; the service re-applies the ACL (`icacls /inheritance:r`) on every start, and the MSI sets it too |
+| State folder | SYSTEM + Administrators only | it holds the device identity key; the service replaces the state tree DACL on every start and refuses reparse points; the MSI sets the initial directory ACL |
 | CLI talking to the agent | Administrator (elevated terminal) | the SYSTEM agent's IPC token file lives in the locked-down folder |
 
 **Code signing is not required** for any of the above to work: reaching `Winlogon` is a property of running as SYSTEM,
@@ -62,19 +66,45 @@ given a certificate thumbprint.
   `terminal` grant then has administrator-grade access.
 * **Files** are limited to the shared folders configured, exactly as on every other platform.
 * **Power actions, clipboard, input** follow the same grants and consent rules as elsewhere.
-* The panic hotkey / "Disconnect" indicator for a SYSTEM agent is a Phase 9 item (see LIMITATIONS.md).
+* The session child has its own visible normal-desktop badge and physical **Ctrl+Alt+Shift+Esc**
+  panic hook, independent of the dashboard. Clicking the badge or using panic disconnects sessions
+  and enables lockdown. Re-enable with the existing local lockdown command after resolving the issue.
 
 ## Known limits (honest list)
 * **Protected content** (DRM video) is black in Desktop Duplication, by design of Windows.
-* **RDP**: when someone connects over Remote Desktop, the console session is disconnected and its display driver is
-  detached; capturing it then fails until it reconnects. The supervisor follows the console-session change, but a
-  disconnected console has nothing to show. Controlling an *RDP* session needs the agent in that session (not done).
-* **Multiple monitors with mixed DPI**: positions are physical pixels (the agent manifest must declare per-monitor
-  DPI awareness; the MSI does not yet embed that manifest, tracked in STATUS.md).
+* **RDP**: the supervisor selects an existing active RDP session if the console is not active.
+  It runs one child at a time, uses GDI fallback where duplication is unavailable, and reconnects on
+  session replacement. It creates no extra sessions and does not change Windows licensing limits.
+* **Multiple monitors with mixed DPI**: MSVC agent and controller binaries embed PerMonitorV2
+  awareness. Monitor DPI is reported separately from physical pointer/cursor coordinates; layout
+  changes update the viewer, injector and cursor sampler. Portrait displays rotate captured pixels.
 * **HDR**: the duplication returns the tone-mapped SDR image Windows composes; no HDR passthrough.
 * **Windows Server Core** has no desktop: the agent offers terminal/files/ports only (the virtual-display path is Linux-only).
 * **Modern Standby**: presence reports sleep via power events; Wake-on-LAN from Modern Standby depends on the NIC and
   OEM firmware, see `nexus doctor` (planned) for the NIC checks.
+
+## Remote Ctrl+Alt+Del and system keys
+
+In the native viewer, **Ctrl+Alt+Shift+D** sends Ctrl+Alt+Del to the target. The input stream still
+requires its existing input grant, authentication, step-up and consent. The SYSTEM child signals its
+service-only event; the service impersonates the session token and calls
+[Microsoft's SendSAS API](https://learn.microsoft.com/en-us/windows/win32/api/sas/nf-sas-sendsas).
+A normal user agent cannot perform this operation. Win, Alt+Tab, Alt+Esc, Alt+F4 and Ctrl+Esc are
+captured while a Windows viewer is foreground; local viewer escape shortcuts remain available.
+
+The MSI enables `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System\SoftwareSASGeneration`
+with DWORD `1` (Services) only if it was absent. Existing policy is preserved. A configured `0` or
+`2` refuses SAS; `1` and `3` permit the service. On managed machines the policy owner must allow
+Services under **Windows Components → Windows Logon Options → Disable or enable software Secure
+Attention Sequence**. The MSI never overwrites this policy and leaves it intact on uninstall.
+UAC remains enabled and credentials are still entered by the authorized controller at Windows login.
+
+## Installer source
+
+`installers/windows/build-msi.ps1` authors the service/CLI MSI with embedded binary manifests.
+Its optional `-HardwareFfmpeg` switch includes the existing GPU encoder feature and requires a
+matching FFmpeg SDK at build time and DLLs in the installed service's runtime search path. The
+script has been edited but not executed during this update.
 
 ## First-run checklist on a real Windows PC (what would turn 🟡 into ✅)
 1. `msiexec /i Nexus-Remote.msi` → `sc query NexusAgent` is RUNNING; `Get-Process nexus-agent` shows two processes

@@ -47,6 +47,9 @@ struct App {
     monitor: u32,
     monitor_count: u32,
     privacy: bool,
+    touch_ids: HashMap<u64, u8>,
+    #[cfg(windows)]
+    keyboard_capture: Option<crate::windows_keyboard::KeyboardCapture>,
 }
 
 /// Opens the viewer window and runs until it closes. Returns why the session ended.
@@ -85,6 +88,9 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         monitor: initial_monitor,
         monitor_count: 1,
         privacy: false,
+        touch_ids: HashMap::new(),
+        #[cfg(windows)]
+        keyboard_capture: None,
     };
     event_loop
         .run_app(&mut app)
@@ -219,6 +225,11 @@ impl ApplicationHandler<UiEvent> for App {
             }
         };
         window.set_ime_allowed(true);
+        #[cfg(windows)]
+        match crate::windows_keyboard::KeyboardCapture::start(&window, self.commands.clone()) {
+            Ok(capture) => self.keyboard_capture = Some(capture),
+            Err(e) => tracing::warn!(error = %e, "system shortcut capture unavailable"),
+        }
         if std::env::var_os("NEXUS_SOFTWARE_VIEWER").is_none() {
             match pollster::block_on(crate::gpu::Gpu::new(Arc::clone(&window))) {
                 Ok(gpu) => {
@@ -260,6 +271,15 @@ impl ApplicationHandler<UiEvent> for App {
                         f64::from(width.min(1600)),
                         f64::from(height.min(1000)),
                     ));
+                }
+            }
+            UiEvent::DisplaysChanged(monitors) => {
+                self.monitor_count = u32::try_from(monitors.len()).unwrap_or(1).max(1);
+                if let Some(monitor) = monitors.iter().find(|m| m.index == self.monitor) {
+                    self.native = Some((monitor.width, monitor.height));
+                } else if let Some(monitor) = monitors.first() {
+                    self.send(InputEvent::ReleaseAll);
+                    let _ = self.commands.send(Command::SwitchMonitor(monitor.index));
                 }
             }
             UiEvent::MonitorChanged { monitor, native } => {
@@ -362,7 +382,10 @@ impl ApplicationHandler<UiEvent> for App {
                 }
             }
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
-            WindowEvent::Focused(false) => self.send(InputEvent::ReleaseAll),
+            WindowEvent::Focused(false) => {
+                self.touch_ids.clear();
+                self.send(InputEvent::ReleaseAll);
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
@@ -371,8 +394,36 @@ impl ApplicationHandler<UiEvent> for App {
                 // Local hotkeys (Ctrl+Alt+Shift+…): never forwarded.
                 let local = self.mods.control_key() && self.mods.alt_key() && self.mods.shift_key();
                 if pressed && local {
-                    use winit::keyboard::KeyCode::{KeyB, KeyF, KeyM, KeyP, KeyQ};
+                    use winit::keyboard::KeyCode::{KeyB, KeyD, KeyF, KeyM, KeyP, KeyQ};
                     match code {
+                        KeyD if !event.repeat => {
+                            self.send(InputEvent::ReleaseAll);
+                            // A normal input grant/consent applies to this chord; the Windows
+                            // injector routes it to the service's secure-attention broker.
+                            // The outgoing agent applies the optional Cmd/Ctrl mapping. Use
+                            // the inverse source modifier so the target always receives Ctrl.
+                            let control = if self.options.key_remap && cfg!(target_os = "macos") {
+                                0xe3
+                            } else {
+                                0xe0
+                            };
+                            for (usage, state) in [
+                                (control, KeyState::Down),
+                                (0xe2, KeyState::Down),
+                                (0x4c, KeyState::Down),
+                                (0x4c, KeyState::Up),
+                                (0xe2, KeyState::Up),
+                                (control, KeyState::Up),
+                            ] {
+                                self.send(InputEvent::Key {
+                                    page: nexus_proto::wire::input::PAGE_KEYBOARD,
+                                    usage,
+                                    state,
+                                    modifiers: Default::default(),
+                                });
+                            }
+                            return;
+                        }
                         KeyB => {
                             self.send(InputEvent::ReleaseAll);
                             self.privacy = !self.privacy;
@@ -456,6 +507,62 @@ impl ApplicationHandler<UiEvent> for App {
                         let monitor = u8::try_from(self.monitor).unwrap_or(0);
                         self.send(InputEvent::MouseMoveAbs { monitor, x, y });
                     }
+                }
+            }
+            WindowEvent::Touch(touch) => {
+                use winit::event::TouchPhase as Phase;
+                if touch.phase == Phase::Started {
+                    let Some(id) =
+                        (0u8..10).find(|id| !self.touch_ids.values().any(|held| held == id))
+                    else {
+                        return;
+                    };
+                    self.touch_ids.insert(touch.id, id);
+                }
+                let Some(id) = self.touch_ids.get(&touch.id).copied() else {
+                    return;
+                };
+                let phase = match touch.phase {
+                    Phase::Started => nexus_proto::wire::input::TouchPhase::Down,
+                    Phase::Moved => nexus_proto::wire::input::TouchPhase::Move,
+                    Phase::Ended => nexus_proto::wire::input::TouchPhase::Up,
+                    Phase::Cancelled => nexus_proto::wire::input::TouchPhase::Cancel,
+                };
+                if let (Some(size), Some(window)) = (self.picture_size(), &self.window) {
+                    let win = window.inner_size();
+                    let dest = dest_rect(size, (win.width, win.height), self.scale);
+                    let position = (
+                        touch.location.x.clamp(
+                            f64::from(dest.x),
+                            f64::from(dest.x) + f64::from(dest.w.saturating_sub(1)),
+                        ),
+                        touch.location.y.clamp(
+                            f64::from(dest.y),
+                            f64::from(dest.y) + f64::from(dest.h.saturating_sub(1)),
+                        ),
+                    );
+                    if let Some(pixel) = window_to_picture(position, size, dest) {
+                        let (x, y) = layout::to_native(pixel, size, self.native);
+                        let monitor = u8::try_from(self.monitor).unwrap_or(0);
+                        // Touch wire events are monitor-local; identify the current monitor first.
+                        self.send(InputEvent::MouseMoveAbs { monitor, x, y });
+                        let pressure = (touch
+                            .force
+                            .as_ref()
+                            .map_or(0.5, |force| force.normalized())
+                            .clamp(0.0, 1.0)
+                            * 65535.0) as u16;
+                        self.send(InputEvent::Touch {
+                            id,
+                            phase,
+                            x,
+                            y,
+                            pressure,
+                        });
+                    }
+                }
+                if matches!(touch.phase, Phase::Ended | Phase::Cancelled) {
+                    self.touch_ids.remove(&touch.id);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
