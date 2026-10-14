@@ -1,8 +1,9 @@
 # Windows: service, secure desktop, UAC and the lock screen
 
-> **Current revision: source implementation only.** No tests, builds, lint or dependency checks
-> were run for the Windows control completion update, as requested. Earlier cross-compilation
-> evidence in STATUS.md applies to earlier revisions. Real-device operation remains unverified.
+> **Native Windows host now installed and running.** The locked release build and same-PC
+> encrypted physical-desktop smoke test pass. The boot-time SYSTEM service and session child
+> are running, and installed host diagnostics pass. Mac-to-PC UAC/login, physical privacy,
+> reboot recovery and outside-home access remain unverified. See the latest [STATUS.md](STATUS.md) entry.
 
 The Windows control source now selects the native injector, recovers capture across secure-desktop
 and display transitions, follows an active RDP session when the physical console is disconnected,

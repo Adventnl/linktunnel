@@ -5,9 +5,10 @@ mouse, clipboard, audio, files, terminal, port forwarding and power, between Win
 with live device presence, Wake-on-LAN and a dashboard (desktop app, tray, and terminal UI).
 
 > **Project status:** [docs/STATUS.md](docs/STATUS.md) is the honest ledger of what is implemented, what was **verified and on what**, and what
-> is not started. Short version: the Linux stack (agent, signaling, QUIC sessions, screen/input/audio/files/terminal/forwarding, headless servers,
-> dashboard, desktop app) is built and tested end to end; **Windows and macOS runtime code (including the Windows service that controls UAC and
-> the lock screen) is written and type-checked but has never been run on those systems**, and GPU video encoding is not built.
+> is not started. The Linux stack is built and tested end to end. macOS has native viewer and two-agent verification;
+> Windows now has a native build, real-desktop encrypted capture verification, and an installed boot-time SYSTEM host.
+> **MacBook-to-Windows live input, UAC/login and outside-home access still need a two-device acceptance test.**
+> Optional hardware encoders are implemented but Windows vendor GPU operation remains unverified.
 > Read [docs/LIMITATIONS.md](docs/LIMITATIONS.md) before trusting it with anything important.
 
 ## Documents
@@ -60,5 +61,6 @@ H.264 encode. Unattended passkey/TOTP step-up is enforced before resource access
 opens a browser prompt automatically. Windows session-scoped privacy and a standalone TLS relay
 are implemented. See [setup](docs/STEP_UP.md), [acceleration](docs/ACCELERATION.md),
 [self hosting](docs/SELF_HOSTING.md), and [verified status](docs/STATUS.md).
+For the MacBook-to-PC setup, follow [Mac to Windows](docs/MAC_TO_WINDOWS.md).
 The acceptance target remains full live Mac↔Windows desktop/input control including elevated
 Windows/UAC/login sessions. Real Windows secure-desktop and GPU/privacy validation are still needed.

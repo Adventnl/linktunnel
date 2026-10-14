@@ -9,6 +9,32 @@ claims a capability this page does not.
 🔲 not started ·
 ⛔ cannot be verified from the available environment (reason given)
 
+## Windows host installation — 2026-10-15 (native Windows 10 x64)
+
+The Windows PC now has a fresh locked release build of `nexus-agent`, `nexus`, and `nexus-signal`,
+plus the previously built native desktop dashboard. `scripts/check-windows.ps1` completed
+successfully: strict workspace/all-targets Clippy with warnings denied, and 563 Rust tests
+passed, zero failed, two ignored. The ignored tests require an interactive physical desktop
+and the real OS credential store; the separate desktop smoke test below exercised capture.
+Evidence: `target/windows-final-checks.log`. The two-agent physical-desktop smoke test
+passed again: pairing, monitor discovery, a nonblank 1920×1080 screenshot over encrypted QUIC,
+direct transport, and signed audit verification. This is a same-PC transport test, not a Mac/LAN
+latency measurement. Evidence is under `target/windows-smoke-562edfbbb66d4f32b746af61c9e74f99`.
+
+`install-host.ps1 -LanAddress 192.168.1.32 -KeepAwakeOnAc` completed in an elevated process.
+Verified: `NexusAgent` is Automatic/LocalSystem and running; service/session-child processes
+exist in sessions 0 and 4; the persistent signaling server listens on the PC's LAN address;
+installed `nexus --system doctor` passes and signaling is connected. Installed state is under
+`C:\ProgramData\Nexus`; the installer configures local-subnet firewall rules and saves the old
+sleep settings before disabling timed sleep/hibernation on AC power.
+Evidence: `target/host-install-transcript.txt` and `target/host-install-result.txt` (`SUCCESS`).
+
+The installed host has no paired controller or enrolled authentication factor yet.
+`unattended_requires_stepup` remains enabled. MacBook pairing/factor enrollment, actual remote
+input, UAC/login, audio, physical privacy, reboot recovery, and separate-network connectivity
+remain pending. See [MAC_TO_WINDOWS.md](MAC_TO_WINDOWS.md); the historical rows below are not
+claims that these acceptance checks passed.
+
 ## Windows control source update — 2026-10-12
 
 Implementation added for native Windows backend selection, service-mediated Ctrl+Alt+Del, boot/session

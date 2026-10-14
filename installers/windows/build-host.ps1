@@ -19,7 +19,9 @@ foreach ($name in @('nexus-agent.exe', 'nexus.exe', 'nexus-signal.exe')) {
 }
 $app = Join-Path $root 'apps\nexus-app\src-tauri\target\release\nexus-app.exe'
 if (Test-Path -LiteralPath $app) { Copy-Item -LiteralPath $app -Destination $out -Force }
-Copy-Item -LiteralPath "$PSScriptRoot\install-host.ps1" -Destination $out -Force
+foreach ($script in @('install-host.ps1', 'configure-tailscale.ps1', 'start-vpn-signal.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $script) -Destination $out -Force
+}
 Copy-Item -LiteralPath "$root\docs\MAC_TO_WINDOWS.md" -Destination $out -Force
 Get-ChildItem -LiteralPath $out -Filter '*.exe' | Get-FileHash -Algorithm SHA256 | ForEach-Object {
     '{0}  {1}' -f $_.Hash.ToLowerInvariant(), (Split-Path $_.Path -Leaf)

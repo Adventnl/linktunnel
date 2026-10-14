@@ -2,6 +2,24 @@
 
 Use the same repository revision on both machines. Start on the home network, then test from an external network. A successful local screenshot does not prove UAC, login, or outside-home access.
 
+## This PC is installed (2026-10-15)
+
+The host on `DESKTOP-H9VGBNO` is installed in `C:\Program Files\Nexus Remote` and running as
+an automatic SYSTEM service. Its home-network signaling URL is `ws://192.168.1.32:8443/v1/ws`.
+Diagnostics pass and the real-desktop two-agent smoke test passes. Keep the PC plugged in;
+the installer disabled timed sleep and hibernation on AC power. Reserve `192.168.1.32` in the
+router before relying on the address long term.
+
+Continue with **MacBook controller** below; the Windows build/install commands do not need to
+be repeated on this PC. Open **PowerShell as Administrator** on the PC when ready to pair:
+
+```powershell
+& 'C:\Program Files\Nexus Remote\nexus.exe' --system pair offer
+```
+
+The paired name to use in the Mac viewer is `DESKTOP-H9VGBNO`. No Mac pairing or factor
+enrollment has happened yet. Complete the attended test before enabling unattended access.
+
 ## Windows host
 
 Build with `installers/windows/build-host.ps1`. It needs Rust, Visual Studio C++ Build Tools (including the Windows SDK/CMake), Strawberry Perl for vendored OpenSSL, and NASM 2.16.03 for optimized software H.264. NASM 3.02 crashed while producing the codec's Windows debug information during native verification. Use `scripts/check-windows.ps1` to run checks with the same native build environment. The optional desktop dashboard is built separately with `npm ci`, `npm run build`, and `cargo build --release --locked --manifest-path apps/nexus-app/src-tauri/Cargo.toml`.
