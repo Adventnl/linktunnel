@@ -91,6 +91,15 @@ async fn main() -> Result<()> {
         args.share_rw.clear();
     }
     if args.windows_service {
+        let service_paths = match &args.home {
+            Some(home) => Paths::under(home),
+            None => Paths::resolve(Scope::System)?,
+        };
+        let _service_telemetry = nexus_core::telemetry::init_tracing(&LogConfig {
+            file_dir: Some(service_paths.log_dir.join("service")),
+            ansi: false,
+            ..Default::default()
+        });
         // The service runs a SYSTEM copy of this program in the console session; that copy gets
         // the same arguments plus `--system`, and no terminal unless the operator opted in.
         let mut child: Vec<String> = std::env::args()

@@ -1,8 +1,11 @@
 //! Putting a verified file in place, and taking it back out.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(unix)]
 use crate::manifest::UpdateError;
 
 /// Replaces `target` (a program file) with `staged`, keeping the old one as `<target>.old`.

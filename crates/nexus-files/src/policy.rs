@@ -89,6 +89,15 @@ impl FileRoots {
         if wire.is_empty() || wire.contains('\0') {
             return Err(FileError::InvalidPath("empty or contains NUL".into()));
         }
+        #[cfg(windows)]
+        if wire.split(['\\', '/']).any(|part| part == "..") {
+            return Err(FileError::InvalidPath(format!("{wire} contains `..`")));
+        }
+        // Mac/Linux controllers append `/name` to listing paths. Canonical Windows roots
+        // carry the verbatim `\\?\` prefix, where Win32 does not accept forward slashes.
+        #[cfg(windows)]
+        let p = PathBuf::from(wire.replace('/', "\\"));
+        #[cfg(not(windows))]
         let p = PathBuf::from(wire);
         if !p.is_absolute() {
             return Err(FileError::InvalidPath(format!("{wire} is not absolute")));
@@ -221,6 +230,27 @@ mod tests {
             r.resolve_new(&s(&d.path().join("share/new.bin")), Access::Write)
                 .is_ok()
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_controller_can_append_forward_slashes_to_a_windows_listing_path() {
+        let (dir, roots) = setup();
+        let listing = roots.roots()[0].0.clone();
+        let wire = format!("{}/from-mac.bin", listing.display());
+        let resolved = roots.resolve_new(&wire, Access::Write).unwrap();
+        std::fs::write(&resolved, b"from the controller").unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("share/from-mac.bin")).unwrap(),
+            b"from the controller"
+        );
+        assert!(matches!(
+            roots.resolve_new(
+                &format!("{}/../escape.bin", listing.display()),
+                Access::Write
+            ),
+            Err(FileError::InvalidPath(_))
+        ));
     }
 
     #[test]

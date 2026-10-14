@@ -33,7 +33,8 @@ const MAX_BULK_BYTES: u64 = 1 << 30;
 
 pub(crate) async fn serve(shared: Arc<Shared>, mut server: IpcServer) {
     let mut shutdown = shared.shutdown.subscribe();
-    loop {
+    let mut clients = tokio::task::JoinSet::new();
+    while !*shutdown.borrow() {
         let pending = tokio::select! {
             accepted = server.accept() => match accepted {
                 Ok(p) => p,
@@ -43,14 +44,29 @@ pub(crate) async fn serve(shared: Arc<Shared>, mut server: IpcServer) {
                     continue;
                 }
             },
-            _ = shutdown.changed() => return,
+            _ = shutdown.changed() => break,
+            Some(_) = clients.join_next(), if !clients.is_empty() => continue,
         };
         let shared = Arc::clone(&shared);
-        tokio::spawn(async move { client(shared, pending).await });
+        clients.spawn(async move { client(shared, pending).await });
+    }
+    // Windows retains the pipe name while connected instances are alive. Finish their
+    // shutdown before announcing that the agent can be restarted on the same home.
+    drop(server);
+    if tokio::time::timeout(Duration::from_secs(4), async {
+        while clients.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        clients.shutdown().await;
     }
 }
 
 async fn client(shared: Arc<Shared>, pending: PendingConnection) {
+    if *shared.shutdown.borrow() {
+        return;
+    }
     let welcome = IpcWelcome {
         agent_version: env!("CARGO_PKG_VERSION").to_owned(),
         device_id: shared.identity.device_id().as_bytes().to_vec().into(),
@@ -63,6 +79,9 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
             return;
         }
     };
+    if *shared.shutdown.borrow() {
+        return;
+    }
     debug!(client = %name, "IPC client connected");
     let (mut reader, mut writer) = conn.split();
     let mut events = shared.events.subscribe();
@@ -72,7 +91,7 @@ async fn client(shared: Arc<Shared>, pending: PendingConnection) {
     let ctx = ConnCtx::new(session_tx);
     let mut shutdown = shared.shutdown.subscribe();
 
-    loop {
+    while !*shutdown.borrow() {
         tokio::select! {
             frame = reader.recv() => match frame {
                 Ok(Some(IpcFrame { body: Some(F::Request(req)) })) => {

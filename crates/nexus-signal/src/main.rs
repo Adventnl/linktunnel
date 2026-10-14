@@ -1,6 +1,7 @@
 //! The `nexus-signal` binary.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -41,6 +42,10 @@ struct Args {
     /// Log filter, e.g. `info,nexus_signal=debug`.
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
+
+    /// Directory for daily-rotated server logs (useful for boot-time hosts).
+    #[arg(long)]
+    log_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -48,6 +53,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let _telemetry = nexus_core::telemetry::init_tracing(&nexus_core::config::LogConfig {
         level: args.log.clone(),
+        file_dir: args.log_dir.clone(),
         ..Default::default()
     });
 

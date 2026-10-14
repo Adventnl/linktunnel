@@ -38,10 +38,23 @@ pub struct AgentLink {
 pub fn agent_paths() -> IpcPaths {
     let paths = match std::env::var_os("NEXUS_HOME") {
         Some(home) => Paths::under(&PathBuf::from(home)),
-        None => Paths::resolve(Scope::User)
+        None => Paths::resolve(agent_scope())
             .unwrap_or_else(|_| Paths::under(&std::env::temp_dir().join("nexus"))),
     };
     IpcPaths::in_dir(&paths.runtime_dir)
+}
+
+/// An elevated Windows dashboard can manage the machine-wide host with `--system`.
+pub fn agent_scope() -> Scope {
+    scope_for_args(std::env::args().skip(1))
+}
+
+fn scope_for_args(args: impl IntoIterator<Item = String>) -> Scope {
+    if args.into_iter().any(|arg| arg == "--system") {
+        Scope::System
+    } else {
+        Scope::User
+    }
 }
 
 impl AgentLink {
@@ -88,7 +101,11 @@ impl AgentLink {
             Ok(c) => c,
             Err(e) => return Snapshot::unreachable(e),
         };
-        match tokio::try_join!(client.status(), client.list_devices(), client.list_sessions()) {
+        match tokio::try_join!(
+            client.status(),
+            client.list_devices(),
+            client.list_sessions()
+        ) {
             Ok((status, list, sessions)) => {
                 let devices: Vec<Device> = list.devices.iter().map(Device::from).collect();
                 let sessions: Vec<ActiveSession> =
@@ -211,4 +228,16 @@ pub fn nexus_cli() -> PathBuf {
         .and_then(|exe| exe.parent().map(|d| d.join(name)))
         .filter(|p| p.is_file())
         .unwrap_or_else(|| PathBuf::from(name))
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_scope_requires_an_explicit_system_flag() {
+        assert_eq!(scope_for_args(Vec::new()), Scope::User);
+        assert_eq!(scope_for_args(["--system".into()]), Scope::System);
+        assert_eq!(scope_for_args(["--systematic".into()]), Scope::User);
+    }
 }

@@ -370,7 +370,8 @@ fn request_secure_attention() -> Result<(), InputError> {
         )
     })?;
     let mut policy = 0u32;
-    let mut size = std::mem::size_of::<u32>() as u32;
+    let mut size =
+        u32::try_from(std::mem::size_of::<u32>()).map_err(|e| InputError::Failed(e.to_string()))?;
     // SAFETY: constant registry names, DWORD output with its exact size. The application never
     // changes this policy at runtime; local/domain administrators remain in control of it.
     let read = unsafe {

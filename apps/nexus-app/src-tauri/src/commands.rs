@@ -31,6 +31,9 @@ pub async fn connect_screen(link: Link<'_>, id: String) -> CmdResult<()> {
 
 pub fn spawn_viewer(name: &str) -> CmdResult<()> {
     let mut cmd = tokio::process::Command::new(link::nexus_cli());
+    if link::agent_scope() == nexus_core::Scope::System {
+        cmd.arg("--system");
+    }
     cmd.args(["remote", "view", name, "--audio"])
         .stdin(std::process::Stdio::null());
     let mut child = cmd
@@ -113,7 +116,10 @@ pub async fn disconnect_sessions(link: Link<'_>, id: Option<String>) -> CmdResul
         Some(id) if !id.is_empty() => dto::unhex(&id)?,
         _ => Vec::new(),
     };
-    link.client()?.disconnect_sessions(device).await.map_err(err)
+    link.client()?
+        .disconnect_sessions(device)
+        .await
+        .map_err(err)
 }
 
 /// Lockdown on and everyone disconnected.

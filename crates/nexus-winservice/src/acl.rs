@@ -53,13 +53,10 @@ fn apply(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> Result<(), ServiceErr
     .as_bool()
     {
         // SAFETY: capture the error immediately after the failing call.
+        let error = unsafe { GetLastError() }.0;
         return Err(os(
             "restrict state ACL",
-            format!(
-                "{}: Win32 error {}",
-                path.display(),
-                unsafe { GetLastError() }.0
-            ),
+            format!("{}: Win32 error {error}", path.display()),
         ));
     }
     if metadata.is_dir() {

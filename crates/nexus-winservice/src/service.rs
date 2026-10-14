@@ -140,14 +140,13 @@ fn run_service() -> Result<(), ServiceError> {
             }
         }
 
-        if let Some(c) = &child {
-            if let Err(e) = c.dispatch_secure_attention() {
-                if matches!(&e, ServiceError::Os { what, .. } if *what == "revert SAS impersonation")
-                {
-                    return Err(e);
-                }
-                warn!(error = %e, "could not dispatch secure attention");
+        if let Some(c) = &child
+            && let Err(e) = c.dispatch_secure_attention()
+        {
+            if matches!(&e, ServiceError::Os { what, .. } if *what == "revert SAS impersonation") {
+                return Err(e);
             }
+            warn!(error = %e, "could not dispatch secure attention");
         }
         // Poll as well as consume notifications: a missing console at boot/user switching must
         // be queried again before a retry, rather than retrying a permanently cached None.

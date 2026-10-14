@@ -28,8 +28,8 @@ impl IpcPaths {
         #[cfg(not(unix))]
         let endpoint = {
             // One pipe per runtime directory (i.e. per user), without exposing the user name.
-            let tag = data_encoding::HEXLOWER
-                .encode(&nexus_core_hash(runtime_dir.to_string_lossy().as_bytes())[..8]);
+            let hash = blake3::hash(runtime_dir.to_string_lossy().as_bytes());
+            let tag = data_encoding::HEXLOWER.encode(&hash.as_bytes()[..16]);
             IpcEndpoint::Pipe(format!(r"\\.\pipe\nexus-agent-{tag}"))
         };
         Self {
@@ -37,17 +37,6 @@ impl IpcPaths {
             token_file,
         }
     }
-}
-
-#[cfg(not(unix))]
-fn nexus_core_hash(data: &[u8]) -> [u8; 32] {
-    // A tiny non-cryptographic fold is enough to derive a stable pipe name; uniqueness per user
-    // directory is all that is needed, and the token (not the name) is what authenticates.
-    let mut out = [0u8; 32];
-    for (i, b) in data.iter().enumerate() {
-        out[i % 32] = out[i % 32].wrapping_mul(31).wrapping_add(*b).rotate_left(1);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -62,6 +51,19 @@ mod tests {
         assert_eq!(
             p.endpoint,
             IpcEndpoint::Unix(PathBuf::from("/tmp/x/run/agent.sock"))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn long_windows_paths_with_different_suffixes_have_distinct_pipes() {
+        let base = r"C:\Users\Adventnl\AppData\Local\Temp";
+        let a = IpcPaths::in_dir(&Path::new(base).join(".tmpAlpha").join("run"));
+        let b = IpcPaths::in_dir(&Path::new(base).join(".tmpBravo").join("run"));
+        assert_ne!(a.endpoint, b.endpoint);
+        assert_eq!(
+            a.endpoint,
+            IpcPaths::in_dir(&Path::new(base).join(".tmpAlpha").join("run")).endpoint
         );
     }
 }

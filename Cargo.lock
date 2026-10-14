@@ -4301,6 +4301,7 @@ dependencies = [
 name = "nexus-ipc"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "bytes",
  "data-encoding",
  "getrandom 0.4.3",
@@ -4331,6 +4332,7 @@ dependencies = [
  "nexus-codec",
  "nexus-core",
  "nexus-crypto",
+ "nexus-desktop",
  "nexus-files",
  "nexus-input",
  "nexus-net",

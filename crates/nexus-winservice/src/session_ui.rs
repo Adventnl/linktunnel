@@ -218,7 +218,7 @@ unsafe extern "system" fn window_proc(
             SetTextColor(dc, windows::Win32::Foundation::COLORREF(0x00ffffff));
             SetBkMode(dc, TRANSPARENT);
             let mut label = [0u16; 512];
-            let length = GetWindowTextW(window, &mut label).max(0) as usize;
+            let length = GetWindowTextW(window, &mut label).max(0).cast_unsigned() as usize;
             DrawTextW(
                 dc,
                 &mut label[..length],

@@ -93,6 +93,29 @@ pub fn input_desktop_name() -> Result<String, DesktopError> {
     imp::input_desktop_name()
 }
 
+/// Requests millisecond scheduling during an active media session, restoring it on drop.
+/// This is process-scoped on Windows 10 2004+ and an inert guard on other platforms.
+#[derive(Debug)]
+pub struct MediaTiming {
+    _guard: imp::MediaTiming,
+}
+
+impl MediaTiming {
+    /// Starts the active-media scheduling request. Unsupported systems retain their defaults.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            _guard: imp::MediaTiming::new(),
+        }
+    }
+}
+
+impl Default for MediaTiming {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // Raw Win32 calls; every `unsafe` block states why it is sound.
 #[cfg(windows)]
 #[allow(unsafe_code)]
@@ -110,12 +133,43 @@ mod imp {
         DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
     };
 
+    #[derive(Debug)]
+    pub(super) struct MediaTiming {
+        active: bool,
+    }
+
+    impl MediaTiming {
+        pub(super) fn new() -> Self {
+            // SAFETY: requests a supported timer period without pointers or global ownership.
+            // Every successful request is paired with timeEndPeriod in Drop.
+            let result = unsafe { windows::Win32::Media::timeBeginPeriod(1) };
+            if result != 0 {
+                tracing::warn!(
+                    result,
+                    "Windows could not enable millisecond media scheduling"
+                );
+            }
+            Self {
+                active: result == 0,
+            }
+        }
+    }
+
+    impl Drop for MediaTiming {
+        fn drop(&mut self) {
+            if self.active {
+                // SAFETY: balances exactly this guard's successful timeBeginPeriod(1).
+                let _ = unsafe { windows::Win32::Media::timeEndPeriod(1) };
+            }
+        }
+    }
+
     pub(super) fn enable_physical_coordinates() -> Result<(), DesktopError> {
         // SAFETY: establishes process-wide DPI awareness before any UI is created.
         match unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } {
             Ok(()) => Ok(()),
             // ERROR_ACCESS_DENIED means the manifest or an earlier call already set awareness.
-            Err(e) if e.code().0 as u32 == 0x80070005 => Ok(()),
+            Err(e) if e.code().0.cast_unsigned() == 0x80070005 => Ok(()),
             Err(e) => Err(os(e)),
         }
     }
@@ -234,12 +288,13 @@ mod imp {
     impl Drop for Inner {
         fn drop(&mut self) {
             if let Some((desk, _)) = self.current.take() {
-                // SAFETY: original is borrowed from GetThreadDesktop and remains owned by the
-                // OS. Detach before closing; Windows refuses to close an attached desktop.
-                if self.owner == Some(unsafe { GetCurrentThreadId() }) {
-                    if let Some(original) = self.original {
-                        let _ = unsafe { SetThreadDesktop(original) };
-                    }
+                // SAFETY: argument-less query of the current thread's ID.
+                if self.owner == Some(unsafe { GetCurrentThreadId() })
+                    && let Some(original) = self.original
+                {
+                    // SAFETY: original is borrowed from GetThreadDesktop and remains owned
+                    // by Windows. Detach before closing the desktop this value owns.
+                    let _ = unsafe { SetThreadDesktop(original) };
                 }
                 // SAFETY: stored owned handle, closed exactly once.
                 let _ = unsafe { CloseDesktop(desk) };
@@ -251,6 +306,15 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     use super::DesktopError;
+
+    #[derive(Debug)]
+    pub(super) struct MediaTiming;
+
+    impl MediaTiming {
+        pub(super) fn new() -> Self {
+            Self
+        }
+    }
 
     pub(super) fn enable_physical_coordinates() -> Result<(), DesktopError> {
         Ok(())

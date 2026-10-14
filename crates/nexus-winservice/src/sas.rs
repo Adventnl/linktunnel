@@ -38,6 +38,8 @@ impl Broker {
         let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
         let name = format!(r"Global\NexusSas-{suffix}");
         let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let attributes_size = u32::try_from(std::mem::size_of::<SECURITY_ATTRIBUTES>())
+            .map_err(|e| os("SAS event attributes size", e))?;
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         // SAFETY: static valid SDDL, valid output. Only LocalSystem can open this broker event.
         unsafe {
@@ -50,7 +52,7 @@ impl Broker {
         }
         .map_err(|e| os("SAS event ACL", e))?;
         let attributes = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            nLength: attributes_size,
             lpSecurityDescriptor: descriptor.0,
             bInheritHandle: false.into(),
         };

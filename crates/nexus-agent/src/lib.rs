@@ -175,10 +175,14 @@ impl Agent {
         if shared.discovery.is_some() {
             let s = Arc::clone(&shared);
             tasks.push(tokio::spawn(async move {
+                let mut shutdown = s.shutdown.subscribe();
                 // The advertised tag changes every hour; check often enough to roll over on time.
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
-                loop {
-                    tick.tick().await;
+                while !*shutdown.borrow() {
+                    tokio::select! {
+                        _ = tick.tick() => {},
+                        _ = shutdown.changed() => return,
+                    }
                     if let Some(d) = &s.discovery
                         && let Err(e) = d.refresh()
                     {
@@ -263,9 +267,15 @@ impl Agent {
 
     /// Stops the agent: announces going offline, closes sessions, removes the IPC endpoint.
     pub async fn shutdown(self) {
-        let _ = self.shared.shutdown.send(true);
-        for task in self.tasks {
-            let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+        let _ = self.shared.shutdown.send_replace(true);
+        for mut task in self.tasks {
+            if tokio::time::timeout(Duration::from_secs(5), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
         }
         self.shared.node.close().await;
     }

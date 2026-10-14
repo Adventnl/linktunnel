@@ -608,6 +608,7 @@ async fn control_task(
     rate_limits: Option<(u32, u32)>,
 ) {
     // Created when the target announces its starting bitrate.
+    let _timing = nexus_desktop::MediaTiming::new();
     let mut rate: Option<RateController> = None;
     let mut last_loss = (0u64, 0u64);
     let mut ping = tokio::time::interval(PING_INTERVAL);
@@ -719,8 +720,12 @@ async fn control_task(
             }
         }
     };
-    if lost && session.is_closed() {
-        let (_, deliberate) = session.closed_detail().await;
+    // A stream failure can arrive before QUIC publishes its application close reason.
+    // Give that metadata a bounded chance to arrive before deciding to reconnect.
+    if lost
+        && let Ok((_, deliberate)) =
+            tokio::time::timeout(Duration::from_millis(100), session.closed_detail()).await
+    {
         lost = !deliberate;
     }
     stats.ended_by_loss.store(lost, Ordering::SeqCst);

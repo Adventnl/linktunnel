@@ -108,12 +108,11 @@ impl Drop for KeyboardCapture {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        if let Some(state) = STATE.get() {
-            if let Ok(mut state) = state.lock() {
-                if let Some(state) = state.take() {
-                    let _ = state.commands.send(Command::Input(InputEvent::ReleaseAll));
-                }
-            }
+        if let Some(state) = STATE.get()
+            && let Ok(mut state) = state.lock()
+            && let Some(state) = state.take()
+        {
+            let _ = state.commands.send(Command::Input(InputEvent::ReleaseAll));
         }
     }
 }
@@ -121,53 +120,50 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
     if code >= 0 {
         // SAFETY: Windows supplies a valid KBDLLHOOKSTRUCT for nonnegative hook codes.
         let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        if !event.flags.contains(LLKHF_INJECTED) {
-            if let Some(state) = STATE.get() {
-                if let Ok(mut state) = state.try_lock() {
-                    if let Some(state) = state.as_mut() {
-                        // SAFETY: argument-less query; HWND is compared by value, never dereferenced.
-                        let focused =
-                            unsafe { GetForegroundWindow() } == HWND(state.window as *mut _);
-                        let alt = event.flags.contains(LLKHF_ALTDOWN);
-                        // SAFETY: query only; do not call SendInput from the hook callback.
-                        let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
-                        let usage = match event.vkCode {
-                            0x5b => Some(0xe3),
-                            0x5c => Some(0xe7),
-                            0x09 if alt || state.held.contains(&0x2b) => Some(0x2b),
-                            0x1b if alt || ctrl || state.held.contains(&0x29) => Some(0x29),
-                            0x73 if alt || state.held.contains(&0x3d) => Some(0x3d),
-                            _ => None,
-                        };
-                        // Preserve the local Ctrl+Alt+Shift+Esc panic chord for the controller.
-                        // Its Esc is handled by the UI/global shortcut, never captured here.
-                        // SAFETY: modifier state query without side effects.
-                        let shift = unsafe { GetAsyncKeyState(0x10) } < 0;
-                        if focused && !(event.vkCode == 0x1b && ctrl && alt && shift) {
-                            if let Some(usage) = usage {
-                                let up = event.flags.contains(LLKHF_UP);
-                                let key_state = if up {
-                                    state.held.remove(&usage);
-                                    KeyState::Up
-                                } else if state.held.insert(usage) {
-                                    KeyState::Down
-                                } else {
-                                    KeyState::Repeat
-                                };
-                                let _ = state.commands.send(Command::Input(InputEvent::Key {
-                                    page: PAGE_KEYBOARD,
-                                    usage,
-                                    state: key_state,
-                                    modifiers: Default::default(),
-                                }));
-                                return LRESULT(1);
-                            }
-                        } else if !focused && !state.held.is_empty() {
-                            state.held.clear();
-                            let _ = state.commands.send(Command::Input(InputEvent::ReleaseAll));
-                        }
-                    }
+        if !event.flags.contains(LLKHF_INJECTED)
+            && let Some(state) = STATE.get()
+            && let Ok(mut state) = state.try_lock()
+            && let Some(state) = state.as_mut()
+        {
+            // SAFETY: argument-less query; HWND is compared by value, never dereferenced.
+            let focused = unsafe { GetForegroundWindow() } == HWND(state.window as *mut _);
+            let alt = event.flags.contains(LLKHF_ALTDOWN);
+            // SAFETY: query only; do not call SendInput from the hook callback.
+            let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
+            let usage = match event.vkCode {
+                0x5b => Some(0xe3),
+                0x5c => Some(0xe7),
+                0x09 if alt || state.held.contains(&0x2b) => Some(0x2b),
+                0x1b if alt || ctrl || state.held.contains(&0x29) => Some(0x29),
+                0x73 if alt || state.held.contains(&0x3d) => Some(0x3d),
+                _ => None,
+            };
+            // Preserve the local Ctrl+Alt+Shift+Esc panic chord for the controller.
+            // Its Esc is handled by the UI/global shortcut, never captured here.
+            // SAFETY: modifier state query without side effects.
+            let shift = unsafe { GetAsyncKeyState(0x10) } < 0;
+            if focused && !(event.vkCode == 0x1b && ctrl && alt && shift) {
+                if let Some(usage) = usage {
+                    let up = event.flags.contains(LLKHF_UP);
+                    let key_state = if up {
+                        state.held.remove(&usage);
+                        KeyState::Up
+                    } else if state.held.insert(usage) {
+                        KeyState::Down
+                    } else {
+                        KeyState::Repeat
+                    };
+                    let _ = state.commands.send(Command::Input(InputEvent::Key {
+                        page: PAGE_KEYBOARD,
+                        usage,
+                        state: key_state,
+                        modifiers: Default::default(),
+                    }));
+                    return LRESULT(1);
                 }
+            } else if !focused && !state.held.is_empty() {
+                state.held.clear();
+                let _ = state.commands.send(Command::Input(InputEvent::ReleaseAll));
             }
         }
     }

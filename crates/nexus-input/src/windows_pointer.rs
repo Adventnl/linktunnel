@@ -76,6 +76,10 @@ pub(super) struct Pointers {
     touch: BTreeMap<u8, POINTER_TOUCH_INFO>,
     pen: Option<(u8, POINTER_PEN_INFO)>,
 }
+// SAFETY: devices are owned handles and all operations require exclusive access. Contact
+// records are initialized locally by `info`; their sourceDevice/hwndTarget fields stay null
+// and are never dereferenced. Moving this state to the input worker shares no OS pointers.
+unsafe impl Send for Pointers {}
 impl Pointers {
     pub(super) fn touch(
         &mut self,
@@ -195,19 +199,19 @@ impl Pointers {
                     touch_frame(contact)
                 })
                 .collect();
-            if let Some(device) = &self.touch_device {
-                if let Err(e) = device.inject(&frame) {
-                    first.get_or_insert(e);
-                }
+            if let Some(device) = &self.touch_device
+                && let Err(e) = device.inject(&frame)
+            {
+                first.get_or_insert(e);
             }
             self.touch.clear();
         }
         if let Some((_, mut contact)) = self.pen.take() {
             contact.pointerInfo.pointerFlags = flags(TouchPhase::Cancel);
-            if let Some(device) = &self.pen_device {
-                if let Err(e) = device.inject(&[pen_frame(contact)]) {
-                    first.get_or_insert(e);
-                }
+            if let Some(device) = &self.pen_device
+                && let Err(e) = device.inject(&[pen_frame(contact)])
+            {
+                first.get_or_insert(e);
             }
         }
         // Destroying devices additionally ends contacts when the desktop disappeared and a

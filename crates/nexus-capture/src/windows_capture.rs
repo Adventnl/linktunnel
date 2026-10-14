@@ -163,7 +163,10 @@ unsafe extern "system" fn gdi_monitor(
     data: LPARAM,
 ) -> windows::core::BOOL {
     let mut native = MONITORINFOEXW::default();
-    native.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    let Ok(size) = u32::try_from(std::mem::size_of::<MONITORINFOEXW>()) else {
+        return false.into();
+    };
+    native.monitorInfo.cbSize = size;
     // SAFETY: the enumeration supplies a live monitor and the structure includes the EX size.
     if !unsafe { GetMonitorInfoW(handle, &mut native.monitorInfo) }.as_bool() {
         return true.into();
@@ -184,8 +187,8 @@ unsafe extern "system" fn gdi_monitor(
         name: String::from_utf16_lossy(&native.szDevice[..length]),
         x: rect.left,
         y: rect.top,
-        width: (rect.right - rect.left).max(0) as u32,
-        height: (rect.bottom - rect.top).max(0) as u32,
+        width: (rect.right - rect.left).max(0).cast_unsigned(),
+        height: (rect.bottom - rect.top).max(0).cast_unsigned(),
         scale: dpi_x as f32 / 96.0,
         refresh_hz: 0.0,
         primary: native.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
@@ -199,14 +202,14 @@ impl CaptureBackend for WindowsBackend {
     }
 
     fn monitors(&self) -> Result<Vec<MonitorInfo>, CaptureError> {
-        if let Ok(outputs) = enumerate() {
-            if !outputs.is_empty() {
-                return Ok(outputs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, o)| info(i, o))
-                    .collect());
-            }
+        if let Ok(outputs) = enumerate()
+            && !outputs.is_empty()
+        {
+            return Ok(outputs
+                .iter()
+                .enumerate()
+                .map(|(i, o)| info(i, o))
+                .collect());
         }
         gdi_monitors()
     }
@@ -428,21 +431,19 @@ impl Capturer for DxgiCapturer {
             && self
                 .retry_after
                 .is_none_or(|t| std::time::Instant::now() >= t)
+            && let Err(e) = self.recreate()
         {
-            if let Err(e) = self.recreate() {
-                tracing::debug!(error = %e, "DXGI unavailable; using desktop GDI capture");
-                self.retry_after = Some(std::time::Instant::now() + Duration::from_secs(1));
-            }
+            tracing::debug!(error = %e, "DXGI unavailable; using desktop GDI capture");
+            self.retry_after = Some(std::time::Instant::now() + Duration::from_secs(1));
         }
         if self.gpu.is_none() {
             // DXGI may be absent on RDP virtual displays or during secure-desktop transitions.
             // This runs on the already authenticated/attached capture thread, never Session 0.
             std::thread::sleep(timeout.max(Duration::from_millis(16)));
-            if let Ok(monitors) = gdi_monitors() {
-                if let Some(monitor) = monitors.into_iter().find(|m| m.index == self.monitor.index)
-                {
-                    self.monitor = monitor;
-                }
+            if let Ok(monitors) = gdi_monitors()
+                && let Some(monitor) = monitors.into_iter().find(|m| m.index == self.monitor.index)
+            {
+                self.monitor = monitor;
             }
             return match gdi_frame(&self.monitor) {
                 Ok(frame) => Ok(Some(frame)),
@@ -478,6 +479,7 @@ impl Capturer for DxgiCapturer {
                 return Ok(None);
             }
         }
+        let initial_frame = self.first;
         let result = (|| -> Result<Option<Frame>, CaptureError> {
             if frame_info.LastPresentTime == 0 && frame_info.AccumulatedFrames == 0 && !self.first {
                 return Ok(None);
@@ -532,6 +534,11 @@ impl Capturer for DxgiCapturer {
             } else {
                 (source_w, source_h)
             };
+            let (frame_width, frame_height) = if rotated {
+                (desc.Height, desc.Width)
+            } else {
+                (desc.Width, desc.Height)
+            };
             let mut data = vec![0u8; w * h * 4];
             let pitch = mapped.RowPitch as usize;
             let source = mapped.pData.cast::<u8>();
@@ -560,11 +567,11 @@ impl Capturer for DxgiCapturer {
             // SAFETY: balances the successful Map, after all mapped memory reads.
             unsafe { gpu.context.Unmap(staging, 0) };
             self.first = false;
-            self.monitor.width = w as u32;
-            self.monitor.height = h as u32;
+            self.monitor.width = frame_width;
+            self.monitor.height = frame_height;
             Ok(Some(Frame {
-                width: w as u32,
-                height: h as u32,
+                width: frame_width,
+                height: frame_height,
                 stride: w * 4,
                 format: FrameFormat::Bgra8,
                 data: Bytes::from(data),
@@ -582,19 +589,42 @@ impl Capturer for DxgiCapturer {
             self.first = true;
             return Ok(None);
         }
+        // Some Windows drivers supply an empty initial duplication surface even on a live
+        // desktop. Confirm that GDI sees actual pixels before choosing the existing fallback;
+        // preserve intentionally black screens and DXGI's protected-content masking.
+        if initial_frame
+            && !frame_info.ProtectedContentMaskedOut.as_bool()
+            && let Ok(Some(frame)) = &result
+            && frame
+                .data
+                .chunks_exact(4)
+                .all(|pixel| pixel[..3] == [0, 0, 0])
+            && let Ok(fallback) = gdi_frame(&self.monitor)
+            && fallback
+                .data
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] != [0, 0, 0])
+        {
+            tracing::debug!("DXGI returned an empty initial surface; using GDI capture");
+            self.gpu = None;
+            self.first = true;
+            self.retry_after = Some(std::time::Instant::now() + Duration::from_secs(1));
+            return Ok(Some(fallback));
+        }
         result
     }
 }
 
 /// CPU fallback for Winlogon and RDP virtual displays when desktop duplication is unavailable.
 fn gdi_frame(monitor: &MonitorInfo) -> Result<Frame, CaptureError> {
-    let (width, height) = (monitor.width as i32, monitor.height as i32);
+    let width = i32::try_from(monitor.width).map_err(failed)?;
+    let height = i32::try_from(monitor.height).map_err(failed)?;
     if width <= 0 || height <= 0 {
         return Err(failed("empty Windows display"));
     }
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biSize: u32::try_from(std::mem::size_of::<BITMAPINFOHEADER>()).map_err(failed)?,
             biWidth: width,
             biHeight: -height,
             biPlanes: 1,
@@ -645,13 +675,13 @@ fn gdi_frame(monitor: &MonitorInfo) -> Result<Frame, CaptureError> {
             // The top-down 32-bpp DIB has width*4 bytes per row, no extra row padding.
             let data = std::slice::from_raw_parts(
                 pixels.cast::<u8>(),
-                width as usize * height as usize * 4,
+                monitor.width as usize * monitor.height as usize * 4,
             )
             .to_vec();
             Ok(Frame {
-                width: width as u32,
-                height: height as u32,
-                stride: width as usize * 4,
+                width: monitor.width,
+                height: monitor.height,
+                stride: monitor.width as usize * 4,
                 format: FrameFormat::Bgra8,
                 data: Bytes::from(data),
                 captured_us: now_us(),

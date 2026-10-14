@@ -182,7 +182,7 @@ pub fn launch(exe: &Path, args: &[String], session: u32) -> Result<Child, Servic
             job.0,
             JobObjectExtendedLimitInformation,
             std::ptr::from_ref(&limits).cast(),
-            std::mem::size_of_val(&limits) as u32,
+            u32::try_from(std::mem::size_of_val(&limits)).map_err(|e| os("job limits size", e))?,
         )
         .map_err(|e| os("SetInformationJobObject(kill on supervisor exit)", e))?;
         let mut env: *mut core::ffi::c_void = std::ptr::null_mut();

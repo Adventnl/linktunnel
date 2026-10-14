@@ -546,6 +546,8 @@ impl ApplicationHandler<UiEvent> for App {
                         let monitor = u8::try_from(self.monitor).unwrap_or(0);
                         // Touch wire events are monitor-local; identify the current monitor first.
                         self.send(InputEvent::MouseMoveAbs { monitor, x, y });
+                        // Quantize normalized pressure after clamping it to the u16 wire range.
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let pressure = (touch
                             .force
                             .as_ref()

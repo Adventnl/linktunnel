@@ -289,6 +289,7 @@ pub async fn serve(
     config: TargetConfig,
     stats: Arc<TargetStats>,
 ) -> EndReason {
+    let _timing = nexus_desktop::MediaTiming::new();
     let can_view = config.grants.contains(grants::SCREEN);
     let can_input = config.grants.contains(grants::INPUT) && config.injector.is_some();
     let can_files = config.grants.contains(grants::FILES) && config.files.is_some();
@@ -509,11 +510,11 @@ pub async fn serve(
             }
             _ = privacy_tick.tick() => {
                 let capture = Arc::clone(&config.capture);
-                if let Ok(Ok(current)) = tokio::task::spawn_blocking(move || capture.monitors()).await {
-                    if current != monitors {
+                if let Ok(Ok(current)) = tokio::task::spawn_blocking(move || capture.monitors()).await
+                    && current != monitors
+                {
                         monitors = current;
                         if can_view { let _ = out_tx.send(monitor_list(&monitors)); }
-                    }
                 }
                 if privacy.as_ref().is_some_and(|p| p.renew().is_err()) {
                     privacy = None;
@@ -1262,10 +1263,9 @@ async fn cursor_loop(
             geometry_check = Instant::now();
             let capture = Arc::clone(&capture);
             if let Ok(Ok(monitors)) = tokio::task::spawn_blocking(move || capture.monitors()).await
+                && let Some(current) = monitors.into_iter().find(|m| m.index == monitor.index)
             {
-                if let Some(current) = monitors.into_iter().find(|m| m.index == monitor.index) {
-                    monitor = current;
-                }
+                monitor = current;
             }
         }
         let Some(sample) = rx.borrow_and_update().clone() else {

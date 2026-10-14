@@ -18,6 +18,7 @@ nexus-clipboard.workspace = true
 nexus-codec = { workspace = true, features = ["software"] }
 nexus-audio.workspace = true
 nexus-core.workspace = true
+nexus-desktop.workspace = true
 nexus-files.workspace = true
 nexus-input.workspace = true
 nexus-net.workspace = true
