@@ -5,10 +5,16 @@ Use the same repository revision on both machines. Start on the home network, th
 ## This PC is installed (2026-10-15)
 
 The host on `DESKTOP-H9VGBNO` is installed in `C:\Program Files\Nexus Remote` and running as
-an automatic SYSTEM service. Its home-network signaling URL is `ws://192.168.1.32:8443/v1/ws`.
+an automatic SYSTEM service. After Tailscale configuration, its signaling URL is
+`ws://100.114.106.93:8443/v1/ws`. Connect the Mac to the same Tailscale account/network.
 Diagnostics pass and the real-desktop two-agent smoke test passes. Keep the PC plugged in;
 the installer disabled timed sleep and hibernation on AC power. Reserve `192.168.1.32` in the
-router before relying on the address long term.
+router before relying on the LAN address as a fallback.
+
+The operator reports that fresh administrator checks passed with the Tailscale address:
+Nexus connects, startup is automatic, VPN firewall rules are enabled, and plugged-in sleep
+is disabled. Mac pairing, factor enrollment, UAC/login and a phone-hotspot test remain
+pending; these Windows checks do not verify outside-home control.
 
 Continue with **MacBook controller** below; the Windows build/install commands do not need to
 be repeated on this PC. Open **PowerShell as Administrator** on the PC when ready to pair:
@@ -44,12 +50,25 @@ The Windows dashboard can manage the host when launched **as Administrator** wit
 
 ## MacBook controller
 
-On the Mac, open this repository and build the native Mac binaries:
+On the Mac, install/open Tailscale and sign in using the same account as the PC. Enable
+Tailscale's **Start at login** setting. Check that the Windows peer is online and that its
+signaling port is reachable (the App Store app includes the CLI at the path below):
+
+```sh
+/Applications/Tailscale.app/Contents/MacOS/Tailscale status
+/Applications/Tailscale.app/Contents/MacOS/Tailscale ping 100.114.106.93
+nc -vz -w 5 100.114.106.93 8443
+```
+
+If Tailscale reports that it cannot set startup, add `/Applications/Tailscale.app` under
+**System Settings → General → Login Items & Extensions → Open at Login** instead.
+
+Open this repository and build the native Mac binaries:
 
 ```sh
 cargo build --release --locked -p nexus-agent -p nexus-cli
 ./target/release/nexus-agent --name MacBook --no-screen \
-  --signal-url ws://192.168.1.32:8443/v1/ws --allow-insecure-signal
+  --signal-url ws://100.114.106.93:8443/v1/ws --allow-insecure-signal
 ```
 
 Keep that agent terminal open for the first test. `--no-screen` makes the laptop a controller without sharing its screen; Screen Recording/Accessibility access is needed if you later want to control the Mac itself. In a second Mac terminal:
@@ -88,9 +107,25 @@ With your Mac viewer connected, test an elevated app/UAC prompt, then lock the P
 
 ## Outside the home network
 
-The private `192.168.x.x` signaling URL cannot be used from outside home. Complete LAN acceptance first, then configure a publicly reachable TLS signaling server and an HTTPS relay using `docs/SELF_HOSTING.md`, or place both devices on a private VPN that carries their signaling/direct traffic. That deployment needs the chosen server/domain or VPN connection details; the local installer does not create public hosting.
+The selected deployment uses Tailscale on both devices and the same
+`ws://100.114.106.93:8443/v1/ws` signaling URL at home and away. Plain WebSocket signaling
+travels inside the encrypted VPN; use this address only with Tailscale connected. Keep
+router port forwarding disabled. The previous private `192.168.x.x` URL is only a LAN fallback.
 
-Configure both agents for the reachable server, retain their existing identities and pairing stores, then test from a phone hotspot or other external connection. Verify direct and relay-only paths, reconnect, UAC/login, audio and latency. Do not consider WAN access complete until that separate-network test passes.
+For another Windows host, run `installers/windows/configure-tailscale.ps1` in Administrator
+PowerShell after Tailscale sign-in. It preserves Nexus identity/pairings, enables Windows
+Tailscale unattended mode, restricts VPN firewall rules to the Tailscale adapter/address,
+and makes signaling startup wait for that adapter. This PC has already been configured.
+
+A public TLS signaling server and HTTPS relay are an alternative deployment described in
+`docs/SELF_HOSTING.md`; they are not required for the selected VPN trial.
+
+Retain existing identities and pairing stores, then connect the Mac to a phone hotspot or
+other external connection while leaving Tailscale connected. Repeat reachability and live
+control checks, reconnect, UAC/login, audio and latency. Record whether Tailscale uses a
+direct or DERP path separately from Nexus's transport classification. A Nexus relay-only
+test requires a separately configured Nexus relay. Do not consider WAN access complete
+until the separate-network live-control test passes.
 
 ## Recovery and diagnosis
 

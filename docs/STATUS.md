@@ -9,6 +9,37 @@ claims a capability this page does not.
 🔲 not started ·
 ⛔ cannot be verified from the available environment (reason given)
 
+## MacBook controller setup — 2026-10-15 (macOS 26.6.2, Apple Silicon)
+
+Tailscale 1.104.1 was already installed; onboarding and sign-in to the PC's tailnet completed.
+The Mac is `100.80.114.60`; the Windows peer is `DESKTOP-H9VGBNO`, `100.114.106.93`.
+Initial Mac-to-PC checks passed: Tailscale ping (3 ms over the home LAN), TCP port 8443,
+and `GET /healthz` (`200 OK`, `ok`). Tailscale was added to macOS **Open at Login** using
+System Settings after its own startup toggle reported an error. Actual logout/reboot startup
+has not been tested.
+
+`cargo build --release --locked -p nexus-agent -p nexus-cli` passed at revision `b70bbda`.
+Binaries are installed under `~/Library/Application Support/Nexus Controller/bin`, with
+`~/.local/bin/nexus` and `~/.local/bin/tailscale` CLI links. The per-user LaunchAgent
+`~/Library/LaunchAgents/app.nexus-remote.controller.plist` is loaded and running, using
+`--name MacBook --no-screen --no-terminal` and the VPN signaling URL. Its RunAtLoad and
+restart-after-failure settings are configured; login/crash recovery remains untested.
+The agent created its identity in macOS Keychain; `nexus status` shows zero pairings/sessions.
+Logs are under `~/Library/Logs/Nexus Controller`.
+
+At the final connectivity check, the Mac's Tailscale backend was healthy/online but the
+Windows peer was **offline** (last seen 21:40 NZDT); ping and port 8443 then timed out and
+Nexus signaling was disconnected. On recheck at 21:48 NZDT, macOS Keychain approval had
+cleared and CLI `doctor` completed successfully: config, state, secret store, identity and
+agent checks passed, with signaling unreachable reported as a note. The Windows peer was
+still offline and both VPN ping and port 8443 timed out. Restore Windows connectivity
+before continuing. There is no reachable Windows administration
+session from this Mac, so initial `nexus --system pair offer` must run locally on the PC.
+
+**Still pending:** pairing and verification-word comparison, authentication enrollment,
+attended/unattended live control, UAC, Windows login, audio/input, reboot recovery, and
+phone-hotspot access. The initial VPN health check is not proof of outside-home control.
+
 ## Windows host installation — 2026-10-15 (native Windows 10 x64)
 
 The Windows PC now has a fresh locked release build of `nexus-agent`, `nexus`, and `nexus-signal`,
