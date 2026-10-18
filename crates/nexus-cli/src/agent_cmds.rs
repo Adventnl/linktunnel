@@ -117,7 +117,9 @@ pub(crate) fn resolve(l: Locale, devices: &[DeviceView], query: &str) -> Result<
         .iter()
         .filter(|d| {
             let id = short_id(&d.device_id).to_lowercase();
-            d.name.to_lowercase() == q
+            let hex: String = d.device_id.iter().map(|b| format!("{b:02x}")).collect();
+            hex == q
+                || d.name.to_lowercase() == q
                 || id == q
                 || id.replace('-', "").starts_with(&q.replace('-', ""))
         })
@@ -517,4 +519,28 @@ pub async fn stop(ctx: &AppContext) -> Result<ExitCode> {
     }
     println!("{}", tr(ctx.locale, "cli.agent.stopping"));
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_hex_id_selects_the_right_device_even_with_duplicate_names() {
+        let devices = vec![
+            DeviceView {
+                name: "PC".into(),
+                device_id: vec![1; 16].into(),
+                ..Default::default()
+            },
+            DeviceView {
+                name: "PC".into(),
+                device_id: vec![2; 16].into(),
+                ..Default::default()
+            },
+        ];
+        assert!(resolve(Locale::En, &devices, "PC").is_err());
+        let selected = resolve(Locale::En, &devices, &"02".repeat(16)).unwrap();
+        assert_eq!(selected.device_id.as_ref(), &[2; 16]);
+    }
 }

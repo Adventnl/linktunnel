@@ -18,6 +18,9 @@ must defeat a man in the middle, including a malicious signaling server.
   3. Both derive a **Short Authentication String** from the Noise handshake hash and show it;
      the humans confirm they match. A MITM would produce different hashes on each side.
   4. Both sign the `PairingRecord` and upload it.
+* **Personal access:** successful initial pairing pre-authorises subsequent sessions by default.
+  Per-device attended approval and per-session passkey/TOTP remain explicit options. Existing
+  explicit approval and factor settings are preserved.
 * **Revocation:** either party can sign a `Revocation`. The server marks the edge dead, stops
   presence/envelope delivery in both directions, and notifies the other party; a live agent
   drops matching sessions immediately. Allow-lists are also stored locally by each agent, so

@@ -89,7 +89,7 @@ these source changes. See [WINDOWS.md](WINDOWS.md) and [ADR 0024](adr/0024-windo
 * ✅ WebAuthn/TOTP: actual Chrome browser registration/authentication with a temporary virtual
   authenticator; verifier expiry/binding/replay/persistence tests; two real agents refuse resource
   access before step-up and reuse the approved exact connection once. Viewer prompts automatically.
-  The default `unattended_requires_stepup` flag is now enforced. Fresh unattended reconnects need a factor.
+  `unattended_requires_stepup` is enforced when enabled. Personal hosts now default to paired access without recurring prompts; explicit approval/factor settings are preserved.
 * 🟡 Windows physical privacy: cross-target compile/lint; ✅ encrypted request/consent/grant and
   lease restoration tests with a recording OS backend. No Windows physical-screen test yet.
   macOS/Linux physical privacy remains unsupported.

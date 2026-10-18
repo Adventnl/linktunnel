@@ -115,7 +115,7 @@ VideoToolbox remains macOS's default hardware path. See ADR 0021 and ACCELERATIO
 Incoming sessions negotiate step-up before any target handler/resources run. Authenticated local
 IPC manages factor enrollment and the controller's ephemeral browser prompt. A successful ceremony
 preserves the exact encrypted connection for one next command (60-second expiry), with no reusable
-authorization token. See ADR 0020 and STEP_UP.md. The default unattended policy is enforced.
+authorization token. See ADR 0020 and STEP_UP.md. Paired devices connect automatically by default; passkey/TOTP step-up is enforced when explicitly enabled.
 
 Privacy requests travel over the existing encrypted control stream and require a `privacy` grant.
 A target holds an OS privacy lease and restores it on termination or watchdog/local escape. Windows

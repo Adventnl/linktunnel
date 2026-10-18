@@ -24,7 +24,7 @@ be repeated on this PC. Open **PowerShell as Administrator** on the PC when read
 ```
 
 The paired name to use in the Mac viewer is `DESKTOP-H9VGBNO`. No Mac pairing or factor
-enrollment has happened yet. Complete the attended test before enabling unattended access.
+enrollment has happened yet. Updated personal hosts allow the paired Mac to reconnect without another Windows prompt.
 
 ## Windows host
 
@@ -80,28 +80,21 @@ Keep that agent terminal open for the first test. `--no-screen` makes the laptop
 
 Compare the four verification words on **both** machines and confirm only if they match. On Windows, keep the offer terminal open while joining. The default offer grants the product's remote features, but the SYSTEM host still disables remote terminals and shares no folders by default.
 
-For the first attended connection, with someone at the unlocked PC:
+After pairing, open Nexus Remote on the Mac. An online PC shows **Connect**; pressing it opens the live desktop. New hosts pre-authorise paired devices, so nobody needs to approve on Windows again. **Wake** is Wake-on-LAN for a sleeping/offline PC, not part of connecting to an online PC; it requires compatible hardware and network configuration.
 
-```sh
-./target/release/nexus devices
-./target/release/nexus remote view "the PC name shown by nexus devices" --audio
-```
-
-Approve the visible request on Windows. Verify live updates, mouse, typing, scrolling, modifier keys, monitor selection, clipboard and audio. Use `Ctrl+Alt+Shift+Q` to quit the viewer.
-
-## Unattended access, UAC and login
-
-On Windows, in Administrator PowerShell:
+For a Windows host installed with the earlier approval/step-up defaults, run this migration once in Administrator PowerShell from the updated repository:
 
 ```powershell
-nexus --system auth enroll-passkey
-# Or enroll an authenticator app instead:
-nexus --system auth enroll-totp
-nexus --system auth status
-nexus --system trust unattended MacBook
+./installers/windows/enable-personal-access.ps1 -Controller MacBook
 ```
 
-Use a synced passkey available on the Mac or a portable security key. For TOTP, scan the enrollment URI privately and prove possession with the current code. Do not send enrollment secrets through chat. The viewer opens the verification browser automatically. Leave `unattended_requires_stepup = true` enabled.
+This pre-authorises the paired Mac, saves a configuration backup, sets paired access as the default, disables the optional per-session factor prompt, and restarts the host. Existing explicit per-device approval choices remain available through `nexus --system trust attended <device>`. Future connections need only **Connect** on the Mac.
+
+The dashboard waits for a decoded remote picture before saying it is connected. Startup errors appear on the device card, and a stalled startup times out so Connect can be retried.
+
+## Optional extra verification, UAC and login
+
+For a passkey or TOTP prompt on the controller for every connection, follow [step-up setup](STEP_UP.md) and explicitly enable `security.unattended_requires_stepup = true` on Windows. This is optional and is separate from initial pairing.
 
 With your Mac viewer connected, test an elevated app/UAC prompt, then lock the PC and sign in using your own Windows credentials from the Mac. `Ctrl+Alt+Shift+D` sends Ctrl+Alt+Del. Keep local access available during this first test. Check `docs/FULL_CONTROL_QA.md` for the full device acceptance checklist.
 

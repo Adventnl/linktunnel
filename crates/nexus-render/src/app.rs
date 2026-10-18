@@ -40,6 +40,7 @@ struct App {
     shape_in_use: Option<u32>,
     title_stats: String,
     exit_reason: Option<String>,
+    on_ready: Option<Box<dyn FnOnce()>>,
     last_pos: Option<PhysicalPosition<f64>>,
     /// Native size of the viewed monitor (pointer coordinates are in these pixels).
     native: Option<(u32, u32)>,
@@ -54,6 +55,14 @@ struct App {
 
 /// Opens the viewer window and runs until it closes. Returns why the session ended.
 pub fn run(options: ViewerOptions) -> Result<String, String> {
+    run_with_ready(options, || {})
+}
+
+/// Like [`run`], notifying the launcher once the first remote picture is decoded and uploaded.
+pub fn run_with_ready(
+    options: ViewerOptions,
+    on_ready: impl FnOnce() + 'static,
+) -> Result<String, String> {
     let event_loop: EventLoop<UiEvent> = EventLoop::with_user_event()
         .build()
         .map_err(|e| format!("cannot open a window: {e}"))?;
@@ -83,6 +92,7 @@ pub fn run(options: ViewerOptions) -> Result<String, String> {
         shape_in_use: None,
         title_stats: String::new(),
         exit_reason: None,
+        on_ready: Some(Box::new(on_ready)),
         last_pos: None,
         native: None,
         monitor: initial_monitor,
@@ -297,6 +307,9 @@ impl ApplicationHandler<UiEvent> for App {
                     return;
                 }
                 self.picture = Some(*pic);
+                if let Some(ready) = self.on_ready.take() {
+                    ready();
+                }
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }

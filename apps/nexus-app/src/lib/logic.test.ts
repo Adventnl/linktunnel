@@ -54,6 +54,9 @@ describe("reducer", () => {
   it("tracks the signaling state", () => {
     const s = reduce(withDevices, { kind: "signal_state", connected: false });
     expect(s.snapshot.status?.signalConnected).toBe(false);
+    expect(s.snapshot.devices.every((device) => !device.online)).toBe(true);
+    expect(s.snapshot.devices.find((device) => device.id === "01")?.state).toBe("offline");
+    expect(s.snapshot.devices.find((device) => device.id === "04")?.state).toBe("sleeping");
   });
   it("queues consent prompts and clears them when resolved or the agent goes away", () => {
     const req = { requestId: 5, peerName: "PC", peerFingerprint: "X", grants: ["screen"], timeoutSecs: 30, path: "lan" as const, receivedAtMs: 1 };

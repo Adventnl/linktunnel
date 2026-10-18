@@ -20,7 +20,7 @@ pub enum TrustCommand {
         /// Device name or ID.
         device: String,
     },
-    /// Ask before this paired device uses this one (the default).
+    /// Ask before this paired device uses this one.
     Attended {
         /// Device name or ID.
         device: String,

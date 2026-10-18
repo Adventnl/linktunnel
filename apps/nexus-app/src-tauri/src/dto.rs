@@ -206,6 +206,10 @@ pub struct PairingSas {
     rename_all_fields = "camelCase"
 )]
 pub enum AppEvent {
+    Notice {
+        level: String,
+        text: String,
+    },
     Agent {
         agent: &'static str,
         error: Option<String>,
@@ -471,7 +475,11 @@ mod tests {
             panic!()
         };
         assert_eq!(
-            (sessions[0].peer_name.as_str(), sessions[0].device_id.as_str(), sessions[0].path),
+            (
+                sessions[0].peer_name.as_str(),
+                sessions[0].device_id.as_str(),
+                sessions[0].path
+            ),
             ("MacBook", "ab01", "relay")
         );
         assert!(translate(&v1::IpcEvent { body: None }, 0).is_none());

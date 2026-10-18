@@ -60,7 +60,7 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    connectScreen: async () => {},
+    connectScreen: async () => { throw new Error("Remote control requires the installed Nexus Remote app. This browser is a demo."); },
     wake: async (id) => {
       // Pretend the machine takes a moment to come up.
       void sleep(1500).then(() => {

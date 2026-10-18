@@ -394,9 +394,9 @@ impl Default for NetConfig {
 #[serde(rename_all = "lowercase")]
 pub enum ConsentMode {
     /// A person at the target must click *Allow* (with a timeout).
-    #[default]
     Attended,
-    /// Paired controllers are pre-authorised (still subject to step-up authentication).
+    /// Paired controllers are pre-authorised (with optional step-up authentication).
+    #[default]
     Unattended,
 }
 
@@ -420,10 +420,10 @@ pub struct SecurityConfig {
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            consent: ConsentMode::Attended,
+            consent: ConsentMode::Unattended,
             consent_timeout_secs: 30,
             resume_window_secs: 120,
-            unattended_requires_stepup: true,
+            unattended_requires_stepup: false,
             lockdown: false,
         }
     }
@@ -584,11 +584,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_are_valid_and_conservative() {
+    fn defaults_allow_paired_devices_without_another_prompt() {
         let cfg = ConfigLoader::new().load().unwrap();
         assert_eq!(cfg, NexusConfig::default());
-        assert_eq!(cfg.security.consent, ConsentMode::Attended);
+        assert_eq!(cfg.security.consent, ConsentMode::Unattended);
         assert!(!cfg.security.lockdown);
+        assert!(!cfg.security.unattended_requires_stepup);
+    }
+
+    #[test]
+    fn explicit_approval_and_stepup_settings_are_preserved() {
+        let cfg = ConfigLoader::new()
+            .with_toml_str(
+                "[security]\nconsent = \"attended\"\nunattended_requires_stepup = true\n",
+            )
+            .load()
+            .unwrap();
+        assert_eq!(cfg.security.consent, ConsentMode::Attended);
         assert!(cfg.security.unattended_requires_stepup);
     }
 

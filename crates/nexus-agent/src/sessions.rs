@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use nexus_net::{CLOSE_NOT_PAIRED, Established, NetError, PeerAddr, Session, SessionRole, diag};
+use nexus_net::{CLOSE_NOT_PAIRED, Established, PeerAddr, Session, SessionRole, diag};
 use nexus_proto::v1::{Capabilities, Hello, PathKind, VideoCodec};
 use nexus_proto::version::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use nexus_trust::PairedPeer;
@@ -294,10 +294,25 @@ pub(crate) async fn dial_raw(
     }
     let session = shared.node.connect(&addr).await.map_err(AgentError::from)?;
     let hello = local_hello(shared);
-    let established = session
+    let established = match session
         .establish(&hello, SessionRole::Controller, &[VideoCodec::H264])
         .await
-        .map_err(|e: NetError| AgentError::Failed(format!("session setup failed: {e}")))?;
+    {
+        Ok(established) => established,
+        Err(error) => {
+            // Stream errors can hide the target's application close reason (unpaired,
+            // lockdown, rate limit, or hello failure). Preserve it for the controller.
+            let detail = session
+                .raw()
+                .close_reason()
+                .map(|reason| format!("; {reason}"))
+                .unwrap_or_default();
+            session.close_normal();
+            return Err(AgentError::Failed(format!(
+                "session setup failed: {error}{detail}"
+            )));
+        }
+    };
     Ok((session, established))
 }
 

@@ -23,6 +23,6 @@ mod keymap;
 pub mod layout;
 pub mod session;
 
-pub use app::run;
+pub use app::{run, run_with_ready};
 pub use keymap::hid_for;
 pub use session::{UiEvent, ViewerOptions};

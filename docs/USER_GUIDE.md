@@ -70,9 +70,10 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 
 ## 6. Safety features
 * Nothing connects to a device that did not pair with you; an unpaired device cannot even see that yours exists.
-* By default a person at the target must approve each new session (attended); `nexus trust unattended <device>` pre-authorises
-  one device, and the default policy also requires a passkey/TOTP. Enroll a factor with `nexus auth enroll-passkey` or
-  `nexus auth enroll-totp`; the native viewer prompts automatically. See [STEP_UP.md](STEP_UP.md). Three refusals in a row lock a device out of prompts for a while.
+* By default initial pairing pre-authorises future connections, so an online PC needs only **Connect** on the controller.
+  `nexus trust attended <device>` opts a paired device into approval for every session; `nexus trust unattended <device>` pre-authorises
+  one device. Passkey/TOTP verification is optional: enable `security.unattended_requires_stepup` and enroll a factor with
+  `nexus auth enroll-passkey` or `nexus auth enroll-totp`; the native viewer then prompts automatically. See [STEP_UP.md](STEP_UP.md). Three refusals in a row lock a device out of prompts for a while.
 * `nexus unpair <name>` ends the relationship immediately and closes live sessions. `nexus lockdown on` refuses everything,
   survives restarts.
 * Everything a controller does (screen, input, files with paths, terminals, forwards, power) is written to a signed,
@@ -84,7 +85,7 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 `config.toml` in the config directory (next to the identity and trust files; `--home DIR` puts everything under `DIR`); every key also works as `NEXUS_SECTION__KEY=value`.
 ```toml
 [net]       signal_url = "wss://signal.example.com/v1/ws"; udp_port = 7842; lan_discovery = true
-[security]  consent = "attended"; consent_timeout_secs = 30; resume_window_secs = 120
+[security]  consent = "unattended"; unattended_requires_stepup = false; consent_timeout_secs = 30; resume_window_secs = 120
 [files]     shared = [{ path = "/srv/share", writable = true }]
 [clipboard] send = true; receive = true; images = true
 [audio]     enabled = true; microphone = false; bitrate_kbps = 96   # optional: device = "monitor"

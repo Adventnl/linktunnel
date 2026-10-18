@@ -67,6 +67,14 @@ pub(crate) async fn run(shared: Arc<Shared>) {
         };
         shared.signal.lock().take();
         shared.devices.lock().mark_all_unknown();
+        // Push the loss of presence too: dashboards must not retain stale green/online cards.
+        for device in shared.device_views() {
+            shared.emit(nexus_proto::v1::ipc_event::Body::DeviceChanged(
+                nexus_proto::v1::DeviceChanged {
+                    device: Some(device),
+                },
+            ));
+        }
         shared.emit(nexus_proto::v1::ipc_event::Body::SignalState(
             nexus_proto::v1::SignalState { connected: false },
         ));

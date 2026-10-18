@@ -291,13 +291,31 @@ async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCod
         audio: flags.audio,
     };
     // The window owns the main thread; it runs its own network thread.
-    let reason = tokio::task::block_in_place(|| nexus_render::run(options))
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let report_status = std::env::var_os("NEXUS_VIEWER_STATUS").is_some();
+    let reason = tokio::task::block_in_place(|| {
+        nexus_render::run_with_ready(options, move || {
+            if report_status {
+                viewer_status(serde_json::json!({"nexusViewer": "ready"}));
+            }
+        })
+    })
+    .map_err(|e| anyhow::anyhow!(e))?;
+    if report_status {
+        viewer_status(serde_json::json!({"nexusViewer": "ended", "reason": reason}));
+    }
     println!(
         "{}",
         tr_args(ctx.locale, "cli.view.ended", &[("reason", &reason)])
     );
     Ok(ExitCode::SUCCESS)
+}
+
+fn viewer_status(status: serde_json::Value) {
+    use std::io::Write as _;
+    // A dedicated, flushed line lets the dashboard distinguish a process from a working viewer.
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{status}");
+    let _ = out.flush();
 }
 
 async fn monitors(ctx: &AppContext, query: &str) -> Result<ExitCode> {

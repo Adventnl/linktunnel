@@ -8,6 +8,7 @@ mod commands;
 mod dto;
 mod link;
 mod tray;
+mod viewer;
 
 use std::sync::Arc;
 

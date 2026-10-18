@@ -50,7 +50,15 @@ export function reduce(state: AppState, e: AppEvent): AppState {
       return { ...state, snapshot: { ...state.snapshot, devices: state.snapshot.devices.filter((d) => d.id !== e.id) } };
     case "signal_state":
       return state.snapshot.status
-        ? { ...state, snapshot: { ...state.snapshot, status: { ...state.snapshot.status, signalConnected: e.connected } } }
+        ? { ...state, snapshot: {
+          ...state.snapshot,
+          status: { ...state.snapshot.status, signalConnected: e.connected },
+          // Older agents only emit signal_state when their presence cache becomes stale.
+          devices: e.connected ? state.snapshot.devices : state.snapshot.devices.map((device) => ({
+            ...device, online: false,
+            state: device.state === "sleeping" || device.state === "hibernating" ? device.state : "offline",
+          })),
+        } }
         : state;
     case "sessions_changed":
       return { ...state, snapshot: { ...state.snapshot, sessions: e.sessions } };

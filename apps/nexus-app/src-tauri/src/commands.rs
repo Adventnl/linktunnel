@@ -25,35 +25,26 @@ pub async fn snapshot(link: Link<'_>) -> CmdResult<Snapshot> {
 /// web layer; the viewer is its own wgpu/winit window).
 #[tauri::command]
 pub async fn connect_screen(link: Link<'_>, id: String) -> CmdResult<()> {
-    let name = device_name(&link, &id).await?;
-    spawn_viewer(&name)
-}
-
-pub fn spawn_viewer(name: &str) -> CmdResult<()> {
-    let mut cmd = tokio::process::Command::new(link::nexus_cli());
-    if link::agent_scope() == nexus_core::Scope::System {
-        cmd.arg("--system");
-    }
-    cmd.args(["remote", "view", name, "--audio"])
-        .stdin(std::process::Stdio::null());
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("cannot start the viewer (is `nexus` installed?): {e}"))?;
-    // Reap it when it ends so it does not linger as a zombie.
-    tauri::async_runtime::spawn(async move {
-        let _ = child.wait().await;
-    });
-    Ok(())
-}
-
-async fn device_name(link: &Link<'_>, id: &str) -> CmdResult<String> {
-    let want = dto::unhex(id)?;
+    let want = dto::unhex(&id)?;
     let list = link.client()?.list_devices().await.map_err(err)?;
-    list.devices
+    if !list
+        .devices
         .iter()
-        .find(|d| d.device_id.as_ref() == want.as_slice())
-        .map(|d| d.name.clone())
-        .ok_or_else(|| "no such device".to_owned())
+        .any(|d| d.device_id.as_ref() == want.as_slice())
+    {
+        return Err("no such device".to_owned());
+    }
+    spawn_viewer(&id).await
+}
+
+pub async fn spawn_viewer(id: &str) -> CmdResult<()> {
+    let mut args = Vec::new();
+    if link::agent_scope() == nexus_core::Scope::System {
+        args.push("--system".to_owned());
+    }
+    // IDs are unambiguous even when two paired computers share a name.
+    args.extend(["remote", "view", id, "--audio"].map(str::to_owned));
+    crate::viewer::launch(link::nexus_cli(), args).await
 }
 
 #[tauri::command]

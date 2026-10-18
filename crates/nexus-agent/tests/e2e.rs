@@ -360,6 +360,36 @@ async fn unpairing_ends_the_relationship_on_both_sides_immediately() {
 }
 
 #[tokio::test]
+async fn losing_signaling_pushes_device_presence_changes_to_the_dashboard() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device("Windows PC", 2, &dir.path().join("b"), Some(server.url())).await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+    // A replacement signaling login forcibly ends the old connection.
+    let (replacement, _events) = nexus_signal_client::connect(
+        &nexus_signal_client::ClientConfig::new(server.url()),
+        identity(1),
+    )
+    .await
+    .unwrap();
+    let offline = next_matching(&mut mac.events, |event| match &event.body {
+        Some(Ev::DeviceChanged(change)) => change
+            .device
+            .as_ref()
+            .filter(|d| !d.online && d.device_id.as_ref() == pc.id().as_slice())
+            .cloned(),
+        _ => None,
+    })
+    .await;
+    assert_ne!(offline.state, PresenceState::Online as i32);
+    replacement.close().await;
+}
+
+#[tokio::test]
 async fn pairings_survive_agent_restarts_and_a_signaling_server_restart() {
     let server = Server::start().await;
     let addr = server.addr;
@@ -535,6 +565,69 @@ async fn status_reports_identity_and_a_second_agent_on_the_same_home_is_refused(
     )
     .await;
     assert!(second.is_err(), "two agents shared one runtime directory");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn default_personal_access_streams_again_without_anyone_at_the_target() {
+    use nexus_capture::synthetic::{SyntheticBackend, SyntheticConfig};
+    use nexus_proto::v1::OpenSession;
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let (backend, _probe) = SyntheticBackend::new(SyntheticConfig {
+        width: 320,
+        height: 240,
+        animate: true,
+        ..Default::default()
+    });
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device_cfg(
+        "Windows PC",
+        2,
+        &dir.path().join("b"),
+        Some(server.url()),
+        Arc::new(nexus_agent::RemoteHandler::new(
+            Some(Arc::new(backend)),
+            None,
+            30,
+        )),
+        |cfg| {
+            let defaults = nexus_core::NexusConfig::default();
+            cfg.default_consent = defaults.security.consent;
+            cfg.unattended_requires_stepup = defaults.security.unattended_requires_stepup;
+        },
+    )
+    .await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+    wait_online(&mac, &pc).await;
+    let pc_id = pc.id();
+    // After initial pairing, no app, approval client or person remains on the PC.
+    drop(pc.client);
+    drop(pc.events);
+    for _ in 0..2 {
+        let opened = tokio::time::timeout(
+            Duration::from_secs(10),
+            mac.client.open_session(OpenSession {
+                device_id: pc_id.clone().into(),
+                want_video: true,
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect("paired access must not wait for approval")
+        .unwrap();
+        assert!(opened.video.is_some());
+        let frame = next_matching(&mut mac.events, |event| match &event.body {
+            Some(Ev::SessionVideo(v)) if v.session_id == opened.session_id => Some(v.clone()),
+            _ => None,
+        })
+        .await;
+        assert!(!frame.frame.is_empty());
+        mac.client.close_session(opened.session_id).await.unwrap();
+    }
+    pc.agent.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

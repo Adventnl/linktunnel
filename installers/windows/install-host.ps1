@@ -76,7 +76,8 @@ allow_insecure_signal = $insecure
 lan_discovery = true
 
 [security]
-unattended_requires_stepup = true
+consent = "unattended"
+unattended_requires_stepup = false
 
 [terminal]
 enabled = false

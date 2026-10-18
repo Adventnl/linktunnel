@@ -14,6 +14,8 @@ export function DeviceCard({
   device,
   now,
   wakingSince,
+  connecting,
+  connectionError,
   t,
   onAction,
 }: {
@@ -21,6 +23,8 @@ export function DeviceCard({
   now: number;
   /** Set while "wake and connect" is in progress. */
   wakingSince: number | null;
+  connecting: boolean;
+  connectionError?: string;
   t: T;
   onAction: (device: Device, verb: Verb | "files" | "settings") => void;
 }) {
@@ -69,18 +73,27 @@ export function DeviceCard({
         )}
       </dl>
 
-      <div className="mt-auto flex flex-wrap items-center gap-2">
+      {connectionError && <div role="alert" className="text-sm">
+        <p className="text-danger">{t("card.connect_error")}</p>
+        <details className="mt-1 text-xs text-muted">
+          <summary className="cursor-pointer">{t("card.connect_details")}</summary>
+          <p className="mt-1 break-words">{connectionError}</p>
+        </details>
+      </div>}
+      {canWake(device) && <p className="text-xs text-muted">{t("card.wake_help")}</p>}
+
+      <div className="mt-auto flex flex-wrap items-center gap-2" aria-busy={connecting || waking}>
         {up && (
           <>
-            <Button kind="primary" onClick={() => onAction(device, "screen")}>
-              🖥 {t("verb.screen")}
+            <Button kind="primary" disabled={connecting} onClick={() => onAction(device, "screen")}>
+              {connecting ? t("card.connecting") : `🖥 ${t("verb.screen")}`}
             </Button>
             <Button onClick={() => onAction(device, "terminal")}>⌨ {t("verb.terminal")}</Button>
           </>
         )}
         {isAsleep(device) && (
-          <Button kind="primary" disabled={waking} onClick={() => onAction(device, "screen")}>
-            {waking ? t("card.waking", { secs: Math.floor((now - (wakingSince ?? now)) / 1000) }) : `⏻ ${t("card.wake_and_connect")}`}
+          <Button kind="primary" disabled={waking || connecting} onClick={() => onAction(device, "screen")}>
+            {connecting ? t("card.connecting") : waking ? t("card.waking", { secs: Math.floor((now - (wakingSince ?? now)) / 1000) }) : `⏻ ${t("card.wake_and_connect")}`}
           </Button>
         )}
         {canWake(device) && !isAsleep(device) && (

@@ -1,6 +1,7 @@
 # Passkeys and TOTP for unattended control
 
-`security.unattended_requires_stepup = true` is now enforced (the default). Enroll on the **target**:
+Paired devices connect without another prompt by default. To require a passkey or TOTP for every
+connection, set `security.unattended_requires_stepup = true` and enroll on the **target**:
 
 ```sh
 nexus auth enroll-passkey

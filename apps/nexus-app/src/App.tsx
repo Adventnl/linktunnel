@@ -50,11 +50,29 @@ export function App({ bridge }: { bridge: Bridge }) {
   const [terminal, setTerminal] = useState<Device | null>(null);
   const [waking, setWaking] = useState<Record<string, number>>({});
   const t = useCallback((key: Key, args?: Record<string, string | number>) => translate(locale, key, args), [locale]);
-  const devicesRef = useRef(state.snapshot.devices);
-  devicesRef.current = state.snapshot.devices;
+  const pendingConnections = useRef(new Set<string>());
+  const [connecting, setConnecting] = useState<Record<string, boolean>>({});
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
 
   const toast = useCallback((level: "info" | "error", text: string) => dispatch({ kind: "toast", level, text }), []);
   const fail = useCallback((what: string, device: Device, e: unknown) => toast("error", t("toast.failed", { action: what, name: device.name, reason: e instanceof Error ? e.message : String(e) })), [t, toast]);
+
+  const connect = useCallback(async (device: Device) => {
+    if (pendingConnections.current.has(device.id)) return;
+    pendingConnections.current.add(device.id);
+    setConnecting((c) => ({ ...c, [device.id]: true }));
+    setConnectionErrors(({ [device.id]: _drop, ...rest }) => rest);
+    try {
+      await bridge.connectScreen(device.id);
+      toast("info", t("toast.viewer", { name: device.name }));
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      setConnectionErrors((errors) => ({ ...errors, [device.id]: reason }));
+    } finally {
+      pendingConnections.current.delete(device.id);
+      setConnecting(({ [device.id]: _drop, ...rest }) => rest);
+    }
+  }, [bridge, t, toast]);
 
   // ---- bridge wiring ------------------------------------------------------------------------
   useEffect(() => {
@@ -103,13 +121,13 @@ export function App({ bridge }: { bridge: Bridge }) {
         setWaking(({ [id]: _drop, ...rest }) => rest);
       } else if (canConnect(d)) {
         setWaking(({ [id]: _drop, ...rest }) => rest);
-        void bridge.connectScreen(id).then(() => toast("info", t("toast.viewer", { name: d.name }))).catch((e: unknown) => toast("error", t("toast.connect_failed", { name: d.name, reason: String(e) })));
+        void connect(d);
       } else if (Date.now() - since > WAKE_TIMEOUT_MS) {
         setWaking(({ [id]: _drop, ...rest }) => rest);
         toast("error", t("toast.wake_failed", { name: d.name, reason: "timeout" }));
       }
     }
-  }, [state.snapshot.devices, waking, bridge, t, toast, now]);
+  }, [state.snapshot.devices, waking, connect, t, toast, now]);
 
   // ---- actions ------------------------------------------------------------------------------
   const run = useCallback(
@@ -123,10 +141,7 @@ export function App({ bridge }: { bridge: Bridge }) {
               toast("error", t("toast.wake_failed", { name: device.name, reason: String(e) }));
             });
           } else {
-            void bridge
-              .connectScreen(device.id)
-              .then(() => toast("info", t("toast.viewer", { name: device.name })))
-              .catch((e: unknown) => toast("error", t("toast.connect_failed", { name: device.name, reason: e instanceof Error ? e.message : String(e) })));
+            void connect(device);
           }
           break;
         case "terminal":
@@ -153,7 +168,7 @@ export function App({ bridge }: { bridge: Bridge }) {
           break;
       }
     },
-    [bridge, fail, t, toast],
+    [bridge, connect, fail, t, toast],
   );
 
   const status = state.snapshot.status;
@@ -196,6 +211,8 @@ export function App({ bridge }: { bridge: Bridge }) {
         </Button>
       </header>
 
+      {bridge.mock && <p role="status" className="rounded-lg border border-line bg-panel px-4 py-2 text-sm text-muted">{t("demo.notice")}</p>}
+
       {state.snapshot.sessions.length > 0 && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-danger bg-panel px-4 py-2 text-sm">
           <span aria-hidden className="pulse text-danger">●</span>
@@ -229,7 +246,7 @@ export function App({ bridge }: { bridge: Bridge }) {
             <ul className={`grid content-start gap-4 ${terminal ? "sm:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
               {devices.map((d) => (
                 <li key={d.id}>
-                  <DeviceCard device={d} now={now} wakingSince={waking[d.id] ?? null} t={t} onAction={run} />
+                  <DeviceCard device={d} now={now} wakingSince={waking[d.id] ?? null} connecting={connecting[d.id] ?? false} connectionError={connectionErrors[d.id]} t={t} onAction={run} />
                 </li>
               ))}
             </ul>

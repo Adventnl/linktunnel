@@ -48,8 +48,7 @@ scripts/       demos and checks that double as end-to-end tests
 ```
 
 ## Intended use
-For controlling devices you own or are explicitly authorised to administer. Consent, visibility and audit are built in: attended approval by
-default, per-device pre-authorisation, lockdown, a signed tamper-evident audit log. It is not designed for covert use and should not be used that way.
+For controlling devices you own or are explicitly authorised to administer. Consent, visibility and audit are built in: one-time pairing, automatic access for paired devices, optional per-session approval, lockdown, a signed tamper-evident audit log. It is not designed for covert use and should not be used that way.
 
 ## License
 Not yet chosen; all crates are `publish = false`. Pick a license before distributing.
@@ -57,7 +56,7 @@ Not yet chosen; all crates are `publish = false`. Pick a license before distribu
 ### Live control implementation update
 
 The native viewer now uses wgpu; optional FFmpeg backends provide NVENC/AMF/Quick Sync/VAAPI
-H.264 encode. Unattended passkey/TOTP step-up is enforced before resource access, and the viewer
+H.264 encode. Optional passkey/TOTP step-up can be enabled before resource access; when enabled, the viewer
 opens a browser prompt automatically. Windows session-scoped privacy and a standalone TLS relay
 are implemented. See [setup](docs/STEP_UP.md), [acceleration](docs/ACCELERATION.md),
 [self hosting](docs/SELF_HOSTING.md), and [verified status](docs/STATUS.md).
