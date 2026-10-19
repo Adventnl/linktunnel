@@ -275,6 +275,8 @@ pub struct RateController {
     owd_floor: VecDeque<(f64, i64)>,
     /// Since when frames have been arriving without queueing delay (ms), if they are.
     queue_empty_since_ms: Option<f64>,
+    /// Per-frame QUIC streams may complete out of send order.
+    newest_send_us: Option<u64>,
 }
 
 impl RateController {
@@ -294,6 +296,7 @@ impl RateController {
             announced: cfg.start_bps,
             owd_floor: VecDeque::new(),
             queue_empty_since_ms: None,
+            newest_send_us: None,
         }
     }
 
@@ -318,13 +321,18 @@ impl RateController {
     #[allow(clippy::cast_precision_loss)]
     pub fn on_frame(&mut self, a: FrameArrival) {
         let now_ms = a.recv_us as f64 / 1000.0;
+        self.goodput.add(now_ms, a.bytes);
+        // A retransmitted old stream can finish after newer ones. Its delay is real, but it
+        // says nothing about a growing queue for new traffic. Do not move the baseline back.
+        if self.newest_send_us.is_some_and(|send| a.send_us <= send) {
+            return;
+        }
+        self.newest_send_us = Some(a.send_us);
         if a.is_key {
             // Counted as delivered data, but excluded from delay analysis.
-            self.goodput.add(now_ms, a.bytes);
             self.detector.skip(a);
             return;
         }
-        self.goodput.add(now_ms, a.bytes);
         // Fast path: a frame that took far longer than the best recent frame has been sitting in
         // a queue. That is unambiguous and shows up within a frame or two, much earlier than the
         // trend over a window of frames.
@@ -409,9 +417,13 @@ impl RateController {
             return;
         }
         let acked = self.goodput.bps();
+        // Native-resolution desktop mode may send only 1–5 fps. Preserve the 100 ms
+        // probing pace at those rates, but cap catch-up after an idle desktop at one second.
+        let steps = ((now_ms - self.last_increase_ms) / 100.0).clamp(1.0, 10.0);
         self.last_increase_ms = now_ms;
         let near_capacity = self.capacity_bps.is_some_and(|c| self.target > c * 0.85);
-        self.target *= if near_capacity { 1.01 } else { 1.06 };
+        let factor: f64 = if near_capacity { 1.01 } else { 1.06 };
+        self.target *= factor.powf(steps);
         // If the sender is actually using the rate, never run far ahead of what has been shown to
         // work. If it is *not* (an encoder that undershoots its target on hard content), a higher
         // target is the only way to find out what the path can carry, and costs nothing until the
@@ -654,6 +666,52 @@ mod tests {
             final_bps > 5_000_000,
             "jitter must not look like congestion: {final_bps}"
         );
+    }
+
+    #[test]
+    fn a_low_frame_rate_can_recover_bandwidth_without_waiting_minutes() {
+        let mut rc = RateController::new(RateConfig::default());
+        for i in 0..4u64 {
+            rc.on_frame(FrameArrival {
+                send_us: i * 1_000_000,
+                recv_us: i * 1_000_000 + 20_000,
+                bytes: 1_000,
+                is_key: false,
+            });
+        }
+        assert!(rc.target_bps() > 10_000_000, "{}", rc.target_bps());
+    }
+
+    #[test]
+    fn retransmitted_old_streams_do_not_collapse_a_healthy_path() {
+        let mut rc = RateController::new(RateConfig::default());
+        for i in 1..1200u64 {
+            let send_us = i * 16_667;
+            rc.on_frame(FrameArrival {
+                send_us,
+                recv_us: send_us + 20_000,
+                bytes: 8_000,
+                is_key: false,
+            });
+            // Wi-Fi retransmission: an old per-frame stream finishes 200 ms late while
+            // current frames keep arriving promptly. Include delayed keyframes as well.
+            if i > 12 && i % 20 == 0 {
+                let before = rc.target_bps();
+                rc.on_frame(FrameArrival {
+                    send_us: send_us - 200_004,
+                    recv_us: send_us + 21_000,
+                    bytes: 8_000,
+                    is_key: i % 40 == 0,
+                });
+                assert_eq!(
+                    rc.target_bps(),
+                    before,
+                    "an old stream must not reduce the current rate"
+                );
+            }
+        }
+        assert!(rc.target_bps() >= 4_000_000, "{}", rc.target_bps());
+        assert_ne!(rc.usage(), Usage::Overuse);
     }
 
     #[test]

@@ -188,6 +188,7 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
     sense.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     sense.tick().await;
     let mut last_activity = activity(shared);
+    let mut last_reachability = shared.node.reachability();
     let mut last_sense = std::time::Instant::now();
 
     loop {
@@ -211,7 +212,9 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
                 // A long gap between ticks means the machine was asleep: tell everyone it is back.
                 let woke = last_sense.elapsed() > shared.cfg.presence_interval * 4 + Duration::from_secs(5);
                 last_sense = std::time::Instant::now();
-                if now != last_activity || woke {
+                let reachability = shared.node.reachability();
+                if now != last_activity || woke || reachability != last_reachability {
+                    last_reachability = reachability;
                     last_activity = now;
                     seq += 1;
                     client.publish_presence(presence_info(shared, seq)).await?;

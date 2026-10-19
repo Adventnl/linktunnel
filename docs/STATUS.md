@@ -9,6 +9,34 @@ claims a capability this page does not.
 🔲 not started ·
 ⛔ cannot be verified from the available environment (reason given)
 
+## Readable desktop and roaming update — 2026-10-19 (Apple Silicon Mac)
+
+The controller now requests native-resolution video and adapts fps, with hysteresis, to keep
+text detail on limited connections. It uses the existing `SetQuality` message understood by
+the installed Windows host. Late older per-frame streams no longer reset the delay estimator's
+baseline; bandwidth recovery at low fps uses elapsed time. Changed transport addresses are
+republished on the activity check (normally 10 seconds) after moving between networks.
+
+Verified locally: 48 media/agent unit tests, 9 media integration tests (including a decoded
+1280×720 native picture at 500 kbit/s and 5 fps), 24 agent integration tests, strict Clippy for
+both changed crates/all targets, formatting, and a locked optimized agent/CLI build. Both
+network adaptation tests pass when run serially with the compiler stopped: 40 Mbit/s shaped
+path delivered 9.47 Mbit/s with 47 ms p95 capture-to-receive latency; on a 4 Mbit/s shaped path,
+adaptation reduced p95 from 872 ms to 348 ms. The first stress-test run during concurrent
+compilation failed its performance thresholds; those timings are not a WAN measurement.
+
+The optimized agent was installed with the previous binary backed up under
+`~/Library/Application Support/Nexus Controller/backup-before-readability-*`.
+The user approved macOS Keychain access. The updated LaunchAgent is running and responds
+to local IPC: device ID and fingerprint match the pre-update values, one paired device is
+retained, and the pairing store's SHA-256 is unchanged. The installed binary matches the
+tested optimized build. The VPN address is advertised; signaling continues to retry while
+the Windows host is offline.
+
+The Mac's Tailscale backend is healthy and retains the PC's VPN signaling address. The
+Windows PC is offline. Physical Wi-Fi quality at distance, PC service/firewall state, and
+live control from a separate network in New Zealand remain unverified.
+
 ## MacBook controller setup — 2026-10-15 (macOS 26.6.2, Apple Silicon)
 
 Tailscale 1.104.1 was already installed; onboarding and sign-in to the PC's tailnet completed.

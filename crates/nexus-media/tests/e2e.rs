@@ -549,3 +549,45 @@ async fn a_mac_keyboard_gets_pc_shortcuts_when_the_remap_is_on() {
     }
     assert_eq!(r.recorded.events(), expected);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn readable_view_keeps_native_pixels_on_a_small_bitrate_budget() {
+    let mut r = rig_with(
+        &[grants::SCREEN],
+        SyntheticConfig {
+            width: 1280,
+            height: 720,
+            animate: true,
+            ..Default::default()
+        },
+        ControllerOptions {
+            preserve_resolution: true,
+            adaptive: false,
+            bitrate_bps: 500_000,
+            ..Default::default()
+        },
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut decoder = VideoDecoder::new();
+    let mut native_picture = false;
+    while Instant::now() < deadline {
+        if let Ok(Some(MediaEvent::Frame(frame))) =
+            tokio::time::timeout(Duration::from_millis(200), r.streams.events.recv()).await
+            && let Ok(Some(picture)) = decoder.decode(&frame)
+        {
+            native_picture = picture.width == 1280 && picture.height == 720;
+        }
+        if native_picture
+            && r.stats.scale_now.load(Ordering::Relaxed) == 100
+            && r.stats.fps_now.load(Ordering::Relaxed) <= 5
+        {
+            break;
+        }
+    }
+    assert!(native_picture, "must decode a native-size picture");
+    assert_eq!(r.stats.scale_now.load(Ordering::Relaxed), 100);
+    assert!(r.stats.fps_now.load(Ordering::Relaxed) <= 5);
+    r.controller.close().await;
+    r.target_task.abort();
+}

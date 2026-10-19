@@ -120,6 +120,30 @@ direct or DERP path separately from Nexus's transport classification. A Nexus re
 test requires a separately configured Nexus relay. Do not consider WAN access complete
 until the separate-network live-control test passes.
 
+## Readable desktop on weak Wi-Fi — controller update (2026-10-19)
+
+The updated Mac agent requests native-resolution video and adapts frame rate to the available
+bitrate. It prioritises readable text when Wi-Fi or a relayed VPN path slows down; motion can
+be less smooth on very slow links. This uses the existing `SetQuality` protocol, so it works
+with the installed Windows host without rebuilding that host. It applies to sessions opened
+through the Mac agent, including the dashboard and `nexus remote view`.
+
+Delayed older video streams no longer move the bandwidth estimator's delay baseline backwards.
+The Mac also republishes changed transport addresses on its activity check (normally within
+10 seconds), rather than waiting up to a minute after a network change.
+
+For access from elsewhere in New Zealand, leave Tailscale connected on the Mac and the Windows
+PC online and awake. The same VPN signaling address above works across networks; a public
+router port is not needed. Tailscale can use its encrypted relay fallback when a network will
+not allow a direct connection ([Tailscale connection types](https://tailscale.com/docs/reference/connection-types)). Direct/relay quality and phone-hotspot operation still need a
+live test with the PC online.
+
+On 2026-10-19 the Mac's Tailscale backend was running with no health warnings. Its network
+check allowed UDP but reported destination-dependent NAT and a Sydney fallback relay. This
+can make a direct connection harder; it does not establish which path a live session will use.
+The PC was offline, so neither its current firewall/service state nor outside-home control
+could be checked.
+
 ## Recovery and diagnosis
 
 In Administrator PowerShell: `nexus --system status`, `nexus --system doctor`, `Get-Service NexusAgent`, and `Get-ScheduledTaskInfo NexusSignal`. Logs live under `C:\ProgramData\Nexus\logs` and `C:\ProgramData\Nexus\signal\logs`. Two `nexus-agent` processes should exist: the service in session 0 and its child in the active desktop session.

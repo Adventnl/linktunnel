@@ -88,6 +88,7 @@ pub(crate) async fn open(
         key_remap,
         monitor: req.monitor,
         max_fps: req.max_fps,
+        preserve_resolution: true,
         bitrate_bps: req.bitrate_bps,
         want_video: req.want_video,
         clipboard: if req.clipboard {

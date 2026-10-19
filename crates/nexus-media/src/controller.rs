@@ -58,6 +58,8 @@ pub struct ControllerOptions {
     pub want_video: bool,
     /// Let the receiver steer the sender's bitrate from observed delay and loss.
     pub adaptive: bool,
+    /// Keep native pixels and spend a limited bitrate on fewer, clearer frames.
+    pub preserve_resolution: bool,
     /// Lowest bitrate adaptation may choose.
     pub min_bitrate_bps: u32,
     /// Highest bitrate adaptation may choose.
@@ -78,6 +80,7 @@ impl Default for ControllerOptions {
             reorder_wait: Duration::from_millis(60),
             want_video: true,
             adaptive: true,
+            preserve_resolution: false,
             min_bitrate_bps: 300_000,
             max_bitrate_bps: 50_000_000,
             clipboard: None,
@@ -271,6 +274,7 @@ impl ControllerSession {
             Arc::clone(&monitor),
             session.clone(),
             rate_cfg,
+            options.preserve_resolution,
         ));
         tokio::spawn(video_receiver(
             session.clone(),
@@ -596,6 +600,63 @@ impl ControllerSession {
     }
 }
 
+/// Controller-side policy also works with already-installed hosts via SetQuality.
+#[derive(Default)]
+struct ReadableQuality {
+    monitors: HashMap<u32, ReadableMonitor>,
+}
+
+struct ReadableMonitor {
+    pixels: u64,
+    ceiling: u32,
+    fps: u32,
+}
+
+impl ReadableQuality {
+    fn observe(&mut self, video: &VideoStarted) -> bool {
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.monitors.entry(video.monitor)
+        {
+            entry.insert(ReadableMonitor {
+                pixels: u64::from(video.width.max(1)) * u64::from(video.height.max(1)),
+                ceiling: video.fps.max(1),
+                fps: video.fps.max(1),
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    fn quality(&mut self, monitor: u32, bitrate_bps: u32) -> SetQuality {
+        let fps = self.monitors.get_mut(&monitor).map_or(1, |profile| {
+            // Reserve 0.075 bits/pixel/frame for desktop detail. Keep the current fps
+            // down to 0.060 to avoid encoder restarts when bandwidth hovers at a boundary.
+            let budget = (u64::from(bitrate_bps) * 40 / profile.pixels.saturating_mul(3)).max(1);
+            let desired = u32::try_from(budget)
+                .unwrap_or(u32::MAX)
+                .min(profile.ceiling);
+            let next = [60, 45, 30, 24, 15, 10, 5, 2, 1]
+                .into_iter()
+                .find(|fps| *fps <= desired)
+                .unwrap_or(1);
+            let current_floor = profile
+                .pixels
+                .saturating_mul(3)
+                .saturating_mul(u64::from(profile.fps));
+            if next >= profile.fps || u64::from(bitrate_bps) * 50 < current_floor {
+                profile.fps = next;
+            }
+            profile.fps
+        });
+        SetQuality {
+            monitor,
+            bitrate_bps,
+            fps,
+            scale_percent: 100,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn control_task(
     mut control: FramedStream,
@@ -606,10 +667,12 @@ async fn control_task(
     monitor: Arc<AtomicU32>,
     session: Session,
     rate_limits: Option<(u32, u32)>,
+    preserve_resolution: bool,
 ) {
     // Created when the target announces its starting bitrate.
     let _timing = nexus_desktop::MediaTiming::new();
     let mut rate: Option<RateController> = None;
+    let mut readability = ReadableQuality::default();
     let mut last_loss = (0u64, 0u64);
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut report = tokio::time::interval(REPORT_INTERVAL);
@@ -640,7 +703,16 @@ async fn control_task(
                                 max_bps,
                                 start_bps: v.bitrate_bps.clamp(min_bps, max_bps),
                             }));
-                        } let _ = events.send(MediaEvent::Started(v)).await; }
+                        }
+                        // Remember the first (native) dimensions per monitor. Later VideoStarted
+                        // messages acknowledge fps changes and must not cause a feedback loop.
+                        if preserve_resolution && readability.observe(&v) {
+                            let quality = readability.quality(v.monitor, rate.as_ref().map_or(v.bitrate_bps, RateController::target_bps));
+                            let msg = ControlMessage { body: Some(Body::SetQuality(quality)), ..Default::default() };
+                            if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
+                        }
+                        let _ = events.send(MediaEvent::Started(v)).await;
+                    }
                     Some(Body::PrivacyResult(state)) => { let _ = events.send(MediaEvent::Privacy(state)).await; }
                     Some(Body::CursorShape(c)) => { let _ = events.send(MediaEvent::CursorShape(c)).await; }
                     Some(Body::Error(e)) => { let _ = events.send(MediaEvent::Refused { code: e.code, message: e.message }).await; }
@@ -671,7 +743,7 @@ async fn control_task(
                     stats.target_bitrate_bps.store(rc.target_bps(), Ordering::Relaxed);
                     if let Some(bps) = rc.poll() {
                         let msg = ControlMessage {
-                            body: Some(Body::SetQuality(SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            body: Some(Body::SetQuality(if preserve_resolution { readability.quality(monitor.load(Ordering::Relaxed), bps) } else { SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 } })),
                             ..Default::default()
                         };
                         if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
@@ -686,6 +758,10 @@ async fn control_task(
                         msg
                     }
                 };
+                if let Some(Body::StartVideo(start)) = &msg.body {
+                    // A fresh pipeline has no pins, even when returning to a previous monitor.
+                    readability.monitors.remove(&start.monitor);
+                }
                 if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
             }
             _ = ping.tick() => {
@@ -703,7 +779,7 @@ async fn control_task(
                     rc.on_loss(u32::try_from(d_lost).unwrap_or(u32::MAX), u32::try_from(d_recv + d_lost).unwrap_or(u32::MAX), now_ms);
                     if let Some(bps) = rc.poll() {
                         let msg = ControlMessage {
-                            body: Some(Body::SetQuality(SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 })),
+                            body: Some(Body::SetQuality(if preserve_resolution { readability.quality(monitor.load(Ordering::Relaxed), bps) } else { SetQuality { monitor: monitor.load(Ordering::Relaxed), bitrate_bps: bps, fps: 0, scale_percent: 0 } })),
                             ..Default::default()
                         };
                         if control.send(&msg).await.is_err() { break "control stream failed".to_owned(); }
@@ -1037,5 +1113,45 @@ async fn clipboard_task(session: Session, setup: nexus_clipboard::ClipboardSetup
     let io = FramedStream::new(stream, nexus_proto::framing::MAX_BULK_FRAME);
     if let Err(e) = nexus_clipboard::run(backend, io, setup.policy).await {
         debug!(error = %e, "clipboard sync ended");
+    }
+}
+
+#[cfg(test)]
+mod readability_tests {
+    use super::*;
+
+    #[test]
+    fn slow_links_preserve_text_and_recover_frame_rate() {
+        let mut policy = ReadableQuality::default();
+        assert!(policy.observe(&VideoStarted {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            ..Default::default()
+        }));
+        for (bps, expected_fps) in [(300_000, 1), (2_500_000, 15), (12_000_000, 60)] {
+            let q = policy.quality(0, bps);
+            assert_eq!(q.scale_percent, 100);
+            assert_eq!(q.fps, expected_fps);
+        }
+        policy.quality(0, 2_500_000);
+        assert_eq!(policy.quality(0, 2_200_000).fps, 15);
+        assert_eq!(policy.quality(0, 2_500_000).fps, 15);
+        // An acknowledgement of our lower fps must not lower the recovery ceiling.
+        assert!(!policy.observe(&VideoStarted {
+            width: 1920,
+            height: 1080,
+            fps: 1,
+            ..Default::default()
+        }));
+        assert_eq!(policy.quality(0, 12_000_000).fps, 60);
+        assert!(policy.observe(&VideoStarted {
+            monitor: 1,
+            width: 3840,
+            height: 2160,
+            fps: 30,
+            ..Default::default()
+        }));
+        assert_eq!(policy.quality(1, 12_000_000).fps, 15);
     }
 }
