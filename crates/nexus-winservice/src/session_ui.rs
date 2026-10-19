@@ -11,6 +11,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 static PANIC: AtomicBool = AtomicBool::new(false);
+static DISCONNECT: AtomicBool = AtomicBool::new(false);
 
 /// Owns the target's indicator/panic thread and stops it before the agent is dropped.
 pub struct SessionUi {
@@ -18,11 +19,13 @@ pub struct SessionUi {
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl SessionUi {
-    /// `state` returns (has active incoming sessions, agent is stopping); `panic` disables
-    /// access. `label` is localized by the agent. The physical hotkey works on Winlogon too.
+    /// `state` returns (has active incoming sessions, agent is stopping). Clicking the badge
+    /// calls `disconnect`; the physical hotkey calls `panic` to disable future access too.
+    /// `label` is localized by the agent. The physical hotkey works on Winlogon too.
     pub fn start(
         label: String,
         state: impl Fn() -> (bool, bool) + Send + 'static,
+        disconnect: impl Fn() + Send + 'static,
         panic: impl Fn() + Send + 'static,
     ) -> Result<Self, std::io::Error> {
         let stop = Arc::new(AtomicBool::new(false));
@@ -30,7 +33,7 @@ impl SessionUi {
         let worker = std::thread::Builder::new()
             .name("session-indicator".into())
             .spawn(move || {
-                if let Err(e) = run(&label, &worker_stop, state, panic) {
+                if let Err(e) = run(&label, &worker_stop, state, disconnect, panic) {
                     tracing::warn!(error = %e, "Windows session indicator unavailable");
                 }
             })?;
@@ -70,6 +73,7 @@ fn run(
     label: &str,
     stop: &AtomicBool,
     state: impl Fn() -> (bool, bool),
+    disconnect: impl Fn(),
     panic: impl Fn(),
 ) -> Result<(), String> {
     let mut desktop = nexus_desktop::ThreadDesktop::new();
@@ -92,6 +96,9 @@ fn run(
         }
         if PANIC.swap(false, Ordering::SeqCst) {
             panic();
+        }
+        if DISCONNECT.swap(false, Ordering::SeqCst) {
+            disconnect();
         }
         if let Ok(input) = nexus_desktop::input_desktop_name() {
             if desktop.attached() != Some(input.as_str()) {
@@ -203,7 +210,7 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == WM_LBUTTONUP || message == WM_CLOSE {
-        PANIC.store(true, Ordering::SeqCst);
+        DISCONNECT.store(true, Ordering::SeqCst);
         return LRESULT(0);
     }
     if message == WM_PAINT {
@@ -231,4 +238,23 @@ unsafe extern "system" fn window_proc(
     }
     // SAFETY: delegates valid original message parameters to the OS default window procedure.
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clicking_or_closing_the_badge_disconnects_without_lockdown() {
+        PANIC.store(false, Ordering::SeqCst);
+        for message in [WM_LBUTTONUP, WM_CLOSE] {
+            // SAFETY: these messages only set an atomic flag and never access the window handle.
+            let result = unsafe {
+                window_proc(HWND::default(), message, WPARAM::default(), LPARAM::default())
+            };
+            assert_eq!(result.0, 0);
+            assert!(DISCONNECT.swap(false, Ordering::SeqCst));
+            assert!(!PANIC.load(Ordering::SeqCst));
+        }
+    }
 }

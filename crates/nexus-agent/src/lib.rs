@@ -194,6 +194,7 @@ impl Agent {
         #[cfg(windows)]
         let session_ui = {
             let state = Arc::downgrade(&shared);
+            let disconnect = Arc::downgrade(&shared);
             let panic = Arc::downgrade(&shared);
             let label =
                 nexus_core::i18n::tr(nexus_core::i18n::Locale::detect(), "session.local_active");
@@ -206,6 +207,11 @@ impl Agent {
                             *s.shutdown.borrow(),
                         )
                     })
+                },
+                move || {
+                    if let Some(shared) = disconnect.upgrade() {
+                        sessions::disconnect(&shared, &[]);
+                    }
                 },
                 move || {
                     if let Some(shared) = panic.upgrade() {

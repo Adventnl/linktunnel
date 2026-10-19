@@ -68,8 +68,9 @@ given a certificate thumbprint.
 * **Files** are limited to the shared folders configured, exactly as on every other platform.
 * **Power actions, clipboard, input** follow the same grants and consent rules as elsewhere.
 * The session child has its own visible normal-desktop badge and physical **Ctrl+Alt+Shift+Esc**
-  panic hook, independent of the dashboard. Clicking the badge or using panic disconnects sessions
-  and enables lockdown. Re-enable with the existing local lockdown command after resolving the issue.
+  panic hook, independent of the dashboard. Clicking the badge disconnects current sessions and
+  allows paired devices to reconnect. The panic shortcut disconnects sessions and enables lockdown.
+  Re-enable access with the existing local lockdown command after using panic.
 
 ## Known limits (honest list)
 * **Protected content** (DRM video) is black in Desktop Duplication, by design of Windows.

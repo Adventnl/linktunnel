@@ -152,10 +152,10 @@ impl EndpointHooks for AllowHook {
             };
         }
         if !self.allow.contains(conn.remote_id().as_bytes()) {
-            debug!("rejecting connection from an unpaired device");
+            debug!("rejecting connection: peer is not in the active allow-list");
             return AfterHandshakeOutcome::Reject {
                 error_code: CLOSE_NOT_PAIRED.into(),
-                reason: b"not paired".to_vec(),
+                reason: b"remote access blocked: check Lockdown and pairing on the target".to_vec(),
             };
         }
         AfterHandshakeOutcome::Accept

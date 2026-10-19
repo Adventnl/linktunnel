@@ -146,6 +146,17 @@ could be checked.
 
 ## Recovery and diagnosis
 
+### Disconnect blocked reconnection (fixed on this PC, 2026-10-19)
+
+The earlier Windows host treated a click on its "click to disconnect" banner as emergency
+lockdown. This left the Mac paired but blocked new connections, with a misleading "not paired"
+transport error. The updated host makes a banner click end current sessions only; paired devices
+can connect again. The physical **Ctrl+Alt+Shift+Esc** emergency shortcut still enables lockdown.
+
+On an older host, restore access locally with `nexus --system lockdown off` in Administrator
+PowerShell. Re-pairing is unnecessary. This PC has the updated host installed; identity, pairing,
+access policy and configuration were preserved, and the post-update paired transport check passed.
+
 In Administrator PowerShell: `nexus --system status`, `nexus --system doctor`, `Get-Service NexusAgent`, and `Get-ScheduledTaskInfo NexusSignal`. Logs live under `C:\ProgramData\Nexus\logs` and `C:\ProgramData\Nexus\signal\logs`. Two `nexus-agent` processes should exist: the service in session 0 and its child in the active desktop session.
 
 Stop remote access with `nexus --system lockdown on` or `Stop-Service NexusAgent`. The physical panic shortcut is `Ctrl+Alt+Shift+Esc`. Re-enable access deliberately with `nexus --system lockdown off`. Keep the PC awake during initial tests; wake from sleep is a separate hardware/network check.
