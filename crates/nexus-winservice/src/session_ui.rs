@@ -1,40 +1,36 @@
-//! Per-session visible badge and physical panic shortcut, independent of the Tauri dashboard.
-//! Windows/hooks stay on their own desktop-following thread so input/capture can switch freely.
+//! Physical panic shortcut, independent of the Tauri dashboard.
+//! The hook follows desktops on its own thread without creating an overlay window.
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{PCWSTR, w};
 static PANIC: AtomicBool = AtomicBool::new(false);
-static DISCONNECT: AtomicBool = AtomicBool::new(false);
 
-/// Owns the target's indicator/panic thread and stops it before the agent is dropped.
+/// Owns the target's physical panic thread and stops it before the agent is dropped.
 pub struct SessionUi {
     stop: Arc<AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl SessionUi {
-    /// `state` returns (has active incoming sessions, agent is stopping). Clicking the badge
-    /// calls `disconnect`; the physical hotkey calls `panic` to disable future access too.
-    /// `label` is localized by the agent. The physical hotkey works on Winlogon too.
+    /// `stopping` returns whether the agent is shutting down. The physical hotkey calls
+    /// `panic` to disconnect sessions and disable future access, including on Winlogon.
+    /// Session visibility and ordinary disconnect controls remain in the dashboard.
     pub fn start(
-        label: String,
-        state: impl Fn() -> (bool, bool) + Send + 'static,
-        disconnect: impl Fn() + Send + 'static,
+        stopping: impl Fn() -> bool + Send + 'static,
         panic: impl Fn() + Send + 'static,
     ) -> Result<Self, std::io::Error> {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = std::thread::Builder::new()
-            .name("session-indicator".into())
+            .name("session-panic".into())
             .spawn(move || {
-                if let Err(e) = run(&label, &worker_stop, state, disconnect, panic) {
-                    tracing::warn!(error = %e, "Windows session indicator unavailable");
+                if let Err(e) = run(&worker_stop, stopping, panic) {
+                    tracing::warn!(error = %e, "Windows physical panic shortcut unavailable");
                 }
             })?;
         Ok(Self {
@@ -53,7 +49,6 @@ impl Drop for SessionUi {
 }
 #[derive(Default)]
 struct Resources {
-    window: Option<HWND>,
     hook: Option<HHOOK>,
 }
 impl Drop for Resources {
@@ -63,46 +58,24 @@ impl Drop for Resources {
             if let Some(hook) = self.hook.take() {
                 let _ = UnhookWindowsHookEx(hook);
             }
-            if let Some(window) = self.window.take() {
-                let _ = DestroyWindow(window);
-            }
         }
     }
 }
-fn run(
-    label: &str,
-    stop: &AtomicBool,
-    state: impl Fn() -> (bool, bool),
-    disconnect: impl Fn(),
-    panic: impl Fn(),
-) -> Result<(), String> {
+fn run(stop: &AtomicBool, stopping: impl Fn() -> bool, panic: impl Fn()) -> Result<(), String> {
     let mut desktop = nexus_desktop::ThreadDesktop::new();
     let mut resources = Resources::default();
-    let label: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
-    // SAFETY: module handle is borrowed for process lifetime; class callback remains available.
+    // SAFETY: module handle is borrowed for process lifetime.
     let module = unsafe { GetModuleHandleW(None) }.map_err(|e| e.to_string())?;
-    let class = WNDCLASSW {
-        lpfnWndProc: Some(window_proc),
-        hInstance: module.into(),
-        lpszClassName: w!("NexusActiveSession"),
-        ..Default::default()
-    };
-    // SAFETY: class name and function pointer remain valid for process lifetime.
-    let _ = unsafe { RegisterClassW(&class) };
     while !stop.load(Ordering::Relaxed) {
-        let (active, stopping) = state();
-        if stopping {
+        if stopping() {
             break;
         }
         if PANIC.swap(false, Ordering::SeqCst) {
             panic();
         }
-        if DISCONNECT.swap(false, Ordering::SeqCst) {
-            disconnect();
-        }
         if let Ok(input) = nexus_desktop::input_desktop_name() {
             if desktop.attached() != Some(input.as_str()) {
-                // SetThreadDesktop rejects threads with windows/hooks. Tear both down first.
+                // SetThreadDesktop rejects threads with hooks. Remove the old hook first.
                 resources = Resources::default();
                 if let Err(e) = desktop.sync() {
                     tracing::debug!(error = %e, "waiting for session UI desktop");
@@ -119,54 +92,11 @@ fn run(
                     .map_err(|e| e.to_string())?,
                 );
             }
-            if active && input.eq_ignore_ascii_case("Default") {
-                if resources.window.is_none() {
-                    // SAFETY: valid registered class, module and terminated label; no remote
-                    // text is rendered into this privileged window.
-                    resources.window = Some(
-                        unsafe {
-                            CreateWindowExW(
-                                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                                w!("NexusActiveSession"),
-                                PCWSTR(label.as_ptr()),
-                                WS_POPUP | WS_BORDER,
-                                20,
-                                20,
-                                520,
-                                40,
-                                None,
-                                None,
-                                Some(module.into()),
-                                None,
-                            )
-                        }
-                        .map_err(|e| e.to_string())?,
-                    );
-                }
-                if let Some(window) = resources.window {
-                    // SAFETY: live owned window; show without taking focus from local/remote apps.
-                    unsafe {
-                        let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
-                        let _ = SetWindowPos(
-                            window,
-                            Some(HWND_TOPMOST),
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                        );
-                    }
-                }
-            } else if let Some(window) = resources.window.take() {
-                // SAFETY: own live window, destroyed once.
-                let _ = unsafe { DestroyWindow(window) };
-            }
         } else {
-            // Neither a badge nor a stale hook belongs on an inaccessible desktop.
+            // A stale hook does not belong on an inaccessible desktop.
             resources = Resources::default();
         }
-        // SAFETY: initialized thread-local messages, callback and owned windows remain live.
+        // SAFETY: initialized thread-local messages and hook callback remain live.
         unsafe {
             let mut message = MSG::default();
             while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
@@ -202,59 +132,4 @@ unsafe extern "system" fn keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     }
     // SAFETY: original hook arguments; maintain the chain for all ordinary/injected input.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
-}
-unsafe extern "system" fn window_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if message == WM_LBUTTONUP || message == WM_CLOSE {
-        DISCONNECT.store(true, Ordering::SeqCst);
-        return LRESULT(0);
-    }
-    if message == WM_PAINT {
-        // SAFETY: live thread-owned window, paired BeginPaint/EndPaint and bounded text buffer.
-        unsafe {
-            use windows::Win32::Graphics::Gdi::*;
-            let mut paint = PAINTSTRUCT::default();
-            let dc = BeginPaint(window, &mut paint);
-            let mut rect = windows::Win32::Foundation::RECT::default();
-            let _ = GetClientRect(window, &mut rect);
-            let _ = FillRect(dc, &rect, HBRUSH(GetStockObject(BLACK_BRUSH).0));
-            SetTextColor(dc, windows::Win32::Foundation::COLORREF(0x00ffffff));
-            SetBkMode(dc, TRANSPARENT);
-            let mut label = [0u16; 512];
-            let length = GetWindowTextW(window, &mut label).max(0).cast_unsigned() as usize;
-            DrawTextW(
-                dc,
-                &mut label[..length],
-                &mut rect,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-            );
-            let _ = EndPaint(window, &paint);
-        }
-        return LRESULT(0);
-    }
-    // SAFETY: delegates valid original message parameters to the OS default window procedure.
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clicking_or_closing_the_badge_disconnects_without_lockdown() {
-        PANIC.store(false, Ordering::SeqCst);
-        for message in [WM_LBUTTONUP, WM_CLOSE] {
-            // SAFETY: these messages only set an atomic flag and never access the window handle.
-            let result = unsafe {
-                window_proc(HWND::default(), message, WPARAM::default(), LPARAM::default())
-            };
-            assert_eq!(result.0, 0);
-            assert!(DISCONNECT.swap(false, Ordering::SeqCst));
-            assert!(!PANIC.load(Ordering::SeqCst));
-        }
-    }
 }

@@ -193,26 +193,10 @@ impl Agent {
         }
         #[cfg(windows)]
         let session_ui = {
-            let state = Arc::downgrade(&shared);
-            let disconnect = Arc::downgrade(&shared);
+            let stopping = Arc::downgrade(&shared);
             let panic = Arc::downgrade(&shared);
-            let label =
-                nexus_core::i18n::tr(nexus_core::i18n::Locale::detect(), "session.local_active");
             match nexus_winservice::session_ui::SessionUi::start(
-                label,
-                move || {
-                    state.upgrade().map_or((false, true), |s| {
-                        (
-                            s.sessions.load(std::sync::atomic::Ordering::SeqCst) != 0,
-                            *s.shutdown.borrow(),
-                        )
-                    })
-                },
-                move || {
-                    if let Some(shared) = disconnect.upgrade() {
-                        sessions::disconnect(&shared, &[]);
-                    }
-                },
+                move || stopping.upgrade().is_none_or(|s| *s.shutdown.borrow()),
                 move || {
                     if let Some(shared) = panic.upgrade() {
                         sessions::disconnect(&shared, &[]);
@@ -229,7 +213,7 @@ impl Agent {
             ) {
                 Ok(ui) => Some(ui),
                 Err(e) => {
-                    warn!(error = %e, "could not start Windows session indicator");
+                    warn!(error = %e, "could not start Windows physical panic shortcut");
                     None
                 }
             }

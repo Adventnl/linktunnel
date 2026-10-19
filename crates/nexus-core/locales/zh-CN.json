@@ -175,6 +175,5 @@
   "cli.auth.enrolled": "已添加身份验证方式。",
   "cli.auth.code": "身份验证器验证码：",
   "cli.auth.unlocked": "已验证下一次连接的访问权限（60 秒）。",
-  "privacy.local_restore": "远程会话正在进行。按 Esc 恢复本机屏幕。",
-  "session.local_active": "远程会话进行中 — 点击断开连接，或按 Ctrl+Alt+Shift+Esc"
+  "privacy.local_restore": "远程会话正在进行。按 Esc 恢复本机屏幕。"
 }

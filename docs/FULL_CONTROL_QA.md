@@ -12,6 +12,9 @@ This checklist must be demonstrated on real machines before calling the product 
    passkey or TOTP on the Windows service (`nexus --system auth ...`).
 2. `nexus remote view 'Windows PC'`: complete step-up, check live pixels and encoder HUD,
    click/move/drag, type into multiple applications, exercise modifiers and scrolling.
+   Verify no floating disconnect badge covers the desktop or intercepts clicks near the top left.
+   Check dashboard disconnect and physical Ctrl+Alt+Shift+Esc panic, then restore access locally
+   with `nexus --system lockdown off` before continuing.
 3. Test every monitor at mixed DPI; switch monitors (Ctrl+Alt+Shift+M), fit/pixel
    (Ctrl+Alt+Shift+P) and fullscreen (Ctrl+Alt+Shift+F). Verify pointer alignment.
 4. Lock the PC, enter *your own* credentials remotely, open an elevated app, approve a UAC prompt,

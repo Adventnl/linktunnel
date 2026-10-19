@@ -157,6 +157,10 @@ On an older host, restore access locally with `nexus --system lockdown off` in A
 PowerShell. Re-pairing is unnecessary. This PC has the updated host installed; identity, pairing,
 access policy and configuration were preserved, and the post-update paired transport check passed.
 
+Current source removes the floating banner entirely to prevent obscured content and accidental
+disconnects. That change requires updating the Windows host; the physical panic shortcut and
+dashboard/CLI disconnect controls remain available.
+
 In Administrator PowerShell: `nexus --system status`, `nexus --system doctor`, `Get-Service NexusAgent`, and `Get-ScheduledTaskInfo NexusSignal`. Logs live under `C:\ProgramData\Nexus\logs` and `C:\ProgramData\Nexus\signal\logs`. Two `nexus-agent` processes should exist: the service in session 0 and its child in the active desktop session.
 
 Stop remote access with `nexus --system lockdown on` or `Stop-Service NexusAgent`. The physical panic shortcut is `Ctrl+Alt+Shift+Esc`. Re-enable access deliberately with `nexus --system lockdown off`. Keep the PC awake during initial tests; wake from sleep is a separate hardware/network check.

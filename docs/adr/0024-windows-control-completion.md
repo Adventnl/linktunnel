@@ -32,9 +32,11 @@ missing. The Tauri application alone provided connection visibility and panic co
   canceled on focus loss, disconnect and desktop transitions.
 * Intercept Win, Alt+Tab/Esc/F4 and Ctrl+Esc only while the native Windows viewer is foreground.
   Ctrl+Alt+Shift+D sends remote Ctrl+Alt+Del, accounting for optional Cmd/Ctrl mapping.
-* A separate target UI thread follows desktops, displays a normal-desktop active-session badge and
-  handles physical Ctrl+Alt+Shift+Esc. Panic closes sessions and enables lockdown independently of
-  Tauri. Windows/hooks are destroyed before the thread attaches to another desktop.
+* A separate target UI thread follows desktops and handles physical Ctrl+Alt+Shift+Esc. Panic closes
+  sessions and enables lockdown independently of Tauri. The hook is destroyed before the thread
+  attaches to another desktop. The floating active-session badge was subsequently removed because
+  it obscured remote content and intercepted clicks; ordinary disconnect remains in the dashboard
+  and CLI.
 * Replace the complete state tree DACL with SYSTEM + Administrators, refusing reparse points and
   aborting startup if ACL protection fails.
 
@@ -42,9 +44,9 @@ missing. The Tauri application alone provided connection visibility and panic co
 An RDP/user-session transition still replaces the whole child and reconnects the encrypted session.
 GDI fallback costs CPU and can include privacy shields in the remote image; DXGI remains preferred.
 Protected video is subject to Windows capture restrictions. HDR passthrough, kernel/virtual-display
-privacy and GPU zero-copy/hardware decoding are outside this control-path revision. Topmost badges
-are not guaranteed over an exclusive fullscreen application. Ordinary user processes still cannot
-control Winlogon. Terminal/file/audio capabilities retain their existing grants and configuration.
+privacy and GPU zero-copy/hardware decoding are outside this control-path revision. Ordinary user
+processes still cannot control Winlogon. Terminal/file/audio capabilities retain their existing
+grants and configuration.
 
 No test counts, compile/lint claims, latency claims or physical-device success claims are added.
 
