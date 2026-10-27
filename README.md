@@ -12,6 +12,9 @@ with live device presence, Wake-on-LAN and a dashboard (desktop app, tray, and t
 > Read [docs/LIMITATIONS.md](docs/LIMITATIONS.md) before trusting it with anything important.
 
 ## Documents
+Android coding companion: [APK setup, workflow and verification](docs/ANDROID_CODEX.md).
+Choose a PC repository and send Codex prompts from a native phone interface; no desktop stream needed.
+
 | | |
 |---|---|
 | [Status](docs/STATUS.md) | per-phase ledger with verification evidence |

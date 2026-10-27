@@ -1,7 +1,7 @@
 //! Windows screen capture with DXGI Desktop Duplication.
 //!
-//! **Verification status:** Windows control revisions are source-only; no builds or tests were
-//! run for this change (docs/STATUS.md).
+//! **Verification status:** built and unit-tested on Windows; the post-wake Mac-to-PC hardware
+//! acceptance check remains outstanding (docs/ANDROID_CODEX.md).
 //!
 //! * `AcquireNextFrame` blocks until the desktop actually changes, so an idle desktop costs
 //!   nothing; per-frame dirty rectangles are forwarded.
@@ -44,6 +44,7 @@ use windows::Win32::Graphics::Gdi::{
     GetDIBits, GetMonitorInfoW, GetObjectW, HDC, HGDIOBJ, HMONITOR, MONITORINFOEXW, ReleaseDC,
     SRCCOPY, SelectObject,
 };
+use windows::Win32::System::Power::{ES_DISPLAY_REQUIRED, SetThreadExecutionState};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSOR_SHOWING, CURSORINFO, GetCursorInfo, GetIconInfo, ICONINFO, MONITORINFOF_PRIMARY,
@@ -234,6 +235,10 @@ struct DxgiCapturer {
     first: bool,
     desktop: nexus_desktop::ThreadDesktop,
     retry_after: Option<std::time::Instant>,
+    display_pulse: Option<std::time::Instant>,
+    // A post-wake black surface can be followed only by WAIT_TIMEOUT, with no present event.
+    // Keep probing GDI until an actual picture is available; never probe protected content.
+    awaiting_picture: bool,
 }
 
 struct DxgiResources {
@@ -321,6 +326,8 @@ impl DxgiCapturer {
             first: true,
             desktop: nexus_desktop::ThreadDesktop::new(),
             retry_after: None,
+            display_pulse: None,
+            awaiting_picture: false,
         }
     }
 
@@ -344,6 +351,7 @@ impl DxgiCapturer {
             rotation: output.desc.Rotation,
         });
         self.first = true;
+        self.awaiting_picture = false;
         self.retry_after = None;
         Ok(())
     }
@@ -420,6 +428,19 @@ impl Capturer for DxgiCapturer {
     }
 
     fn next_frame(&mut self, timeout: Duration) -> Result<Option<Frame>, CaptureError> {
+        let now = std::time::Instant::now();
+        if self
+            .display_pulse
+            .is_none_or(|last| now.duration_since(last) >= Duration::from_secs(15))
+        {
+            // SAFETY: no pointers; this resets the display idle timer on the capture thread.
+            // No ES_CONTINUOUS: ending the stream leaves no persistent power override behind.
+            let previous = unsafe { SetThreadExecutionState(ES_DISPLAY_REQUIRED) };
+            if previous.0 == 0 {
+                tracing::debug!("Windows refused the capture display wake request");
+            }
+            self.display_pulse = Some(now);
+        }
         // Desktop transitions are expected, including the brief no-input-desktop interval.
         // Return no frame and retry instead of permanently ending a remote video pipeline.
         if let Err(e) = self.follow_desktop() {
@@ -469,7 +490,12 @@ impl Capturer for DxgiCapturer {
         };
         match acquired {
             Ok(()) => {}
-            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(None),
+            Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => {
+                if self.awaiting_picture {
+                    return Ok(self.recover_empty_surface());
+                }
+                return Ok(None);
+            }
             Err(e) => {
                 // Access lost, session disconnected and device reset all require reconstruction.
                 tracing::debug!(error = %e, "rebuilding Windows capture after display transition");
@@ -592,26 +618,70 @@ impl Capturer for DxgiCapturer {
         // Some Windows drivers supply an empty initial duplication surface even on a live
         // desktop. Confirm that GDI sees actual pixels before choosing the existing fallback;
         // preserve intentionally black screens and DXGI's protected-content masking.
-        if initial_frame
-            && !frame_info.ProtectedContentMaskedOut.as_bool()
-            && let Ok(Some(frame)) = &result
-            && frame
+        if let Ok(Some(frame)) = &result {
+            let black = frame
                 .data
                 .chunks_exact(4)
-                .all(|pixel| pixel[..3] == [0, 0, 0])
-            && let Ok(fallback) = gdi_frame(&self.monitor)
-            && fallback
-                .data
-                .chunks_exact(4)
-                .any(|pixel| pixel[..3] != [0, 0, 0])
-        {
-            tracing::debug!("DXGI returned an empty initial surface; using GDI capture");
-            self.gpu = None;
-            self.first = true;
-            self.retry_after = Some(std::time::Instant::now() + Duration::from_secs(1));
-            return Ok(Some(fallback));
+                .all(|pixel| pixel[..3] == [0, 0, 0]);
+            self.awaiting_picture = should_probe_empty_surface(
+                self.awaiting_picture,
+                initial_frame,
+                black,
+                frame_info.ProtectedContentMaskedOut.as_bool(),
+            );
+            if self.awaiting_picture
+                && let Some(fallback) = self.recover_empty_surface()
+            {
+                return Ok(Some(fallback));
+            }
         }
         result
+    }
+}
+
+impl DxgiCapturer {
+    fn recover_empty_surface(&mut self) -> Option<Frame> {
+        let now = std::time::Instant::now();
+        if self.retry_after.is_some_and(|deadline| now < deadline) {
+            return None;
+        }
+        self.retry_after = Some(now + Duration::from_secs(1));
+        let fallback = gdi_frame(&self.monitor).ok()?;
+        if !fallback
+            .data
+            .chunks_exact(4)
+            .any(|pixel| pixel[..3] != [0, 0, 0])
+        {
+            return None;
+        }
+        tracing::debug!("DXGI empty surface recovered with GDI capture");
+        self.gpu = None;
+        self.first = true;
+        self.awaiting_picture = false;
+        Some(fallback)
+    }
+}
+
+fn should_probe_empty_surface(waiting: bool, initial: bool, black: bool, protected: bool) -> bool {
+    !protected && black && (initial || waiting)
+}
+
+#[cfg(test)]
+mod wake_tests {
+    use super::should_probe_empty_surface;
+
+    #[test]
+    fn empty_initial_picture_keeps_recovery_active_until_pixels_arrive() {
+        assert!(should_probe_empty_surface(false, true, true, false));
+        assert!(should_probe_empty_surface(true, false, true, false));
+        assert!(!should_probe_empty_surface(true, false, false, false));
+        assert!(!should_probe_empty_surface(false, false, true, false));
+    }
+
+    #[test]
+    fn protected_content_never_enables_gdi_recovery() {
+        assert!(!should_probe_empty_surface(false, true, true, true));
+        assert!(!should_probe_empty_surface(true, false, true, true));
     }
 }
 

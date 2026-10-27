@@ -3,6 +3,31 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## Android Codex companion and Windows wake capture — 2026-10-27 (Windows)
+
+Implemented a native Android repo/chat client and a separate user-session Codex host over
+certificate-pinned HTTPS/Tailscale. Supports prompts, progress, diffs, clarification questions,
+individual command/file approvals, stop, follow-ups and bounded persisted history. Built the
+development APK and verified v2/v3 signing. Thirteen host tests pass on Windows, including a
+power-lease lifecycle check. Active tasks prevent idle system sleep without waking the display.
+A real task through the installed Codex CLI created a file in a disposable workspace and
+edited it in a follow-up, producing streamed agent replies and completed status. The configured
+host listens on this PC's Tailscale address; HTTPS/authentication/repository listing passed
+locally. Current-user logon startup is installed. Pairing material stays outside the repo.
+
+Windows capture now requests display activity while streaming and rechecks an empty initial
+surface during DXGI timeouts, preserving protected-content behavior. Eight capture unit tests
+pass, including two new recovery-state tests; live capture of the awake 1920×1080 desktop
+and cursor passes. Strict capture Clippy and changed-module
+formatting pass. Whole-workspace rustfmt reports pre-existing CRLF files across the checkout.
+The locked release build of `nexus-agent` and `nexus-cli` completed successfully on Windows.
+
+Pending: administrator installation of the repaired desktop host and a Tailscale-only firewall
+rule; Android device installation/UI/phone-network acceptance (no attached ADB device);
+live Mac-to-PC wake/picture/UAC acceptance. Separate mobile conversations edit the selected
+PC working tree; this does not attach to the active VS Code conversation. See
+[Android setup, plan and limits](ANDROID_CODEX.md) and [ADR 0025](adr/0025-android-codex-companion.md).
+
 **Legend**
 ✅ implemented **and verified here** by automated tests or a scripted run on the build machine ·
 🟡 implemented and type-checked / linted for the target, **not executed** there ·

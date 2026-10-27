@@ -32,3 +32,4 @@ An ADR that depends on a measurement says so and links the result.
 * [0023 — Standalone relay](0023-standalone-relay.md)
 
 * [0024 — Windows control completion](0024-windows-control-completion.md) (source-only, untested)
+* [0025 — Android Codex companion](0025-android-codex-companion.md) (APK/host checks passed; device acceptance pending)

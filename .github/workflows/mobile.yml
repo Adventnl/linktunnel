@@ -1,0 +1,40 @@
+name: Android Codex
+on:
+  push:
+    branches: [main]
+    paths: ['apps/nexus-android/**', 'apps/nexus-codex-host/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['apps/nexus-android/**', 'apps/nexus-codex-host/**', '.github/workflows/mobile.yml']
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test apps/nexus-codex-host/test/host.test.mjs
+  apk:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android build tools
+        shell: pwsh
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build and verify development APK
+        shell: pwsh
+        run: ./apps/nexus-android/build.ps1 -Sdk $env:ANDROID_HOME -Jdk $env:JAVA_HOME
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexus-codex-android-development
+          path: dist/nexus-codex-debug.apk

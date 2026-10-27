@@ -2,6 +2,14 @@
 
 An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause so you can tell *can't* from *haven't yet*.
 
+## Android Codex companion (2026-10-27)
+
+The development APK builds and its PC bridge passes a real Codex inference and local HTTPS
+checks. Physical Android UI/pairing/network behavior and the Mac sleep/wake capture repair
+still need device acceptance. The bridge requires the PC awake, the Windows user signed in,
+Tailscale on both devices and a scoped firewall rule. It creates separate Codex conversations,
+has bounded history and no notifications or phone wake relay. See [setup and limits](ANDROID_CODEX.md).
+
 ## Physically or contractually impossible (or not ours to bypass)
 * **DRM-protected video** (Netflix, protected Blu-ray players, some banking/enterprise apps) appears **black** over any
   screen-capture API (Desktop Duplication, ScreenCaptureKit, X11). That is the OS honouring the content protection.
