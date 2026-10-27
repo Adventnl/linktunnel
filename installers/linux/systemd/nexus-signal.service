@@ -1,6 +1,6 @@
 # Self-hosted signaling server (see docs/SELF_HOSTING.md). Put a TLS terminator in front of it.
 [Unit]
-Description=Nexus Remote signaling server
+Description=linktunnel signaling server
 After=network-online.target
 
 [Service]

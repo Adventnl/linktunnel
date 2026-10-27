@@ -58,7 +58,7 @@ if ((Test-Path $configPath) -and -not $RotatePairing) {
     $cert = Join-Path $DataDirectory 'host.pem'
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    & $opensslPath req -x509 -newkey rsa:3072 -sha256 -nodes -keyout $key -out $cert -days 365 -subj '/CN=Nexus Mobile Host' -addext "subjectAltName=IP:$Bind" 2>$null
+    & $opensslPath req -x509 -newkey rsa:3072 -sha256 -nodes -keyout $key -out $cert -days 365 -subj '/CN=linktunnel Host' -addext "subjectAltName=IP:$Bind" 2>$null
     $ErrorActionPreference = $previousPreference
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate the PC TLS certificate.' }
     @{ bind = $Bind; port = $Port; token = $token; repositoryRoot = $root; repositories = $allowed; codexCommand = $node; codexArgs = @($codexJs); tlsKey = 'host.key'; tlsCert = 'host.pem' } |
@@ -75,7 +75,7 @@ $argsText = '"' + $entry + '" "' + $configPath + '"'
 if ($InstallStartup) {
     # Current-user logon startup runs with ordinary user rights and the user's Codex profile.
     $startup = [Environment]::GetFolderPath('Startup')
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Nexus Codex Host.lnk'))
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'linktunnel Host.lnk'))
     $shortcut.TargetPath = $node; $shortcut.Arguments = $argsText; $shortcut.WorkingDirectory = $repo; $shortcut.WindowStyle = 7; $shortcut.Save()
 }
 if ($Start) {

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: nexus-signal
-description: Self-hosted signaling, presence and pairing registry for Nexus Remote
+description: Self-hosted signaling, presence and pairing registry for linktunnel
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

@@ -2340,6 +2340,7 @@ dependencies = [
  "base64 0.22.1",
  "nexus-core",
  "nexus-ipc",
+ "nexus-phone",
  "nexus-proto",
  "parking_lot",
  "serde",
@@ -2387,6 +2388,15 @@ dependencies = [
  "tokio",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "nexus-phone"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

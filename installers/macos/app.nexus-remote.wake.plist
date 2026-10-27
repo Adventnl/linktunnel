@@ -8,7 +8,7 @@
   <key>Label</key><string>app.nexus-remote.wake</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Applications/Nexus Remote.app/Contents/MacOS/nexus-agent</string>
+    <string>/Applications/linktunnel.app/Contents/MacOS/nexus-agent</string>
     <string>--system</string>
     <string>--file-store</string>
     <string>--wake-helper</string>

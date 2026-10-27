@@ -1,7 +1,7 @@
 # Wake-on-LAN helper: an always-on machine on the home LAN (a Raspberry Pi, the home server) that
 # sends magic packets for paired devices holding the `wake` grant. It offers nothing else.
 [Unit]
-Description=Nexus Remote wake helper
+Description=linktunnel wake helper
 After=network-online.target
 Wants=network-online.target
 

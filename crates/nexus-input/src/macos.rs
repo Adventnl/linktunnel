@@ -62,7 +62,7 @@ impl MacInjector {
     pub fn new() -> Result<Self, InputError> {
         if !accessibility_granted() {
             return Err(InputError::Permission(
-                "grant Nexus the Accessibility permission in System Settings → Privacy & Security → Accessibility".into(),
+                "grant linktunnel the Accessibility permission in System Settings → Privacy & Security → Accessibility".into(),
             ));
         }
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)

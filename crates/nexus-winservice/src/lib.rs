@@ -51,7 +51,7 @@ pub mod session_ui;
 /// Name the service is registered under.
 pub const SERVICE_NAME: &str = "NexusAgent";
 /// Name shown in the Services list.
-pub const SERVICE_DISPLAY_NAME: &str = "Nexus Remote Agent";
+pub const SERVICE_DISPLAY_NAME: &str = "linktunnel Agent";
 
 /// Errors from the service machinery.
 #[derive(Debug, thiserror::Error)]

@@ -105,6 +105,15 @@ export type AppEvent =
 /** Everything the UI can ask the app to do. */
 export interface Bridge {
   readonly mock: boolean;
+  phoneStatus(): Promise<PhoneStatus>;
+  phoneDevices(): Promise<PhoneDevice[]>;
+  phonePair(address: string, code: string): Promise<void>;
+  phoneConnect(address: string): Promise<void>;
+  phoneDisconnect(address: string): Promise<void>;
+  phoneStart(options: PhoneOptions): Promise<void>;
+  phoneSession(): Promise<PhoneSession>;
+  phoneStop(): Promise<void>;
+  phoneCalls(): Promise<void>;
   snapshot(): Promise<Snapshot>;
   onEvent(cb: (e: AppEvent) => void): Promise<() => void>;
   connectScreen(id: string): Promise<void>;
@@ -128,4 +137,14 @@ export interface Bridge {
   terminalClose(terminalId: number, kill: boolean): Promise<void>;
   /** Tells the OS-level tray to quit the whole app. */
   quit(): Promise<void>;
+}
+
+export interface PhoneDevice { serial: string; state: string; model: string }
+export interface PhoneOptions { serial: string; screenOff: boolean; mediaAudio: boolean; maxSize: number; maxFps: number }
+export interface PhoneSession { serial: string | null; error: string | null }
+export interface PhoneStatus {
+  adb: { Ok: string } | { Err: string };
+  scrcpy: { Ok: string } | { Err: string };
+  platform: string;
+  session: PhoneSession;
 }

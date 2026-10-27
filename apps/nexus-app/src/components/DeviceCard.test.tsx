@@ -27,6 +27,6 @@ describe("connection feedback", () => {
     expect(card({ device: { ...device, online: false, state: "sleeping" } })).toContain("Wake-on-LAN");
   });
   it("the browser demo never pretends to open a remote desktop", async () => {
-    await expect(createMockBridge().connectScreen(device.id)).rejects.toThrow("installed Nexus Remote app");
+    await expect(createMockBridge().connectScreen(device.id)).rejects.toThrow("installed linktunnel app");
   });
 });

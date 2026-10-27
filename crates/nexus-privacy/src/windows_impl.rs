@@ -133,7 +133,7 @@ fn run(
                     | WS_EX_TRANSPARENT
                     | WS_EX_LAYERED,
                 w!("NexusPrivacyShield"),
-                w!("Nexus Remote privacy — press Esc locally to restore"),
+                w!("linktunnel privacy — press Esc locally to restore"),
                 WS_POPUP,
                 GetSystemMetrics(SM_XVIRTUALSCREEN),
                 GetSystemMetrics(SM_YVIRTUALSCREEN),

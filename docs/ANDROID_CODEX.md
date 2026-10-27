@@ -14,7 +14,7 @@ edit files as part of a task, subject to its workspace sandbox and explicit appr
 
 ## Use on this PC
 
-The development APK is `dist/nexus-codex-debug.apk` (Android 8 or later). It is signed with
+The development APK is `dist/linktunnel-debug.apk` (Android 8 or later). It is signed with
 a local development key, suitable for personal sideloading, not a Play Store release.
 The PC host has been configured at `%LOCALAPPDATA%\Nexus\mobile`, is listening on its
 Tailscale address on port 9443, and has a current-user logon startup shortcut.
@@ -33,7 +33,7 @@ Tailscale address on port 9443, and has a current-user logon startup shortcut.
 
 2. Install the APK on Android, and connect Android to the same Tailscale network as the PC.
 3. Open `%LOCALAPPDATA%\Nexus\mobile\pairing.json` on the PC and privately transfer its
-   complete JSON to the phone. Paste it into Nexus Codex and tap **Connect to PC**.
+   complete JSON to the phone. Paste it into linktunnel and tap **Connect to PC**.
 4. Choose `git-monitor` (or another configured repo) and send a task. Return through
    **Conversations** to check progress or continue an earlier task.
 
@@ -78,7 +78,7 @@ node apps/nexus-codex-host/test/probe.mjs "$env:LOCALAPPDATA\Nexus\mobile\mobile
 Only one host may listen on the configured port. Background logs are `host.log` and
 `host-error.log` in the data directory. Raw Codex diagnostics and credentials are not logged.
 To disable the feature, stop its `node.exe` process and remove
-`Nexus Codex Host.lnk` from the current user's Startup folder. Remove its named firewall
+`linktunnel Host.lnk` from the current user's Startup folder. Remove its named firewall
 rule in Administrator PowerShell, and delete the phone's pairing using **Forget this PC**.
 
 ## Build and checks
@@ -156,7 +156,7 @@ cannot receive a prompt until woken using the existing Mac workflow or an always
 ```text
 Android native UI + Keystore pairing
     → pinned HTTPS over Tailscale
-    → Nexus Codex host (ordinary Windows user, repository allowlist)
+    → linktunnel host (ordinary Windows user, repository allowlist)
     → private codex app-server stdio
     → PC repository + Codex account + sandbox/approvals
 ```

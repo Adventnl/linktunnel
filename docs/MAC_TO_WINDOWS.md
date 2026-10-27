@@ -4,12 +4,14 @@ Use the same repository revision on both machines. Start on the home network, th
 
 ## This PC is installed (2026-10-15)
 
-The host on `DESKTOP-H9VGBNO` is installed in `C:\Program Files\Nexus Remote` and running as
+The host on `DESKTOP-H9VGBNO` remains installed in the legacy `C:\Program Files\Nexus Remote` folder and is running as
 an automatic SYSTEM service. After Tailscale configuration, its signaling URL is
 `ws://100.114.106.93:8443/v1/ws`. Connect the Mac to the same Tailscale account/network.
 Diagnostics pass and the real-desktop two-agent smoke test passes. Keep the PC plugged in;
 the installer disabled timed sleep and hibernation on AC power. Reserve `192.168.1.32` in the
 router before relying on the LAN address as a fallback.
+
+New installations use `C:\Program Files\linktunnel`. Existing installations keep their current path until updated.
 
 The operator reports that fresh administrator checks passed with the Tailscale address:
 Nexus connects, startup is automatic, VPN firewall rules are enabled, and plugged-in sleep
@@ -34,8 +36,8 @@ In Administrator PowerShell, from `target/windows-host`:
 
 ```powershell
 .\install-host.ps1 -LanAddress 192.168.1.32 -KeepAwakeOnAc
-& 'C:\Program Files\Nexus Remote\nexus.exe' --system doctor
-& 'C:\Program Files\Nexus Remote\nexus.exe' --system pair offer
+& 'C:\Program Files\linktunnel\nexus.exe' --system doctor
+& 'C:\Program Files\linktunnel\nexus.exe' --system pair offer
 ```
 
 Replace the IP with the PC's actual private LAN address. Reserve this address in your router before relying on it after a reboot. The installer puts binaries in Program Files, restricts state to SYSTEM/Administrators, starts the supervised SYSTEM host automatically, and runs a persistent SQLite-backed LAN signaling server at boot. Firewall rules permit the local subnet only, including when Windows classifies the home network as Public. Windows Home is supported; Windows RDP hosting is not required.
@@ -80,7 +82,7 @@ Keep that agent terminal open for the first test. `--no-screen` makes the laptop
 
 Compare the four verification words on **both** machines and confirm only if they match. On Windows, keep the offer terminal open while joining. The default offer grants the product's remote features, but the SYSTEM host still disables remote terminals and shares no folders by default.
 
-After pairing, open Nexus Remote on the Mac. An online PC shows **Connect**; pressing it opens the live desktop. New hosts pre-authorise paired devices, so nobody needs to approve on Windows again. **Wake** is Wake-on-LAN for a sleeping/offline PC, not part of connecting to an online PC; it requires compatible hardware and network configuration.
+After pairing, open linktunnel on the Mac. An online PC shows **Connect**; pressing it opens the live desktop. New hosts pre-authorise paired devices, so nobody needs to approve on Windows again. **Wake** is Wake-on-LAN for a sleeping/offline PC, not part of connecting to an online PC; it requires compatible hardware and network configuration.
 
 For a Windows host installed with the earlier approval/step-up defaults, run this migration once in Administrator PowerShell from the updated repository:
 

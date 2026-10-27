@@ -55,6 +55,7 @@ impl BrowserPrompt {
         });
         let app = Router::new()
             .route("/", get(page))
+            .route("/linktunnel.png", get(logo))
             .route("/challenge", get(challenge))
             .route("/finish", post(finish))
             .layer(DefaultBodyLimit::max(128 * 1024))
@@ -129,8 +130,18 @@ async fn page(State(state): State<Arc<PromptState>>, headers: HeaderMap) -> Resp
         "referrer-policy",
         axum::http::HeaderValue::from_static("no-referrer"),
     );
-    response.headers_mut().insert("content-security-policy",axum::http::HeaderValue::from_static("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"));
+    response.headers_mut().insert("content-security-policy",axum::http::HeaderValue::from_static("default-src 'none'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"));
     response
+}
+async fn logo(State(state): State<Arc<PromptState>>, headers: HeaderMap) -> Response {
+    if headers.get("host").and_then(|h| h.to_str().ok()) != Some(state.host.as_str()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    (
+        [("content-type", "image/png"), ("cache-control", "no-store")],
+        include_bytes!("../../../assets/branding/linktunnel-128.png").as_slice(),
+    )
+        .into_response()
 }
 async fn challenge(State(state): State<Arc<PromptState>>, headers: HeaderMap) -> Response {
     if !authorized(&state, &headers, false) {

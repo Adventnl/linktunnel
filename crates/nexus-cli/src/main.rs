@@ -1,4 +1,4 @@
-//! `nexus`: command line interface for Nexus Remote.
+//! `nexus`: command line interface for linktunnel.
 //!
 //! Runtime messages are localised (`--lang`, `NEXUS_LANG`, or the OS locale). Clap's own `--help`
 //! text is English-only; that is a clap limitation, tracked in docs/USER_GUIDE.md.
@@ -72,7 +72,7 @@ enum Command {
     /// Manage this device's cryptographic identity.
     #[command(subcommand)]
     Id(identity_cmd::IdCommand),
-    /// Check that this machine is ready to run Nexus Remote.
+    /// Check that this machine is ready to run linktunnel.
     Doctor,
     /// Show the running agent's status.
     Status,

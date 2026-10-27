@@ -1,5 +1,5 @@
 <resources>
-  <string name="app_name">Nexus Codex</string>
+  <string name="app_name">linktunnel</string>
   <string name="subtitle">Your PC. Your repositories. From here.</string>
   <string name="pair_hint">Paste the pairing JSON from your PC</string>
   <string name="pair">Connect to PC</string>

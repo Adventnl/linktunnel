@@ -110,7 +110,7 @@ matching FFmpeg SDK at build time and DLLs in the installed service's runtime se
 script has been edited but not executed during this update.
 
 ## First-run checklist on a real Windows PC (what would turn 🟡 into ✅)
-1. `msiexec /i Nexus-Remote.msi` → `sc query NexusAgent` is RUNNING; `Get-Process nexus-agent` shows two processes
+1. `msiexec /i linktunnel.msi` → `sc query NexusAgent` is RUNNING; `Get-Process nexus-agent` shows two processes
    (session 0 and the console session, the latter as SYSTEM).
 2. `C:\ProgramData\Nexus` is unreadable for a non-admin user.
 3. Pair from another device; `nexus remote screenshot` returns the desktop.

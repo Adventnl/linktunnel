@@ -1,4 +1,4 @@
-# Nexus Remote: Architecture
+# linktunnel: Architecture
 
 *One-page summary first; details and rationale live in the [ADRs](adr/README.md).*
 
@@ -8,6 +8,14 @@ A personal remote-control suite for devices **you own or are authorised to admin
 machine runs the same agent; any machine can be a controller, any can be a target. A dashboard
 shows live presence (online / locked / in use / sleeping / offline) of your paired devices and
 lets you take control of one, run a terminal, move files, or wake it.
+
+The desktop app also has a local **Phone** transport (`nexus-phone`): it manages
+installed adb/scrcpy processes for USB or paired wireless Android control. This
+path uses Android debugging authorisation and keys rather than Nexus identities,
+agent IPC or QUIC. Pixels/audio stay in the native scrcpy window. Desktop agent
+lockdown and audit do not govern it; its own Stop action and app exit end control.
+Windows call setup delegates to external Phone Link; Nexus does not route
+cellular-call audio. See [phone control](PHONE_CONTROL.md).
 
 ## 2. The five ideas the design rests on
 
@@ -61,6 +69,7 @@ lets you take control of one, run a terminal, move files, or wake it.
 | `nexus-net` | iroh endpoint, allowlist enforcement, stream/datagram plumbing, path telemetry |
 | `nexus-capture` / `-codec` / `-render` / `-input` / `-audio` / `-clipboard` / `-files` / `-terminal` / `-power` | per-feature, per-OS backends behind traits |
 | `nexus-agent` | the daemon: presence, sessions, consent policy, audit |
+| `nexus-phone` | local Android adb/scrcpy discovery, pairing and native viewer lifecycle; independent of agent trust |
 | `nexus-signal` | signaling / presence / pairing registry server |
 | *(`nexus-session-helper`, `nexus-wake`, `nexus-relay`)* | **not separate binaries**: the Windows "helper" is the agent itself in the console session (ADR-0018); the wake helper is `nexus-agent --wake-helper`; relays are stock `iroh-relay` (ADR-0003) |
 | `nexus-audio` | Opus codec, jitter buffer, packetizer, player, cpal devices (feature `device`) |

@@ -1,4 +1,4 @@
-# Nexus Remote desktop app
+# linktunnel desktop app
 
 The dashboard window and tray icon: live status dots for every paired device, one-click
 **Connect / Terminal / Wake / Lock / Sleep / Restart / Shut down**, a command palette (⌘K / Ctrl+K),
@@ -15,8 +15,11 @@ the pairing wizard (code + four-word comparison), attended-access consent prompt
                                                                               named pipe
 ```
 
-* The app holds **no keys and does no networking**. Everything goes through the local agent, exactly like the
-  `nexus` CLI. If no agent is running the window says so and reconnects on its own.
+* Desktop sessions go through the local agent, exactly like the `nexus` CLI. If no agent is running the window says so and reconnects on its own.
+* **Phone** opens a separate Android control panel, available without the desktop agent. It uses locally installed
+  adb and scrcpy 3.3+ with Android's own USB/wireless authorisation; video/audio stay in the native scrcpy window.
+  Android owns the debugging keys. linktunnel agent pairing, audit and lockdown do not govern this transport.
+  See [Redmi / Android phone control](../../docs/PHONE_CONTROL.md) for setup, call audio and verification limits.
 * **Video never passes through the web layer.** "Connect" launches the native viewer (`nexus remote view`,
   a wgpu/winit window with local cursor and low-latency presentation). The terminal *is* in the web layer: xterm.js
   rendering bytes the agent relays over the encrypted session.
@@ -29,6 +32,7 @@ npm run dev          # the UI in a browser with a built-in mock agent (no Tauri 
 npm test             # state, palette, i18n parity, encoding
 npm run typecheck
 npm run build && npm run screenshots   # headless-Chromium screenshots into ./shots
+npm run test:phone   # local Chromium: phone panel against a simulated native boundary
 
 # the real app (needs the Tauri system libraries; see https://tauri.app/start/prerequisites/)
 npx tauri dev

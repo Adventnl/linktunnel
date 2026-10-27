@@ -84,7 +84,7 @@ fn build_menu(
     menu.append(&MenuItem::with_id(
         app,
         "open",
-        "Open Nexus Remote",
+        "Open linktunnel",
         true,
         None::<&str>,
     )?)?;
@@ -110,7 +110,7 @@ pub fn build(app: &AppHandle, link: &Arc<AgentLink>) -> bool {
         return false;
     };
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("Nexus Remote")
+        .tooltip("linktunnel")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
@@ -172,9 +172,9 @@ pub fn refresh(app: &AppHandle, link: &Arc<AgentLink>) {
     };
     let sessions = link.sessions();
     let tip = if sessions.is_empty() {
-        "Nexus Remote".to_owned()
+        "linktunnel".to_owned()
     } else {
-        format!("Nexus Remote — {} connected", sessions.len())
+        format!("linktunnel — {} connected", sessions.len())
     };
     let _ = tray.set_tooltip(Some(tip));
     if let Ok(menu) = build_menu(app, &link.devices(), &link.sessions(), link.lockdown()) {

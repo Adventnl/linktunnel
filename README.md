@@ -1,4 +1,6 @@
-# Nexus Remote
+# linktunnel
+
+<img src="assets/branding/linktunnel.png" alt="linktunnel logo" width="120" />
 
 A secure, real-time, cross-platform remote-control suite for devices **you own or are authorised to administer**: screen, keyboard,
 mouse, clipboard, audio, files, terminal, port forwarding and power, between Windows, macOS and Linux (desktops and headless servers),
@@ -12,6 +14,9 @@ with live device presence, Wake-on-LAN and a dashboard (desktop app, tray, and t
 > Read [docs/LIMITATIONS.md](docs/LIMITATIONS.md) before trusting it with anything important.
 
 ## Documents
+Android phone control from Mac / Windows: [Redmi setup, screen-off control and cellular-call limits](docs/PHONE_CONTROL.md).
+The desktop app's **Phone** button controls an authorised Android phone over USB or paired Wi-Fi using installed adb/scrcpy.
+
 Android coding companion: [APK setup, workflow and verification](docs/ANDROID_CODEX.md).
 Choose a PC repository and send Codex prompts from a native phone interface; no desktop stream needed.
 

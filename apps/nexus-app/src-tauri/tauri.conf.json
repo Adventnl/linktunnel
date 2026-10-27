@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nexus Remote",
+  "productName": "linktunnel",
   "version": "0.1.0",
   "identifier": "app.nexus-remote.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Nexus Remote",
+        "title": "linktunnel",
         "width": 1100,
         "height": 760,
         "minWidth": 420,

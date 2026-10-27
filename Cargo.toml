@@ -10,8 +10,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 publish = false
-authors = ["Nexus Remote contributors"]
-description = "Nexus Remote: a secure, real-time, cross-platform remote control suite for devices you own."
+authors = ["linktunnel contributors"]
+description = "linktunnel: a secure, real-time, cross-platform remote control suite for devices you own."
 
 # ---------------------------------------------------------------------------
 # Lint policy (see docs/CONVENTIONS.md)

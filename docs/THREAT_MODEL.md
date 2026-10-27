@@ -6,6 +6,16 @@ log, updates, LAN discovery, virtual displays, the SSH proxy, the Windows servic
 Every mitigation below names the **test** that demonstrates it (`scripts/check-threat-model.sh` fails CI if a cited test
 disappears); a mitigation without a test is marked *design only*. Fuzz targets are cited by path.
 
+The optional local Android Phone transport is separate from the desktop protocol
+model below: Android/adb manage debugging credentials and USB/wireless approval.
+Nexus desktop grants, session consent, lockdown and audit do not cover it. The
+phone panel states this and owns an explicit Stop action. Its native processes
+use argument arrays, validated endpoints/device IDs, stdin-only pairing codes,
+bounded output and deadlines; see `crates/nexus-phone/src/tests.rs` and
+[phone authorisation and limits](PHONE_CONTROL.md). No call-audio capture or
+computer-microphone injection is implemented. External Phone Link owns Windows
+Bluetooth call setup and routing.
+
 ## 1. Assets
 | Asset | Why it matters |
 |---|---|

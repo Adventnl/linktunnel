@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Nexus Remote for Windows (WiX Toolset v4).
+  linktunnel for Windows (WiX Toolset v4).
 
-  Installs nexus-agent.exe and nexus.exe, registers the "Nexus Remote Agent" Windows service
+  Installs nexus-agent.exe and nexus.exe, registers the "linktunnel Agent" Windows service
   (LocalSystem, automatic start), restricts the state folder to SYSTEM + Administrators, adds the
   CLI to PATH and a LAN-only firewall rule for direct connections.
 
-  Build:  wix build -arch x64 -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -d Version=0.1.0 -d BinDir=..\..\target\dist nexus.wxs -o Nexus-Remote.msi
+  Build:  wix build -arch x64 -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext -d Version=0.1.0 -d BinDir=..\..\target\dist nexus.wxs -o linktunnel.msi
   (installers\windows\build-msi.ps1 does this and signs.)
 
   NOT BUILT ON WINDOWS YET: see docs/STATUS.md.
@@ -14,11 +14,13 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-  <Package Name="Nexus Remote" Manufacturer="Nexus Remote contributors" Version="$(Version)"
+  <Package Name="linktunnel" Manufacturer="linktunnel contributors" Version="$(Version)"
            UpgradeCode="6f3c1d52-7a0e-4b9a-9d6b-2c4f0a1e8b73" Scope="perMachine" Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Nexus Remote is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of linktunnel is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Launch Condition="Installed OR VersionNT64 &gt;= 603" Message="Nexus Remote needs 64-bit Windows 10 or later." />
+    <Icon Id="LinktunnelIcon" SourceFile="$(sys.SOURCEFILEDIR)..\..\apps\nexus-app\src-tauri\icons\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="LinktunnelIcon" />
+    <Launch Condition="Installed OR VersionNT64 &gt;= 603" Message="linktunnel needs 64-bit Windows 10 or later." />
 
     <!-- Enable service-generated Ctrl+Alt+Del only when no local/domain policy was configured.
          An existing None/Ease-of-Access-only policy is preserved and must be changed by its owner. -->
@@ -28,13 +30,13 @@
                       Name="SoftwareSASGeneration" Type="raw" />
     </Property>
 
-    <Feature Id="Main" Title="Nexus Remote" Level="1">
+    <Feature Id="Main" Title="linktunnel" Level="1">
       <ComponentGroupRef Id="Program" />
       <ComponentGroupRef Id="State" />
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Nexus Remote" />
+      <Directory Id="INSTALLFOLDER" Name="linktunnel" />
     </StandardDirectory>
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="STATEFOLDER" Name="Nexus" />
@@ -49,7 +51,7 @@
       <Component Id="AgentExe" Guid="b1f3f7a0-2d6e-4c5b-8f0e-4a8d9c1e2f31">
         <File Id="nexus_agent_exe" Source="$(BinDir)\nexus-agent.exe" KeyPath="yes" />
         <!-- The service: LocalSystem so the child it starts can attach to the secure desktop. -->
-        <ServiceInstall Id="NexusAgentService" Name="NexusAgent" DisplayName="Nexus Remote Agent"
+        <ServiceInstall Id="NexusAgentService" Name="NexusAgent" DisplayName="linktunnel Agent"
                         Description="Lets your paired devices see and control this computer, including the sign-in screen and UAC prompts."
                         Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"
                         Arguments="--windows-service" Vital="yes">
@@ -59,7 +61,7 @@
                               ResetPeriodInDays="1" />
         </ServiceInstall>
         <ServiceControl Id="NexusAgentControl" Name="NexusAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-        <fw:FirewallException Id="NexusAgentLan" Name="Nexus Remote (direct LAN connections)"
+        <fw:FirewallException Id="NexusAgentLan" Name="linktunnel (direct LAN connections)"
                               Program="[#nexus_agent_exe]" Protocol="udp" Scope="localSubnet" Profile="all" />
       </Component>
       <Component Id="CliExe" Guid="3a9c52d8-1b7f-4e04-a6d3-95c0e7b84f12">

@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 LABEL org.opencontainers.image.title="nexus-signal" \
-      org.opencontainers.image.description="Nexus Remote signaling, presence and pairing registry"
+      org.opencontainers.image.description="linktunnel signaling, presence and pairing registry"
 COPY --from=build /nexus-signal /usr/local/bin/nexus-signal
 USER nonroot:nonroot
 EXPOSE 8443

@@ -77,7 +77,7 @@ impl Verifier {
         let webauthn = WebauthnBuilder::new("localhost", &origin)
             .map_err(err)?
             .allow_any_port(true)
-            .rp_name("Nexus Remote")
+            .rp_name("linktunnel")
             .build()
             .map_err(err)?;
         let credentials = match store.load(SECRET_NAME).map_err(err)? {
@@ -299,7 +299,7 @@ fn totp(secret: &[u8], account: &str) -> Result<TOTP, AuthError> {
         0,
         30,
         secret.to_vec(),
-        Some("Nexus Remote".into()),
+        Some("linktunnel".into()),
         account.into(),
     )
     .map_err(err)

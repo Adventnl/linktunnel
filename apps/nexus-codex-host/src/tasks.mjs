@@ -191,7 +191,7 @@ export class Tasks {
         task.status = 'waiting';
       } else {
         // Never hang a turn on an unsupported interactive tool or silently approve it.
-        this.rpc.send({ id: message.id, error: { code: -32601, message: 'This interaction is not supported by Nexus Mobile. Send the answer as a follow-up.' } });
+        this.rpc.send({ id: message.id, error: { code: -32601, message: 'This interaction is not supported by linktunnel. Send the answer as a follow-up.' } });
         task.error = 'Codex requested an unsupported interaction. Send the answer as a follow-up.';
       }
     } else if (method === 'turn/started') {

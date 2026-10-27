@@ -1077,7 +1077,7 @@ mod tests {
         let m = model();
         let text = snapshot(&m, 110, 1_030_000);
         for needle in [
-            "Nexus Remote",
+            "linktunnel",
             "MacBook",
             "Windows PC",
             "Old Laptop",

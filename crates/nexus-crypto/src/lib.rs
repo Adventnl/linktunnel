@@ -1,4 +1,4 @@
-//! Device identity, signatures and secret storage for Nexus Remote.
+//! Device identity, signatures and secret storage for linktunnel.
 //!
 //! This crate contains **no cryptographic primitives of its own**. It composes vetted
 //! implementations:

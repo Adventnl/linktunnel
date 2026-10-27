@@ -4373,6 +4373,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-phone"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "nexus-portfwd"
 version = "0.1.0"
 dependencies = [

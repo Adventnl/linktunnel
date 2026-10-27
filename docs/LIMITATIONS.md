@@ -2,6 +2,20 @@
 
 An honest list, kept next to [STATUS.md](STATUS.md). Items are grouped by cause so you can tell *can't* from *haven't yet*.
 
+## Android phone control (2026-10-27)
+
+Desktop Phone control requires separately installed adb and scrcpy 3.3+, explicit
+Android debugging authorisation, and USB or a reachable wireless endpoint. It has
+no Nexus internet relay or wake from full power-off. Phone control uses Android's
+trust model; desktop agent lockdown, emergency disconnect and audit do not govern
+it. Use its own Stop action or revoke debugging access on the phone.
+
+Ordinary media forwarding does not carry cellular calls or inject the computer
+microphone. Windows offers a launcher for external Phone Link Bluetooth Calls;
+Nexus cannot verify its audio route. Android cellular-call audio handoff on Mac
+is not implemented. Physical Redmi/HyperOS control, media routing, native Mac
+execution and call transfer remain unverified. See [phone setup](PHONE_CONTROL.md).
+
 ## Android Codex companion (2026-10-27)
 
 The development APK builds and its PC bridge passes a real Codex inference and local HTTPS

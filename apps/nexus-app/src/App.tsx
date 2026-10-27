@@ -5,6 +5,7 @@ import { ConsentDialog } from "./components/ConsentDialog";
 import { DeviceCard } from "./components/DeviceCard";
 import { Button } from "./components/Modal";
 import { PairingDialog } from "./components/PairingDialog";
+import { PhonePanel } from "./components/PhonePanel";
 import { SettingsDialog, type Theme } from "./components/SettingsDialog";
 import { DESTRUCTIVE, type PaletteEntry, type Verb } from "./lib/palette";
 import { parseLocale, translate, type Key, type Locale } from "./lib/i18n";
@@ -46,6 +47,7 @@ export function App({ bridge }: { bridge: Bridge }) {
   const [palette, setPalette] = useState(false);
   const [settings, setSettings] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [phone, setPhone] = useState(false);
   const [confirm, setConfirm] = useState<{ device: Device; action: PowerAction } | null>(null);
   const [terminal, setTerminal] = useState<Device | null>(null);
   const [waking, setWaking] = useState<Record<string, number>>({});
@@ -186,7 +188,10 @@ export function App({ bridge }: { bridge: Bridge }) {
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
       <header className="flex flex-wrap items-center gap-3">
-        <h1 className="mr-auto text-xl font-semibold">{t("app.title")}</h1>
+        <h1 className="mr-auto flex items-center gap-2.5 text-xl font-semibold">
+          <img src="/linktunnel.png" alt="" className="h-10 w-10 shrink-0 object-contain" width={40} height={40} />
+          {t("app.title")}
+        </h1>
         {status && (
           <span className="flex items-center gap-1.5 rounded-full bg-panel px-3 py-1 text-xs text-muted" title={status.signalUrl}>
             <span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ background: status.signalConnected ? "var(--dot-green)" : "var(--dot-yellow)" }} />
@@ -197,6 +202,7 @@ export function App({ bridge }: { bridge: Bridge }) {
           ⌘K <span className="sr-only">{t("palette.hint")}</span>
         </Button>
         <Button onClick={() => setPairing(true)}>＋ {t("devices.pair")}</Button>
+        <Button onClick={() => setPhone(true)}>{t("phone.title")}</Button>
         {status && (
           <Button
             kind={lockdown ? "danger" : "secondary"}
@@ -293,6 +299,7 @@ export function App({ bridge }: { bridge: Bridge }) {
         />
       )}
       {pairing && <PairingDialog bridge={bridge} t={t} sas={state.pairingSas} result={state.pairingResult} onClose={() => setPairing(false)} />}
+      {phone && <PhonePanel bridge={bridge} t={t} onClose={() => setPhone(false)} />}
       {confirm && (
         <ConfirmDialog
           action={t(`verb.${confirm.action}` as Key)}

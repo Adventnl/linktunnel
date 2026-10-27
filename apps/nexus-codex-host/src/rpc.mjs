@@ -66,7 +66,7 @@ export class CodexRpc extends EventEmitter {
 
   async initialize() {
     await this.request('initialize', {
-      clientInfo: { name: 'nexus_mobile', title: 'Nexus Mobile', version: '0.1.0' },
+      clientInfo: { name: 'nexus_mobile', title: 'linktunnel', version: '0.1.0' },
     });
     this.send({ method: 'initialized' });
   }

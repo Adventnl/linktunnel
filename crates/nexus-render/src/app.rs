@@ -17,7 +17,7 @@ use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, Ime, MouseButton as WinButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{ModifiersState, PhysicalKey};
-use winit::window::{CursorIcon, CustomCursor, Fullscreen, Window, WindowId};
+use winit::window::{CursorIcon, CustomCursor, Fullscreen, Icon, Window, WindowId};
 
 use crate::keymap::hid_for;
 use crate::layout::{self, Rect, ScaleMode, dest_rect, window_to_picture};
@@ -120,7 +120,7 @@ impl App {
     fn update_title(&self) {
         if let Some(w) = &self.window {
             let title = if self.title_stats.is_empty() {
-                format!("Nexus Remote — {}", self.options.device_name)
+                format!("linktunnel — {}", self.options.device_name)
             } else {
                 self.title_stats.clone()
             };
@@ -224,7 +224,15 @@ impl ApplicationHandler<UiEvent> for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title(format!("Nexus Remote — {}", self.options.device_name))
+            .with_title(format!("linktunnel — {}", self.options.device_name))
+            .with_window_icon(
+                Icon::from_rgba(
+                    include_bytes!("../../../assets/branding/linktunnel-32.rgba").to_vec(),
+                    32,
+                    32,
+                )
+                .ok(),
+            )
             .with_inner_size(LogicalSize::new(1024.0, 640.0));
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),

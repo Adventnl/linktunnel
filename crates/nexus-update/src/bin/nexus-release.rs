@@ -15,7 +15,7 @@ use nexus_crypto::{DeviceIdentity, IdentitySeed};
 use nexus_update::{Manifest, manifest};
 
 #[derive(Debug, Parser)]
-#[command(name = "nexus-release", about = "Sign Nexus Remote release manifests")]
+#[command(name = "nexus-release", about = "Sign linktunnel release manifests")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

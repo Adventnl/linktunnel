@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The dashboard window: events from the backend and nothing else. All device actions go through the app's own commands, which talk to the local agent.",
+  "description": "The dashboard window: core events and app commands. Desktop actions use agent IPC; phone actions use managed local adb/scrcpy processes.",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

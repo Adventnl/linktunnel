@@ -98,7 +98,7 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 ## 8. Troubleshooting
 | Symptom | Likely cause / fix |
 |---|---|
-| `Cannot reach the Nexus agent` | the agent is not running, or runs under a different `--home` |
+| `Cannot reach the linktunnel agent` | the agent is not running, or runs under a different `--home` |
 | Peer shows `offline` | its agent is not connected to the same signaling server (and not on your LAN) |
 | `ping` times out, both online | UDP blocked / strict NAT: run a relay ([SELF_HOSTING.md](SELF_HOSTING.md)) and check firewalls |
 | Pairing: server not connected | pairing needs the signaling server; `nexus status` |

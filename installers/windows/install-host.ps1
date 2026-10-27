@@ -31,7 +31,7 @@ if ($localSignal) {
 } elseif ($SignalUrl.Scheme -ne 'wss' -or $SignalUrl.UserInfo -or $SignalUrl.AbsolutePath -ne '/v1/ws') {
     throw 'An external signaling server must use wss://host/v1/ws with no embedded credentials.'
 }
-$install = Join-Path $env:ProgramFiles 'Nexus Remote'
+$install = Join-Path $env:ProgramFiles 'linktunnel'
 $state = Join-Path $env:ProgramData 'Nexus'
 $config = Join-Path $state 'config\config.toml'
 $required = @('nexus-agent.exe', 'nexus.exe')
@@ -95,10 +95,10 @@ $agent = Join-Path $install 'nexus-agent.exe'
 $binPath = '"{0}" --windows-service' -f $agent
 if ($service) {
     $registered = Get-CimInstance Win32_Service -Filter "Name='NexusAgent'"
-    $changed = Invoke-CimMethod -InputObject $registered -MethodName Change -Arguments @{ PathName = $binPath; StartMode = 'Automatic'; StartName = 'LocalSystem' }
+    $changed = Invoke-CimMethod -InputObject $registered -MethodName Change -Arguments @{ PathName = $binPath; StartMode = 'Automatic'; StartName = 'LocalSystem'; DisplayName = 'linktunnel Agent' }
     if ($changed.ReturnValue -ne 0) { throw "Service update failed: $($changed.ReturnValue)" }
 } else {
-    New-Service -Name NexusAgent -BinaryPathName $binPath -StartupType Automatic -DisplayName 'Nexus Remote Agent' -Description 'Authorized remote control from your paired devices, including UAC and login.' | Out-Null
+    New-Service -Name NexusAgent -BinaryPathName $binPath -StartupType Automatic -DisplayName 'linktunnel Agent' -Description 'Authorized remote control from your paired devices, including UAC and login.' | Out-Null
 }
 Invoke-ServiceCommand @('failure', 'NexusAgent', 'reset=', '86400', 'actions=', 'restart/5000/restart/5000/restart/5000')
 Invoke-ServiceCommand @('failureflag', 'NexusAgent', '1')
@@ -108,8 +108,8 @@ if ($null -eq $policy) { New-ItemProperty -LiteralPath $policyPath -Name Softwar
 foreach ($rule in @('NexusRemoteHostLAN', 'NexusRemoteDiscoveryLAN', 'NexusRemoteSignalLAN')) {
     Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 }
-New-NetFirewallRule -Name NexusRemoteHostLAN -DisplayName 'Nexus Remote: encrypted LAN control' -Direction Inbound -Action Allow -Program $agent -Protocol UDP -RemoteAddress LocalSubnet -Profile Any | Out-Null
-New-NetFirewallRule -Name NexusRemoteDiscoveryLAN -DisplayName 'Nexus Remote: LAN discovery' -Direction Inbound -Action Allow -Program $agent -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Any | Out-Null
+New-NetFirewallRule -Name NexusRemoteHostLAN -DisplayName 'linktunnel: encrypted LAN control' -Direction Inbound -Action Allow -Program $agent -Protocol UDP -RemoteAddress LocalSubnet -Profile Any | Out-Null
+New-NetFirewallRule -Name NexusRemoteDiscoveryLAN -DisplayName 'linktunnel: LAN discovery' -Direction Inbound -Action Allow -Program $agent -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Any | Out-Null
 if ($localSignal) {
     $signal = Join-Path $install 'nexus-signal.exe'
     $signalState = Join-Path $state 'signal'
@@ -121,7 +121,7 @@ if ($localSignal) {
     $owner = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
     Register-ScheduledTask -TaskName NexusSignal -Action $action -Trigger $trigger -Principal $owner -Settings $settings -Force | Out-Null
-    New-NetFirewallRule -Name NexusRemoteSignalLAN -DisplayName 'Nexus Remote: home-network pairing' -Direction Inbound -Action Allow -Program $signal -Protocol TCP -LocalPort $SignalPort -RemoteAddress LocalSubnet -Profile Any | Out-Null
+    New-NetFirewallRule -Name NexusRemoteSignalLAN -DisplayName 'linktunnel: home-network pairing' -Direction Inbound -Action Allow -Program $signal -Protocol TCP -LocalPort $SignalPort -RemoteAddress LocalSubnet -Profile Any | Out-Null
     Start-ScheduledTask -TaskName NexusSignal
 }
 Start-Service NexusAgent

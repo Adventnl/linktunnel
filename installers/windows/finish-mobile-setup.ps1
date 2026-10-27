@@ -11,13 +11,15 @@ $adapter = Get-NetAdapter -Name 'Tailscale' -ErrorAction Stop
 $address = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 | Where-Object IPAddress -Like '100.*' | Select-Object -First 1 -ExpandProperty IPAddress
 if (-not $address) { throw 'Connect Tailscale before finishing mobile setup.' }
 # Validate the update fully before touching the running service.
-$install = Join-Path $env:ProgramFiles 'Nexus Remote'
+$install = Join-Path $env:ProgramFiles 'linktunnel'
+# Accept hosts installed before the product rename.
+if (-not (Test-Path (Join-Path $install 'nexus-agent.exe'))) { $install = Join-Path $env:ProgramFiles 'Nexus Remote' }
 if ($UpdateDesktopHost) {
     if (-not (Test-Path $AgentBinary)) { throw 'Build nexus-agent in release mode first.' }
-    if (-not (Test-Path (Join-Path $install 'nexus-agent.exe'))) { throw 'Installed Nexus desktop host was not found.' }
+    if (-not (Test-Path (Join-Path $install 'nexus-agent.exe'))) { throw 'Installed linktunnel desktop host was not found.' }
     Get-Service NexusAgent -ErrorAction Stop | Out-Null
 }
-$ruleName = "Nexus Codex Mobile $Port"
+$ruleName = "linktunnel Mobile $Port"
 $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 if ($existing) { $existing | Remove-NetFirewallRule }
 New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -LocalAddress $address -InterfaceAlias $adapter.Name -RemoteAddress '100.64.0.0/10' -Profile Any | Out-Null

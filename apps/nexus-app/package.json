@@ -3,12 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Nexus Remote desktop app: live device dashboard, terminal, pairing and consent prompts.",
+  "description": "linktunnel desktop app: live device dashboard, terminal, pairing and consent prompts.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:phone": "node scripts/test-phone.mjs",
     "tauri": "tauri",
     "screenshots": "node scripts/screenshots.mjs"
   },

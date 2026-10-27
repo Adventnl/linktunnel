@@ -44,7 +44,7 @@ pub fn sessions_changed(app: &AppHandle, before: &[ActiveSession], now: &[Active
         let _ = app
             .notification()
             .builder()
-            .title("Nexus Remote")
+            .title("linktunnel")
             .body(arrival_text(s))
             .show();
     }
@@ -83,7 +83,7 @@ pub fn register_panic_hotkey(app: &AppHandle) {
                         let _ = app
                             .notification()
                             .builder()
-                            .title("Nexus Remote")
+                            .title("linktunnel")
                             .body("Lockdown is on and everyone was disconnected.")
                             .show();
                     }

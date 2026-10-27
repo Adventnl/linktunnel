@@ -61,8 +61,8 @@ sleep 1
 DISPLAY="$APPDISP" NEXUS_HOME="$CTL" WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 PATH="$BIN:$PATH" \
   "$APP" >"$WORK/app.log" 2>&1 &
 PIDS+=($!)
-for _ in $(seq 1 60); do DISPLAY="$APPDISP" xdotool search --name "Nexus Remote" >/dev/null 2>&1 && break; sleep 0.5; done
-WIN="$(DISPLAY="$APPDISP" xdotool search --name "Nexus Remote" | head -n1)" || fail "the app window never appeared (see $WORK/app.log)"
+for _ in $(seq 1 60); do DISPLAY="$APPDISP" xdotool search --name "linktunnel" >/dev/null 2>&1 && break; sleep 0.5; done
+WIN="$(DISPLAY="$APPDISP" xdotool search --name "linktunnel" | head -n1)" || fail "the app window never appeared (see $WORK/app.log)"
 DISPLAY="$APPDISP" xdotool windowmove "$WIN" 0 0 windowsize "$WIN" 1280 800
 sleep 4
 DISPLAY="$APPDISP" import -window root "$OUT/app-dashboard.png"

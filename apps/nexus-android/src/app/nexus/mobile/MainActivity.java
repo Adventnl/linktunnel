@@ -67,7 +67,12 @@ public final class MainActivity extends Activity {
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(dp(20) + insets.getSystemWindowInsetLeft(), dp(12) + insets.getSystemWindowInsetTop(), dp(20) + insets.getSystemWindowInsetRight(), dp(12) + insets.getSystemWindowInsetBottom()); return insets;
         });
-        root.addView(label(getString(heading), 27)); status = label("", 14); status.setTextColor(ACCENT); root.addView(status);
+        LinearLayout brand = new LinearLayout(this); brand.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this); logo.setImageResource(R.mipmap.ic_launcher);
+        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams logoLayout = new LinearLayout.LayoutParams(dp(40), dp(40)); logoLayout.setMarginEnd(dp(10));
+        brand.addView(logo, logoLayout); brand.addView(label(getString(heading), 27)); root.addView(brand);
+        status = label("", 14); status.setTextColor(ACCENT); root.addView(status);
         setContentView(root);
     }
     private void pairing() {

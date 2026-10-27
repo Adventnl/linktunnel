@@ -1,7 +1,7 @@
 param(
     [string]$Sdk = "$PSScriptRoot\..\..\target\mobile-tools\sdk",
     [string]$Jdk = '',
-    [string]$Output = "$PSScriptRoot\..\..\dist\nexus-codex-debug.apk"
+    [string]$Output = "$PSScriptRoot\..\..\dist\linktunnel-debug.apk"
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot\..\..").Path

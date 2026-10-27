@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Moves an installed Nexus Windows host onto its authenticated Tailscale address.
+Moves an installed linktunnel Windows host onto its authenticated Tailscale address.
 .DESCRIPTION
 Run after Tailscale sign-in. Preserves device identity, pairings and authentication factors.
 Backs up host configuration/task and restores them if local activation fails.
@@ -12,7 +12,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Run configure-tailscale.ps1 from an Administrator PowerShell window.'
 }
 $tailscale = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
-$install = Join-Path $env:ProgramFiles 'Nexus Remote'
+$install = Join-Path $env:ProgramFiles 'linktunnel'
+# Accept hosts installed before the product rename.
+if (-not (Test-Path (Join-Path $install 'nexus.exe'))) { $install = Join-Path $env:ProgramFiles 'Nexus Remote' }
 $state = Join-Path $env:ProgramData 'Nexus'
 $config = Join-Path $state 'config\config.toml'
 $cli = Join-Path $install 'nexus.exe'
@@ -22,7 +24,7 @@ foreach ($path in @($tailscale, $config, $cli, $launcherSource)) {
 }
 $vpnStatus = & $tailscale status --json | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $vpnStatus.BackendState -ne 'Running') {
-    throw 'Sign in to Tailscale on this PC and connect before configuring Nexus.'
+    throw 'Sign in to Tailscale on this PC and connect before configuring linktunnel.'
 }
 $address = @($vpnStatus.TailscaleIPs | Where-Object { $_ -match '^100\.' }) | Select-Object -First 1
 if (-not $address) { throw 'Tailscale did not report an IPv4 address.' }
@@ -64,8 +66,8 @@ try {
         Direction = 'Inbound'; Action = 'Allow'; Profile = 'Any'
         InterfaceAlias = $adapter.InterfaceAlias; LocalAddress = $address; RemoteAddress = '100.64.0.0/10'
     }
-    New-NetFirewallRule @firewall -Name $vpnRules[0] -DisplayName 'Nexus Remote: encrypted control over Tailscale' -Program (Join-Path $install 'nexus-agent.exe') -Protocol UDP | Out-Null
-    New-NetFirewallRule @firewall -Name $vpnRules[1] -DisplayName 'Nexus Remote: pairing over Tailscale' -Program (Join-Path $install 'nexus-signal.exe') -Protocol TCP -LocalPort $SignalPort | Out-Null
+    New-NetFirewallRule @firewall -Name $vpnRules[0] -DisplayName 'linktunnel: encrypted control over Tailscale' -Program (Join-Path $install 'nexus-agent.exe') -Protocol UDP | Out-Null
+    New-NetFirewallRule @firewall -Name $vpnRules[1] -DisplayName 'linktunnel: pairing over Tailscale' -Program (Join-Path $install 'nexus-signal.exe') -Protocol TCP -LocalPort $SignalPort | Out-Null
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Address {1} -Port {2}' -f $launcher, $address, $SignalPort
     $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $install
@@ -82,7 +84,7 @@ try {
         } catch { }
         Start-Sleep -Seconds 1
     }
-    if (-not $ready) { throw 'Nexus did not connect to the VPN pairing server.' }
+    if (-not $ready) { throw 'linktunnel did not connect to the VPN pairing server.' }
     & $cli --lang en --system doctor
     if ($LASTEXITCODE -ne 0) { throw 'VPN host diagnostics failed.' }
     Write-Host "VPN host configured. Mac signaling URL: $url"

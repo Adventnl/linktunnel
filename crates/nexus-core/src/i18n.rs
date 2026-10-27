@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn lookup_and_fallback() {
-        assert_eq!(tr(Locale::En, "app.name"), "Nexus Remote");
+        assert_eq!(tr(Locale::En, "app.name"), "linktunnel");
         assert_eq!(tr(Locale::ZhCn, "cli.identity.device_id"), "设备 ID");
         assert_eq!(tr(Locale::En, "no.such.key"), "no.such.key");
     }

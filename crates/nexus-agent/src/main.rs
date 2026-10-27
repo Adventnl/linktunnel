@@ -15,7 +15,7 @@ use url::Url;
 
 const KEYCHAIN_SERVICE: &str = "app.nexus-remote";
 
-/// Nexus Remote agent: keeps this device reachable by your paired devices.
+/// linktunnel agent: keeps this device reachable by your paired devices.
 #[derive(Debug, Parser)]
 #[command(name = "nexus-agent", version)]
 struct Args {

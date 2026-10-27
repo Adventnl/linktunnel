@@ -366,7 +366,7 @@ pub fn secure_attention_available() -> bool {
 fn request_secure_attention() -> Result<(), InputError> {
     let name = SAS_EVENT.get().ok_or_else(|| {
         InputError::Unsupported(
-            "Ctrl+Alt+Del requires the Nexus Windows service and software SAS policy".into(),
+            "Ctrl+Alt+Del requires the linktunnel Windows service and software SAS policy".into(),
         )
     })?;
     let mut policy = 0u32;

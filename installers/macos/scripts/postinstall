@@ -6,7 +6,7 @@ if ! dscl . -read /Users/_nexus >/dev/null 2>&1; then
   ID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | awk '$1>=300 && $1<400 {m=$1} END {print m+1}')
   dscl . -create /Users/_nexus
   dscl . -create /Users/_nexus UserShell /usr/bin/false
-  dscl . -create /Users/_nexus RealName "Nexus Remote"
+  dscl . -create /Users/_nexus RealName "linktunnel"
   dscl . -create /Users/_nexus UniqueID "$ID"
   dscl . -create /Users/_nexus PrimaryGroupID 20
   dscl . -create /Users/_nexus NFSHomeDirectory /var/empty

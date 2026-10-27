@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds, signs, notarizes and staples "Nexus Remote.pkg" (universal: Apple Silicon + Intel).
+# Builds, signs, notarizes and staples "linktunnel.pkg" (universal: Apple Silicon + Intel).
 #
 # Needs a Mac with Xcode command-line tools and, for distribution, an Apple Developer account:
 #   APP_SIGN_ID    "Developer ID Application: Your Name (TEAMID)"
@@ -12,7 +12,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/installers/macos"
-OUT="$ROOT/target/macos"; APP="$OUT/Nexus Remote.app"
+OUT="$ROOT/target/macos"; APP="$OUT/linktunnel.app"
 VERSION="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n1)"
 rm -rf "$OUT"; mkdir -p "$APP/Contents/MacOS" "$OUT/root/Library/LaunchAgents" "$OUT/root/Library/LaunchDaemons" "$OUT/root/usr/local/bin"
 
@@ -25,9 +25,11 @@ for B in nexus-agent nexus; do
     "$ROOT/target/aarch64-apple-darwin/dist/$B" "$ROOT/target/x86_64-apple-darwin/dist/$B"
 done
 sed "s/@VERSION@/$VERSION/g" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+install -m644 "$ROOT/apps/nexus-app/src-tauri/icons/icon.icns" "$APP/Contents/Resources/linktunnel.icns"
 mkdir -p "$OUT/root/Applications"; mv "$APP" "$OUT/root/Applications/"
-APP="$OUT/root/Applications/Nexus Remote.app"
-ln -sf "/Applications/Nexus Remote.app/Contents/MacOS/nexus" "$OUT/root/usr/local/bin/nexus"
+APP="$OUT/root/Applications/linktunnel.app"
+ln -sf "/Applications/linktunnel.app/Contents/MacOS/nexus" "$OUT/root/usr/local/bin/nexus"
 install -m644 "$HERE/app.nexus-remote.agent.plist" "$OUT/root/Library/LaunchAgents/"
 install -m644 "$HERE/app.nexus-remote.wake.plist" "$OUT/root/Library/LaunchDaemons/"
 
@@ -40,7 +42,7 @@ if [ -n "${APP_SIGN_ID:-}" ]; then
   codesign --verify --strict --verbose=2 "$APP"
 fi
 
-PKG="$OUT/Nexus-Remote-$VERSION.pkg"
+PKG="$OUT/linktunnel-$VERSION.pkg"
 pkgbuild --root "$OUT/root" --identifier app.nexus-remote.pkg --version "$VERSION" \
   --scripts "$HERE/scripts" ${PKG_SIGN_ID:+--sign "$PKG_SIGN_ID"} "$PKG"
 

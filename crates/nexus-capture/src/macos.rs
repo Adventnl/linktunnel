@@ -46,7 +46,7 @@ unsafe extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
-const PERMISSION_HELP: &str = "grant Nexus the Screen Recording permission in System Settings → Privacy & Security → Screen & System Audio Recording, then restart the agent";
+const PERMISSION_HELP: &str = "grant linktunnel the Screen Recording permission in System Settings → Privacy & Security → Screen & System Audio Recording, then restart the agent";
 
 /// Whether this process may capture the screen.
 #[must_use]

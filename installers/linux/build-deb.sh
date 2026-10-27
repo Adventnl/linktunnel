@@ -25,7 +25,7 @@ Version: $VERSION
 Section: net
 Priority: optional
 Architecture: $ARCH
-Maintainer: Nexus Remote contributors <noreply@example.invalid>
+Maintainer: linktunnel contributors <noreply@example.invalid>
 Depends: $3
 Recommends: $4
 Description: $2
@@ -37,6 +37,7 @@ CTRL
 D="$(pkg nexus-remote "Secure remote control for your own devices (agent and CLI)" "libc6, libasound2t64 | libasound2" "xvfb, xauth")"
 install -Dm755 "$BIN/nexus-agent" "$D/usr/bin/nexus-agent"
 install -Dm755 "$BIN/nexus" "$D/usr/bin/nexus"
+install -Dm644 "$ROOT/apps/nexus-app/src-tauri/icons/128x128@2x.png" "$D/usr/share/icons/hicolor/256x256/apps/linktunnel.png"
 install -Dm755 "$BIN/nexus-release" "$D/usr/bin/nexus-release" 2>/dev/null || true
 for u in nexus-agent.service nexus-agent-user.service nexus-wake.service; do
   install -Dm644 "$ROOT/installers/linux/systemd/$u" "$D/usr/lib/systemd/system/$u"
@@ -70,7 +71,7 @@ SH
 chmod 755 "$D/DEBIAN/postinst" "$D/DEBIAN/prerm"
 
 # ---- nexus-signal ---------------------------------------------------------------------------
-S="$(pkg nexus-signal "Self-hosted signaling server for Nexus Remote" "libc6" "")"
+S="$(pkg nexus-signal "Self-hosted signaling server for linktunnel" "libc6" "")"
 install -Dm755 "$BIN/nexus-signal" "$S/usr/bin/nexus-signal"
 install -Dm644 "$ROOT/installers/linux/systemd/nexus-signal.service" "$S/usr/lib/systemd/system/nexus-signal.service"
 install -Dm644 "$ROOT/docs/SELF_HOSTING.md" "$S/usr/share/doc/nexus-signal/SELF_HOSTING.md"

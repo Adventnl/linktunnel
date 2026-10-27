@@ -79,7 +79,7 @@ impl AgentLink {
         self.client
             .lock()
             .clone()
-            .ok_or_else(|| "the Nexus agent is not running".to_owned())
+            .ok_or_else(|| "the linktunnel agent is not running".to_owned())
     }
 
     /// Devices as last seen (for the tray menu).

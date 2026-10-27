@@ -3,6 +3,26 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## Desktop-to-Android phone control — 2026-10-27 (Windows development)
+
+Added the desktop **Phone** panel and `nexus-phone` backend for local adb/scrcpy
+control: USB discovery, Android 11+ wireless pairing/connect/disconnect, exact
+device selection, physical-display-off mode, optional media audio, resolution/fps
+options, native viewer supervision, stop and desktop-exit cleanup. This transport
+uses Android authorisation independently of Nexus agent pairing and lockdown.
+
+Verified on Windows: 13 backend tests (including real subprocess failure/timeout
+and cancellation checks), strict crate/native clippy, native Tauri `cargo check`, 9 native unit tests, 25
+frontend tests, frontend production build, and Chromium UI/bridge integration
+checks with simulated native replies for Windows, Mac and missing-tool cases.
+
+No Redmi was attached. Actual USB/Wi-Fi control, HyperOS permissions, screen-off
+behaviour, measured smoothness, media audio and Mac native execution are **not
+hardware-verified**. Windows cellular calling opens external Phone Link setup;
+Bluetooth transfer and mic/headphone routing remain unverified. Native Nexus
+call-audio routing, Mac Android call handoff, phone internet relay and powered-off
+phone wake are not implemented. See [setup and acceptance](PHONE_CONTROL.md).
+
 ## Android Codex companion and Windows wake capture — 2026-10-27 (Windows)
 
 Implemented a native Android repo/chat client and a separate user-session Codex host over

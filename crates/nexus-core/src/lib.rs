@@ -1,4 +1,4 @@
-//! Shared foundations for every Nexus Remote component.
+//! Shared foundations for every linktunnel component.
 //!
 //! * [`config`]: layered configuration (defaults, file, `NEXUS_*` environment).
 //! * [`paths`]: per-OS config/data/log locations for user and system scope.

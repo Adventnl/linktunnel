@@ -1,4 +1,4 @@
-import type { AppEvent, Bridge, Device, Snapshot } from "./types";
+import type { AppEvent, Bridge, Device, Snapshot, PhoneSession } from "./types";
 
 /**
  * A believable fake world for running the UI in a plain browser (design work, screenshots,
@@ -55,12 +55,21 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   return {
     mock: true,
+    phoneStatus: async () => ({ adb: { Err: "Phone control requires the installed linktunnel app." }, scrcpy: { Err: "Phone control requires the installed linktunnel app." }, platform: "demo", session: { serial: null, error: null } }),
+    phoneDevices: async () => [],
+    phonePair: async () => { throw new Error("Phone pairing requires the installed linktunnel app."); },
+    phoneConnect: async () => { throw new Error("Phone control requires the installed linktunnel app."); },
+    phoneDisconnect: async () => { throw new Error("Phone control requires the installed linktunnel app."); },
+    phoneStart: async () => { throw new Error("Phone control requires the installed linktunnel app."); },
+    phoneSession: async (): Promise<PhoneSession> => ({ serial: null, error: null }),
+    phoneStop: async () => {},
+    phoneCalls: async () => { throw new Error("Phone Link requires Windows."); },
     snapshot: async () => structuredClone(snapshot),
     onEvent: async (cb) => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    connectScreen: async () => { throw new Error("Remote control requires the installed Nexus Remote app. This browser is a demo."); },
+    connectScreen: async () => { throw new Error("Remote control requires the installed linktunnel app. This browser is a demo."); },
     wake: async (id) => {
       // Pretend the machine takes a moment to come up.
       void sleep(1500).then(() => {

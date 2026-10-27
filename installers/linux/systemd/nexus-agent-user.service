@@ -1,7 +1,7 @@
-# Nexus Remote agent for a Linux desktop, in the logged-in user's session (so it can capture the
+# linktunnel agent for a Linux desktop, in the logged-in user's session (so it can capture the
 # screen and inject input). Enable with:  systemctl --user enable --now nexus-agent-user
 [Unit]
-Description=Nexus Remote agent (desktop session)
+Description=linktunnel agent (desktop session)
 After=graphical-session.target
 PartOf=graphical-session.target
 

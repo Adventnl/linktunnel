@@ -11,7 +11,10 @@ while (-not (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue 
 }
 $state = Join-Path $env:ProgramData 'Nexus\signal'
 $database = 'sqlite://' + (Join-Path $state 'pairings.db').Replace('\', '/')
-& (Join-Path $env:ProgramFiles 'Nexus Remote\nexus-signal.exe') `
+$signal = Join-Path $env:ProgramFiles 'linktunnel\nexus-signal.exe'
+# Accept hosts installed before the product rename.
+if (-not (Test-Path -LiteralPath $signal)) { $signal = Join-Path $env:ProgramFiles 'Nexus Remote\nexus-signal.exe' }
+& $signal `
     --listen "$($Address):$Port" --audience "$($Address):$Port" `
     --database-url $database --log-dir (Join-Path $state 'logs')
 exit $LASTEXITCODE

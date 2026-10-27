@@ -18,7 +18,7 @@ async function main() {
     const server = createServer(tasks, config, tls);
     const power = new PowerLease(tasks);
     server.on('error', () => { console.error('Mobile listener failed. Check its address and port.'); power.close(); rpc.close(); process.exitCode = 1; });
-    server.listen(config.port || 9443, config.bind, () => console.log(`Nexus Codex host ready on https://${config.bind}:${config.port || 9443}`));
+    server.listen(config.port || 9443, config.bind, () => console.log(`linktunnel host ready on https://${config.bind}:${config.port || 9443}`));
     const stop = async () => { power.close(); rpc.close(); server.close(); server.closeAllConnections(); await tasks.flush(); };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
   } catch (error) { rpc.close(); throw error; }

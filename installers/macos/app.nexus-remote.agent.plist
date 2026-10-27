@@ -7,7 +7,7 @@
   <key>Label</key><string>app.nexus-remote.agent</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Applications/Nexus Remote.app/Contents/MacOS/nexus-agent</string>
+    <string>/Applications/linktunnel.app/Contents/MacOS/nexus-agent</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>

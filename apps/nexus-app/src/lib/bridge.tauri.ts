@@ -1,10 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AppEvent, Bridge, PowerAction, Snapshot } from "./types";
+import type { AppEvent, Bridge, PowerAction, Snapshot, PhoneDevice, PhoneStatus, PhoneSession } from "./types";
 
 /** The real bridge: every call is a Tauri command implemented in src-tauri/src/commands.rs. */
 export const tauriBridge: Bridge = {
   mock: false,
+  phoneStatus: () => invoke<PhoneStatus>("phone_status"),
+  phoneDevices: () => invoke<PhoneDevice[]>("phone_devices"),
+  phonePair: (address, code) => invoke("phone_pair", { address, code }),
+  phoneConnect: (address) => invoke("phone_connect", { address }),
+  phoneDisconnect: (address) => invoke("phone_disconnect", { address }),
+  phoneStart: (options) => invoke("phone_start", { options }),
+  phoneSession: () => invoke<PhoneSession>("phone_session"),
+  phoneStop: () => invoke("phone_stop"),
+  phoneCalls: () => invoke("phone_calls"),
   snapshot: () => invoke<Snapshot>("snapshot"),
   onEvent: async (cb) => {
     // One channel carries every event; the Rust side tags them with `kind`.

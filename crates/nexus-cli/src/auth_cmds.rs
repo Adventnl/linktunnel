@@ -58,7 +58,7 @@ pub async fn run(ctx: &AppContext, command: AuthCommand) -> Result<ExitCode> {
                 let prompt = nexus_auth::browser::BrowserPrompt::start(
                     options,
                     true,
-                    "Nexus Remote",
+                    "linktunnel",
                     chinese,
                 )
                 .await?;

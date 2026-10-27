@@ -1,5 +1,5 @@
 <resources>
-  <string name="app_name">Nexus Codex</string>
+  <string name="app_name">linktunnel</string>
   <string name="subtitle">随时使用电脑上的代码仓库。</string>
   <string name="pair_hint">粘贴电脑生成的配对 JSON</string>
   <string name="pair">连接电脑</string>

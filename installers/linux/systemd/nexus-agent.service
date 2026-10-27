@@ -1,11 +1,11 @@
-# Nexus Remote agent for a headless Linux server (system service).
+# linktunnel agent for a headless Linux server (system service).
 #
 # Runs as the unprivileged `nexus` user with a hardened sandbox. That is deliberately the most
 # restrictive profile: files are limited to the shared folders you configure and terminals run as
 # `nexus`. To administer the machine from a terminal, use the drop-in in
 # nexus-agent.service.d/admin-terminal.conf.example (and read its warning first).
 [Unit]
-Description=Nexus Remote agent
+Description=linktunnel agent
 Documentation=https://github.com/adventnl/linktunnel
 After=network-online.target
 Wants=network-online.target

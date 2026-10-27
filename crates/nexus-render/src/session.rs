@@ -173,7 +173,7 @@ async fn run(
     let (client, mut events, _welcome) =
         match IpcClient::connect(&options.ipc, "nexus-viewer").await {
             Ok(c) => c,
-            Err(e) => return format!("cannot reach the Nexus agent: {e}"),
+            Err(e) => return format!("cannot reach the linktunnel agent: {e}"),
         };
     let mut first_loss: Option<Instant> = None;
     let mut attempt = 0u32;

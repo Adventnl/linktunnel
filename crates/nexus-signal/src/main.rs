@@ -14,7 +14,7 @@ use nexus_signal::store::{MemoryPairingStore, MemoryPresenceStore, PairingStore,
 use nexus_signal::{Hub, SignalConfig, serve};
 use tokio::net::TcpListener;
 
-/// Signaling, presence and pairing-registry server for Nexus Remote.
+/// Signaling, presence and pairing-registry server for linktunnel.
 #[derive(Debug, Parser)]
 #[command(name = "nexus-signal", version)]
 struct Args {
