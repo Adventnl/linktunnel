@@ -19,8 +19,8 @@ use crate::sessions::SessionHandler;
 /// A message from the signaling rendezvous destined for the pairing in progress.
 #[derive(Debug)]
 pub(crate) enum RendezvousMsg {
-    Peer(bool),
-    Data(Vec<u8>),
+    Peer(String, bool),
+    Data(String, Vec<u8>),
 }
 
 /// The one pairing that may be in progress.
@@ -41,7 +41,13 @@ pub struct Shared {
     pub(crate) trust: Mutex<TrustStore>,
     pub(crate) node: Node,
     pub(crate) devices: Mutex<DeviceTable>,
-    pub(crate) signal: Mutex<Option<SignalClient>>,
+    pub(crate) signal: Mutex<std::collections::BTreeMap<String, SignalClient>>,
+    pub(crate) signal_presence: Mutex<
+        std::collections::BTreeMap<
+            String,
+            std::collections::HashMap<Vec<u8>, nexus_proto::v1::DevicePresence>,
+        >,
+    >,
     pub(crate) events: broadcast::Sender<IpcEvent>,
     pub(crate) lockdown: AtomicBool,
     pub(crate) sessions: AtomicU32,
@@ -105,7 +111,11 @@ impl Shared {
 
     /// The signaling client, if currently connected.
     pub(crate) fn signal(&self) -> Option<SignalClient> {
-        self.signal.lock().clone()
+        self.signal.lock().values().next().cloned()
+    }
+
+    pub(crate) fn signals(&self) -> Vec<SignalClient> {
+        self.signal.lock().values().cloned().collect()
     }
 
     /// Dashboard views of every paired device.
@@ -193,13 +203,15 @@ impl Shared {
             device_name: self.cfg.device_name.clone(),
             fingerprint: self.identity.public().fingerprint().to_string(),
             agent_version: env!("CARGO_PKG_VERSION").to_owned(),
-            signal_connected: self.signal.lock().is_some(),
+            signal_connected: !self.signal.lock().is_empty(),
             signal_url: self
                 .cfg
                 .signal_url
-                .as_ref()
+                .iter()
+                .chain(self.cfg.signal_urls.iter())
                 .map(ToString::to_string)
-                .unwrap_or_default(),
+                .collect::<Vec<_>>()
+                .join(", "),
             relay_url: reach.relay.unwrap_or_default(),
             direct_addresses: reach.direct.iter().map(ToString::to_string).collect(),
             lockdown: self.is_locked_down(),

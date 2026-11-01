@@ -344,6 +344,8 @@ impl Default for LogConfig {
 pub struct NetConfig {
     /// WebSocket URL of the signaling/presence server (`wss://…/v1/ws`).
     pub signal_url: Option<Url>,
+    /// Additional servers kept connected alongside the primary server.
+    pub signal_urls: Vec<Url>,
     /// Self-hosted relay URLs. Empty disables relays (third-party services are opt-in).
     pub relay_urls: Vec<Url>,
     /// Admission token for self-hosted relays. Prefer NEXUS_NET__RELAY_TOKEN to a config file.
@@ -364,6 +366,7 @@ impl std::fmt::Debug for NetConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NetConfig")
             .field("signal_url", &self.signal_url)
+            .field("signal_urls", &self.signal_urls)
             .field("relay_urls", &self.relay_urls)
             .field(
                 "relay_token",
@@ -380,6 +383,7 @@ impl Default for NetConfig {
     fn default() -> Self {
         Self {
             signal_url: None,
+            signal_urls: Vec::new(),
             relay_urls: Vec::new(),
             relay_token: None,
             udp_port: 0,
@@ -432,7 +436,12 @@ impl Default for SecurityConfig {
 impl NexusConfig {
     /// Checks cross-field and value constraints that serde cannot express.
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if let Some(url) = &self.net.signal_url {
+        for url in self
+            .net
+            .signal_url
+            .iter()
+            .chain(self.net.signal_urls.iter())
+        {
             match url.scheme() {
                 "wss" => {}
                 // Plain `ws` is only acceptable for loopback development.

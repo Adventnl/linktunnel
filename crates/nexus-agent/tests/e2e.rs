@@ -77,6 +77,7 @@ fn config(name: &str, home: &std::path::Path, signal: Option<Url>) -> AgentConfi
         device_name: name.into(),
         paths: Paths::under(home),
         signal_url: signal,
+        signal_urls: Vec::new(),
         node: NodeConfig {
             bind: Some("127.0.0.1:0".parse().unwrap()),
             port_mapping: false,
@@ -1894,4 +1895,62 @@ async fn unattended_resources_require_stepup_and_the_approved_connection_is_used
     );
     mac.agent.shutdown().await;
     pc.agent.shutdown().await;
+}
+
+#[tokio::test]
+async fn additional_server_pairs_without_replacing_primary_and_survives_its_loss() {
+    let primary = Server::start().await;
+    let secondary = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = start_device_cfg(
+        "Ubuntu",
+        61,
+        &dir.path().join("host"),
+        Some(primary.url()),
+        Arc::new(DiagnosticsHandler),
+        |cfg| {
+            cfg.signal_urls = vec![secondary.url(), primary.url()];
+        },
+    )
+    .await;
+    let mut mac = start_device("Mac", 62, &dir.path().join("mac"), Some(secondary.url())).await;
+    wait_signal(&host).await;
+    wait_signal(&mac).await;
+    // Pair through the additional server while the primary is also running.
+    pair(&mut host, &mut mac).await;
+    wait_online(&host, &mac).await;
+    wait_online(&mac, &host).await;
+    drop(primary);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(host.client.status().await.unwrap().signal_connected);
+    wait_online(&host, &mac).await;
+    mac.client.ping(ping_request(&host)).await.unwrap();
+    // Revocation must also reach the additional server.
+    host.client.unpair(mac.id()).await.unwrap();
+    eventually("secondary receives revocation", || async {
+        mac.client.list_devices().await.unwrap().devices.is_empty()
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn additional_server_works_when_primary_is_unreachable() {
+    let secondary = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = start_device_cfg(
+        "Ubuntu",
+        63,
+        &dir.path().join("host"),
+        Some("ws://127.0.0.1:1/v1/ws".parse().unwrap()),
+        Arc::new(DiagnosticsHandler),
+        |cfg| {
+            cfg.signal_urls = vec![secondary.url()];
+        },
+    )
+    .await;
+    let mut mac = start_device("Mac", 64, &dir.path().join("mac"), Some(secondary.url())).await;
+    wait_signal(&host).await;
+    wait_signal(&mac).await;
+    pair(&mut host, &mut mac).await;
+    wait_online(&host, &mac).await;
 }

@@ -68,6 +68,12 @@ Press the viewer's local hotkeys (`Ctrl+Alt+Shift+Q` quit, `F` fullscreen, `P` p
 * **macOS.** Grant *Screen Recording*, *Accessibility* and *Input Monitoring* (and *System Audio Recording* for sound) in
   System Settings → Privacy & Security, then restart the agent. **Untested.**
 
+**GNOME Wayland desktop.** Run the user agent in your logged-in graphical session. Install
+`python3 python3-gi gir1.2-gstreamer-1.0 gstreamer1.0-pipewire gstreamer1.0-plugins-base`.
+The agent selects native Mutter/PipeWire capture and remote input automatically when
+`WAYLAND_DISPLAY` is present. Use the existing Mac app and **Connect**; no viewer protocol change
+is required. This supports the current desktop, not GDM/login. See [Mac to Ubuntu](USER_GUIDE.md#5-special-machines).
+
 ## 6. Safety features
 * Nothing connects to a device that did not pair with you; an unpaired device cannot even see that yours exists.
 * By default initial pairing pre-authorises future connections, so an online PC needs only **Connect** on the controller.
@@ -115,3 +121,25 @@ software fallback. Ctrl+Alt+Shift+B toggles the target's Windows normal-desktop 
 and local-input block (needs the `privacy` pairing grant). Physical Esc on the target restores
 its display; disconnect also restores it. Unsupported platforms report refusal.
 See [ACCELERATION.md](ACCELERATION.md) for optional vendor encoder builds and their current limits.
+
+### Keep multiple pairing servers connected
+
+Keep the existing `[net].signal_url` and add other servers in `[net].signal_urls`:
+
+```toml
+[net]
+signal_url = "ws://192.0.2.10:8443/v1/ws"
+signal_urls = ["ws://192.0.2.20:8443/v1/ws"]
+allow_insecure_signal = true
+```
+
+Alternatively keep `--signal-url` and repeat `--add-signal-url URL` for each extra server.
+One agent keeps the same identity, trust store, dashboard and local IPC socket. Each server
+reconnects independently. A pairing code is offered on all currently connected servers;
+the exchange uses the first server where its peer arrives. Both peers must share at least
+one connected server. An offline additional server does not prevent pairing through an
+online server. Servers which reconnect during an offer are used by the next offer.
+Revocations and completed pairings are registered on all connected servers and synced
+again on reconnect. Presence is merged across servers so an offline server cannot hide
+an online peer reported by another server. Upgrade each agent that needs multiple server
+connections; an existing single-server peer can still pair through its shared server.

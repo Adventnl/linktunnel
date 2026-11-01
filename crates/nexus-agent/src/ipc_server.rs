@@ -315,7 +315,7 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
         device_id: device_id.to_vec().into(),
     }));
     // Then tell the server so the other device learns of it (re-sent on reconnect if this fails).
-    if let Some(signal) = shared.signal() {
+    for signal in shared.signals() {
         let signed = revocation::revoke_key(&shared.identity, &key, now);
         if let Err(e) = signal.revoke_pairing(signed).await
             && e.server_code() != Some(nexus_proto::v1::SignalErrorCode::NotFound)

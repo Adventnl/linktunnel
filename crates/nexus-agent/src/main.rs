@@ -25,6 +25,9 @@ struct Args {
     /// Signaling server (`wss://…/v1/ws`). Overrides the config file.
     #[arg(long, env = "NEXUS_SIGNAL_URL")]
     signal_url: Option<Url>,
+    /// Add another signaling server without replacing the primary. May be repeated.
+    #[arg(long = "add-signal-url")]
+    signal_urls: Vec<Url>,
     /// Allow a plain `ws://` signaling URL to a non-loopback host. Trials on a trusted LAN only.
     #[arg(long)]
     allow_insecure_signal: bool,
@@ -129,6 +132,7 @@ async fn main() -> Result<()> {
     if let Some(url) = args.signal_url {
         nexus.net.signal_url = Some(url);
     }
+    nexus.net.signal_urls.extend(args.signal_urls);
     if args.allow_insecure_signal {
         nexus.net.allow_insecure_signal = true;
         tracing::warn!(

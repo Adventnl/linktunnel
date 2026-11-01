@@ -18,6 +18,8 @@ pub struct AgentConfig {
     pub paths: Paths,
     /// Signaling server. `None` runs the agent LAN-only (no presence, no pairing registry).
     pub signal_url: Option<Url>,
+    /// Additional signaling servers connected independently alongside the primary.
+    pub signal_urls: Vec<Url>,
     /// Network endpoint settings.
     pub node: NodeConfig,
     /// Maximum delay between signaling reconnect attempts.
@@ -60,6 +62,7 @@ impl AgentConfig {
         Ok(Self {
             device_name,
             signal_url: cfg.net.signal_url.clone(),
+            signal_urls: cfg.net.signal_urls.clone(),
             node: NodeConfig::from_net_config(&cfg.net)?,
             paths,
             reconnect_max: Duration::from_secs(30),

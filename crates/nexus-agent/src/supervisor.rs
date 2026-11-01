@@ -49,10 +49,23 @@ impl Backoff {
 
 /// Runs for the life of the agent: connect, sync, serve events, reconnect on failure.
 pub(crate) async fn run(shared: Arc<Shared>) {
-    let Some(url) = shared.cfg.signal_url.clone() else {
-        info!("no signaling server configured: running without presence or pairing registry");
-        return;
-    };
+    let mut urls: Vec<_> = shared
+        .cfg
+        .signal_url
+        .iter()
+        .chain(shared.cfg.signal_urls.iter())
+        .cloned()
+        .collect();
+    urls.sort();
+    urls.dedup();
+    let mut tasks = tokio::task::JoinSet::new();
+    for url in urls {
+        tasks.spawn(run_server(Arc::clone(&shared), url));
+    }
+    while tasks.join_next().await.is_some() {}
+}
+
+async fn run_server(shared: Arc<Shared>, url: url::Url) {
     let mut shutdown = shared.shutdown.subscribe();
     let mut backoff = Backoff::new(shared.cfg.reconnect_max);
     loop {
@@ -65,8 +78,17 @@ pub(crate) async fn run(shared: Arc<Shared>) {
             r = session(&shared, &config) => r,
             _ = shutdown.changed() => return,
         };
-        shared.signal.lock().take();
-        shared.devices.lock().mark_all_unknown();
+        shared.signal.lock().remove(url.as_str());
+        let lost = shared
+            .signal_presence
+            .lock()
+            .remove(url.as_str())
+            .unwrap_or_default();
+        for mut p in lost.into_values() {
+            p.online = false;
+            apply_presence(&shared, &p);
+        }
+        rebuild_presence(&shared);
         // Push the loss of presence too: dashboards must not retain stale green/online cards.
         for device in shared.device_views() {
             shared.emit(nexus_proto::v1::ipc_event::Body::DeviceChanged(
@@ -76,7 +98,9 @@ pub(crate) async fn run(shared: Arc<Shared>) {
             ));
         }
         shared.emit(nexus_proto::v1::ipc_event::Body::SignalState(
-            nexus_proto::v1::SignalState { connected: false },
+            nexus_proto::v1::SignalState {
+                connected: !shared.signal.lock().is_empty(),
+            },
         ));
         match outcome {
             Ok(Ended::Shutdown) => return,
@@ -158,7 +182,10 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
     let (client, mut events) =
         nexus_signal_client::connect(config, Arc::clone(&shared.identity)).await?;
     info!(server = %config.url, "connected to signaling");
-    *shared.signal.lock() = Some(client.clone());
+    shared
+        .signal
+        .lock()
+        .insert(config.url.to_string(), client.clone());
     shared.emit(nexus_proto::v1::ipc_event::Body::SignalState(
         nexus_proto::v1::SignalState { connected: true },
     ));
@@ -167,7 +194,7 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
     let mut seq: u64 = 1;
     client.publish_presence(presence_info(shared, seq)).await?;
     for presence in client.subscribe_presence().await? {
-        apply_presence(shared, &presence);
+        apply_server_presence(shared, config.url.as_str(), &presence);
     }
 
     let mut guard = ReplayGuard::default();
@@ -196,7 +223,7 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
             event = events.next() => match event {
                 None | Some(ServerEvent::Disconnected(_)) => return Ok(Ended::Dropped),
                 Some(ServerEvent::Superseded) => return Ok(Ended::Superseded),
-                Some(event) => handle_event(shared, &client, &mut guard, event).await,
+                Some(event) => handle_event(shared, &client, config.url.as_str(), &mut guard, event).await,
             },
             _ = heartbeat.tick() => match client.heartbeat(seq).await {
                 Ok(()) => {}
@@ -233,8 +260,43 @@ async fn session(shared: &Arc<Shared>, config: &ClientConfig) -> Result<Ended, C
     }
 }
 
-pub(crate) fn apply_presence_pub(shared: &Shared, presence: &nexus_proto::v1::DevicePresence) {
-    apply_presence(shared, presence);
+fn apply_server_presence(
+    shared: &Shared,
+    source: &str,
+    presence: &nexus_proto::v1::DevicePresence,
+) {
+    shared
+        .signal_presence
+        .lock()
+        .entry(source.to_owned())
+        .or_default()
+        .insert(presence.device_id.to_vec(), presence.clone());
+    rebuild_presence(shared);
+}
+
+fn rebuild_presence(shared: &Shared) {
+    let mut merged = std::collections::HashMap::<Vec<u8>, nexus_proto::v1::DevicePresence>::new();
+    for server in shared.signal_presence.lock().values() {
+        for (id, p) in server {
+            let replace = merged
+                .get(id)
+                .is_none_or(|old| (p.online, p.last_seen_ms) > (old.online, old.last_seen_ms));
+            if replace {
+                merged.insert(id.clone(), p.clone());
+            }
+        }
+    }
+    for p in merged.values() {
+        apply_presence(shared, p);
+    }
+}
+
+pub(crate) fn apply_presence_pub(
+    shared: &Shared,
+    source: &str,
+    presence: &nexus_proto::v1::DevicePresence,
+) {
+    apply_server_presence(shared, source, presence);
 }
 
 fn apply_presence(shared: &Shared, presence: &nexus_proto::v1::DevicePresence) {
@@ -303,11 +365,12 @@ async fn sync_pairings(shared: &Arc<Shared>, client: &SignalClient) -> Result<()
 async fn handle_event(
     shared: &Arc<Shared>,
     client: &SignalClient,
+    source: &str,
     guard: &mut ReplayGuard,
     event: ServerEvent,
 ) {
     match event {
-        ServerEvent::PresenceUpdate(p) => apply_presence(shared, &p),
+        ServerEvent::PresenceUpdate(p) => apply_server_presence(shared, source, &p),
         ServerEvent::PairingAdded(signed) => {
             let result = shared
                 .trust
@@ -321,7 +384,7 @@ async fn handle_event(
                     // Learn the new peer's presence right away.
                     if let Ok(snapshot) = client.subscribe_presence().await {
                         for p in snapshot {
-                            apply_presence(shared, &p);
+                            apply_server_presence(shared, source, &p);
                         }
                     }
                     shared.emit_device_changed(&key);
@@ -373,10 +436,10 @@ async fn handle_event(
             }
         }
         ServerEvent::RendezvousPeer { joined } => {
-            forward_rendezvous(shared, RendezvousMsg::Peer(joined)).await
+            forward_rendezvous(shared, RendezvousMsg::Peer(source.to_owned(), joined)).await
         }
         ServerEvent::RendezvousData(data) => {
-            forward_rendezvous(shared, RendezvousMsg::Data(data)).await
+            forward_rendezvous(shared, RendezvousMsg::Data(source.to_owned(), data)).await
         }
         ServerEvent::Superseded | ServerEvent::Disconnected(_) => {}
     }

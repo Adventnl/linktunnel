@@ -44,13 +44,6 @@ impl DeviceTable {
         self.paths.remove(key);
     }
 
-    /// Everything we knew becomes "last known"; used when the signaling link drops.
-    pub fn mark_all_unknown(&mut self) {
-        for p in self.presence.values_mut() {
-            p.online = false;
-        }
-    }
-
     pub fn set_path(&mut self, key: Key, path: Option<PathKind>) {
         match path {
             Some(p) => {

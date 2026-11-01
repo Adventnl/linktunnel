@@ -10,6 +10,8 @@ with live device presence, Wake-on-LAN and a dashboard (desktop app, tray, and t
 > is not started. The Linux stack is built and tested end to end. macOS has native viewer and two-agent verification;
 > Windows now has a native build, real-desktop encrypted capture verification, and an installed boot-time SYSTEM host.
 > **MacBook-to-Windows live input, UAC/login and outside-home access still need a two-device acceptance test.**
+> GNOME Wayland hosts now use native Mutter/PipeWire capture and input with the existing Mac Connect viewer;
+> see [Mac to Ubuntu](docs/USER_GUIDE.md#5-special-machines) for requirements and verified scope.
 > Optional hardware encoders are implemented but Windows vendor GPU operation remains unverified.
 > Read [docs/LIMITATIONS.md](docs/LIMITATIONS.md) before trusting it with anything important.
 

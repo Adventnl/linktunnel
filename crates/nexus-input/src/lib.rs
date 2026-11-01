@@ -24,6 +24,8 @@ pub mod recording;
 pub mod remap;
 mod scroll;
 
+#[cfg(target_os = "linux")]
+pub mod gnome;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 pub mod macos;
@@ -84,6 +86,9 @@ pub trait Injector: Send {
 pub fn default_injector() -> Result<Box<dyn Injector>, InputError> {
     #[cfg(target_os = "linux")]
     {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return Ok(Box::new(gnome::GnomeInjector::connect()?));
+        }
         return Ok(Box::new(x11::X11Injector::connect(None)?));
     }
     #[cfg(windows)]

@@ -68,8 +68,14 @@ has bounded history and no notifications or phone wake relay. See [setup and lim
   around upstream iroh-relay; the real binary passes an encrypted relay-only/admission test. The Compose bundle is authored, unrun.
 * **Mobile apps and a browser controller; session sharing / guest links; multi-user teams.**
 * **Crash reporting, auto-update daemon loop** (the signed-update library and CLI exist; nothing polls and applies by itself).
-* **Wayland headless compositor and KMS capture.** Headless servers use Xvfb (X11). Wayland desktops: capture goes through X11/Xwayland
-  where available; portal/PipeWire capture is not implemented; input uses XTest (not `uinput`), which Wayland compositors may ignore.
+* **Wayland outside GNOME, headless compositors and KMS capture.** Headless servers use Xvfb (X11).
+  GNOME Wayland now uses Mutter/PipeWire capture and Mutter remote input, embedded in the Linux agent.
+  It needs a logged-in GNOME session, Python 3/PyGObject and GStreamer PipeWire/base plugins; it does not
+  control GDM, a logged-out desktop or other Wayland compositors. Physical keyboard, pointer and scroll
+  use the compositor API. Committed Unicode text uses GNOME Unicode entry; applications without that
+  input-method support remain unverified. Touch/pen and native GNOME clipboard synchronisation are not
+  implemented. One physical 1920×1080 monitor has been tested; scaling/hot-plug and multi-monitor runtime
+  still require acceptance. See [Mac to Ubuntu](USER_GUIDE.md#5-special-machines).
 * **Linux audio**: capture uses cpal (ALSA), so loopback needs a PulseAudio/PipeWire *monitor* device (and sometimes `PULSE_SOURCE`).
   Devices that cannot run at 48 kHz f32/i16 are refused: there is no resampler.
 

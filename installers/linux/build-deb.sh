@@ -34,7 +34,7 @@ CTRL
 }
 
 # ---- nexus-remote ---------------------------------------------------------------------------
-D="$(pkg nexus-remote "Secure remote control for your own devices (agent and CLI)" "libc6, libasound2t64 | libasound2" "xvfb, xauth")"
+D="$(pkg nexus-remote "Secure remote control for your own devices (agent and CLI)" "libc6, libasound2t64 | libasound2" "xvfb, xauth, python3, python3-gi, gir1.2-gstreamer-1.0, gstreamer1.0-pipewire, gstreamer1.0-plugins-base")"
 install -Dm755 "$BIN/nexus-agent" "$D/usr/bin/nexus-agent"
 install -Dm755 "$BIN/nexus" "$D/usr/bin/nexus"
 install -Dm644 "$ROOT/apps/nexus-app/src-tauri/icons/128x128@2x.png" "$D/usr/share/icons/hicolor/256x256/apps/linktunnel.png"

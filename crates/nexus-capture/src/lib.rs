@@ -20,6 +20,8 @@ mod error;
 pub mod headless;
 mod types;
 
+#[cfg(target_os = "linux")]
+pub mod gnome;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 pub mod macos;
@@ -42,6 +44,9 @@ pub use types::{
 pub fn default_backend() -> Result<Arc<dyn CaptureBackend>, CaptureError> {
     #[cfg(target_os = "linux")]
     {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return Ok(Arc::new(gnome::GnomeBackend::connect()?));
+        }
         return Ok(Arc::new(x11::X11Backend::connect(None)?));
     }
     #[cfg(target_os = "macos")]

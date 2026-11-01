@@ -17,6 +17,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+serde_json.workspace = true
 rustix = { version = "1", default-features = false, features = ["event", "std"] }
 x11rb = { version = "0.14", features = ["randr", "damage", "xfixes", "shm"] }
 

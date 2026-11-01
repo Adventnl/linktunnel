@@ -72,9 +72,17 @@ async fn start(shared: &Arc<Shared>, code: PairingCode, side: Side) -> Result<u6
     if shared.is_locked_down() {
         return Err(AgentError::Denied("lockdown is on".into()));
     }
-    let signal = shared.signal().ok_or_else(|| {
-        AgentError::Unavailable("pairing needs the signaling server, which is not connected".into())
-    })?;
+    let signals: Vec<_> = shared
+        .signal
+        .lock()
+        .iter()
+        .map(|(url, client)| (url.clone(), client.clone()))
+        .collect();
+    if signals.is_empty() {
+        return Err(AgentError::Unavailable(
+            "pairing needs a connected signaling server".into(),
+        ));
+    }
 
     let id = shared.next_pairing_id.fetch_add(1, Ordering::SeqCst);
     let (confirm_tx, confirm_rx) = mpsc::channel(1);
@@ -123,22 +131,30 @@ async fn start(shared: &Arc<Shared>, code: PairingCode, side: Side) -> Result<u6
         }
     };
 
-    if let Err(e) = signal.rendezvous_join(code.rendezvous_id()).await {
+    let mut joined = std::collections::BTreeMap::new();
+    for (url, signal) in signals {
+        if signal.rendezvous_join(code.rendezvous_id()).await.is_ok() {
+            joined.insert(url, signal);
+        }
+    }
+    if joined.is_empty() {
         shared.pairing.lock().take();
-        return Err(AgentError::from(e));
+        return Err(AgentError::Unavailable(
+            "could not join a pairing server".into(),
+        ));
     }
 
     let shared = Arc::clone(shared);
     tokio::spawn(async move {
         let outcome = tokio::time::timeout(
             PAIRING_TIMEOUT,
-            drive(&shared, id, flow, rdv_rx, confirm_rx, cancel_rx),
+            drive(&shared, id, flow, rdv_rx, confirm_rx, cancel_rx, &joined),
         )
         .await
         .unwrap_or_else(|_| Outcome::failed("the pairing code expired", None));
         // Leave the room and free the slot *before* announcing the result, so a client that
         // reacts to `PairingFinished` by starting another pairing is never told "busy".
-        if let Some(signal) = shared.signal() {
+        for signal in joined.values() {
             let _ = signal.rendezvous_leave().await;
         }
         shared.pairing.lock().take();
@@ -191,18 +207,18 @@ async fn drive(
     mut rendezvous: mpsc::Receiver<RendezvousMsg>,
     mut confirm: mpsc::Receiver<bool>,
     mut cancel: watch::Receiver<bool>,
+    joined: &std::collections::BTreeMap<String, nexus_signal_client::SignalClient>,
 ) -> Outcome {
     // The initiator must not send before the other device is in the room.
-    let mut peer_present = false;
+    let mut selected: Option<String> = None;
     let mut outbox: Vec<Vec<u8>> = Vec::new();
     let mut peer_info: Option<(Vec<u8>, String)> = None;
 
     loop {
         // Flush what the flow produced, once the other side is there.
         outbox.extend(flow.take_outgoing());
-        if peer_present
-            && !outbox.is_empty()
-            && let Some(signal) = shared.signal()
+        if !outbox.is_empty()
+            && let Some(signal) = selected.as_ref().and_then(|url| joined.get(url))
         {
             for msg in outbox.drain(..) {
                 if let Err(e) = signal.rendezvous_send(msg).await {
@@ -251,11 +267,15 @@ async fn drive(
         tokio::select! {
             msg = rendezvous.recv() => match msg {
                 None => return Outcome::failed("the connection to the server ended", peer_info),
-                Some(RendezvousMsg::Peer(true)) => peer_present = true,
-                Some(RendezvousMsg::Peer(false)) => {
+                Some(RendezvousMsg::Peer(source, true)) => {
+                    if selected.is_none() && joined.contains_key(&source) { selected = Some(source); }
+                },
+                Some(RendezvousMsg::Peer(source, false)) => {
+                    if selected.as_ref() != Some(&source) { continue; }
                     return Outcome::failed("the other device left", peer_info);
                 }
-                Some(RendezvousMsg::Data(data)) => {
+                Some(RendezvousMsg::Data(source, data)) => {
+                    if selected.as_ref() != Some(&source) { continue; }
                     if let Err(e) = flow.handle_incoming(&data, Shared::now_ms()) {
                         debug!(error = %e, "pairing flow stopped");
                     }
@@ -307,14 +327,15 @@ async fn store_pairing(
     shared.refresh_allowlist();
     shared.emit_device_changed(&key);
     // Either party can register the (identical) record; the server treats a repeat as a no-op.
-    if let Some(signal) = shared.signal() {
+    let signals = shared.signal.lock().clone();
+    for (source, signal) in signals {
         if let Err(e) = signal.register_pairing(signed.clone()).await
             && e.server_code() != Some(nexus_proto::v1::SignalErrorCode::Conflict)
         {
             warn!(error = %e, "could not register the pairing with the server yet; will retry on reconnect");
         } else if let Ok(snapshot) = signal.subscribe_presence().await {
             for p in snapshot {
-                crate::supervisor::apply_presence_pub(shared, &p);
+                crate::supervisor::apply_presence_pub(shared, &source, &p);
             }
         }
     }

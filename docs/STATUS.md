@@ -3,6 +3,24 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## GNOME Wayland desktop host — 2026-10-31 (Ubuntu 26.04.1)
+
+Added native GNOME host capture through Mutter/PipeWire and native pointer/keyboard input through
+Mutter RemoteDesktop, with embedded local Python/PyGObject bridges. The existing Linktunnel
+controller/viewer protocol is unchanged. Linux package recommendations include the runtime libraries.
+
+Verified on this machine: locked optimized agent/CLI builds, strict capture/input library Clippy,
+and `scripts/test-gnome-wayland.py` against the physical AOC 1920×1080 screen. Two isolated real
+agents paired and passed encrypted screen capture, pointer motion/click, committed Unicode text
+and physical Ctrl+A into a dedicated GTK fixture. The installed user agent reports
+`gnome-pipewire` capture and `gnome-wayland` input, retains its identity, and passes local doctor
+checks. Temporary test peers/processes were stopped; no Mac is paired yet.
+
+Still pending: Tailscale account sign-in and actual Mac Connect/WAN acceptance. The host needs a
+logged-in GNOME session; GDM/pre-login, other Wayland compositors, multi-monitor/scaling/hot-plug,
+native GNOME clipboard, and Unicode compatibility outside the tested GTK input method remain
+unverified or unsupported as described in [limitations](LIMITATIONS.md). [Setup](USER_GUIDE.md#5-special-machines).
+
 ## Desktop-to-Android phone control — 2026-10-27 (Windows development)
 
 Added the desktop **Phone** panel and `nexus-phone` backend for local adb/scrcpy
