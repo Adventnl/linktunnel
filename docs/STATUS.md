@@ -3,6 +3,40 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## Windows controller bundle and Ubuntu Server setup — 2026-11-02
+
+Added a portable Windows controller ZIP (dashboard, native viewer/CLI and agent). Its launcher
+reuses the running SYSTEM host with `--system`, preserving existing pairings, or starts/reuses
+a per-user controller on a new PC. It refuses to replace the identity of a stopped installed
+host. Build with `installers/windows/build-client.ps1`; see [Windows controller](WINDOWS_CLIENT.md).
+
+Added `installers/linux/setup-headless.py`, also included in the Linux agent package. It installs
+Xvfb plus a small Xfce desktop with terminal/file manager/GNOME Web, or configures terminal-only
+mode. A lingering systemd user service boots without a graphical login, using an isolated
+profile under the regular user's home. Privileges are dropped before writing user files;
+reruns retain identity, pairing state and unrelated configuration. Desktop stderr reaches the
+agent's stderr/journal. See [Ubuntu Server setup](UBUNTU_SERVER.md).
+
+The headless setup and Xfce demo default to 1920×1080 at up to 30 fps to support
+Windows/Mac controllers using a monitorless Ubuntu Server. Setup installs the desktop,
+browser and file manager; the agent alone would otherwise offer only a bare framebuffer.
+The server only needs the agent/CLI, without a dashboard or viewer running locally.
+
+Verified on Windows: locked release agent/CLI and native dashboard builds, frontend production
+build; `scripts/test-windows-client.ps1` starts/stops/restarts a real isolated controller agent,
+checks saved settings and mocks dashboard/UAC launch to verify user/system identity selection.
+Five Python installer tests pass (one Unix ownership test is skipped on Windows), including
+the 1080p default and optional smaller desktop configuration; virtual-display
+configuration test and strict crate Clippy pass. Bash/PowerShell syntax and diff whitespace checks
+pass. The changed Rust file passes format checking with newline auto-detection; the workspace
+format check reports pre-existing CRLF checkout mismatches against the Unix newline setting.
+
+Linux CI now exercises the Xfce profile with a real panel plus encrypted capture/terminal/files.
+That new Linux CI path was added but **not executed in this Windows session**. Fresh Ubuntu
+Server package installation, browser launch, reboot without login and Windows/Mac-to-server
+live control still require acceptance on the actual server. The Windows ZIP is unsigned and does
+not bundle WebView2. No existing host binary/service configuration was replaced by this work.
+
 ## GNOME Wayland desktop host — 2026-10-31 (Ubuntu 26.04.1)
 
 Added native GNOME host capture through Mutter/PipeWire and native pointer/keyboard input through

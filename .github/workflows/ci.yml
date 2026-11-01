@@ -124,8 +124,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
-      - run: sudo apt-get update && sudo apt-get install -y xvfb python3
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb python3 python3-tomlkit dbus-x11 x11-utils xfce4-session xfwm4 xfce4-panel xfce4-settings xfdesktop4 thunar xfce4-terminal
+      - run: python3 scripts/test-headless-setup.py
       - run: ./scripts/demo-server.sh
+      - run: SERVER_DEMO_DESKTOP=xfce ./scripts/demo-server.sh
       - run: ./scripts/demo-resume.sh
 
   app:

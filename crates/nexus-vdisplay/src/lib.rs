@@ -313,7 +313,10 @@ fn supervise(
             .env_remove("WAYLAND_DISPLAY")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            // A desktop can fail after spawn succeeds (missing D-Bus, bad session
+            // settings, browser sandbox). Keep its diagnostics in the agent's
+            // stderr / systemd journal instead of silently showing a blank screen.
+            .stderr(Stdio::inherit())
             .spawn();
         match spawned {
             Ok(child) => {

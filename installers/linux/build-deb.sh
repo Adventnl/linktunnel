@@ -48,7 +48,8 @@ install -Dm644 "$ROOT/installers/linux/systemd/nexus-agent.service.d/admin-termi
   "$D/usr/share/doc/nexus-remote/admin-terminal.conf.example"
 install -Dm644 "$ROOT/installers/linux/sysusers.conf" "$D/usr/lib/sysusers.d/nexus.conf"
 install -Dm644 "$ROOT/README.md" "$D/usr/share/doc/nexus-remote/README.md"
-for f in USER_GUIDE SELF_HOSTING THREAT_MODEL LIMITATIONS; do
+install -Dm755 "$ROOT/installers/linux/setup-headless.py" "$D/usr/share/nexus-remote/setup-headless.py"
+for f in USER_GUIDE UBUNTU_SERVER SELF_HOSTING THREAT_MODEL LIMITATIONS; do
   [ -f "$ROOT/docs/$f.md" ] && install -Dm644 "$ROOT/docs/$f.md" "$D/usr/share/doc/nexus-remote/$f.md"
 done
 cat > "$D/DEBIAN/postinst" <<'SH'

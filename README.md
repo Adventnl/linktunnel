@@ -30,6 +30,8 @@ Choose a PC repository and send Codex prompts from a native phone interface; no 
 | [Architecture](docs/ARCHITECTURE.md) · [Protocol](docs/PROTOCOL.md) · [ADRs](docs/adr/README.md) | how it is built and why |
 | [Threat model](docs/THREAT_MODEL.md) | STRIDE analysis; every mitigation cites its test |
 | [Windows](docs/WINDOWS.md) | service, UAC / lock-screen approach, privileges, first-run checklist |
+| [Windows controller](docs/WINDOWS_CLIENT.md) | portable desktop app for connecting from a PC to Mac/Linux |
+| [Ubuntu Server](docs/UBUNTU_SERVER.md) | monitorless Xfce desktop with browser/files, or terminal only; starts at boot |
 | [Self-hosting](docs/SELF_HOSTING.md) | signaling server: Compose, Helm, systemd |
 | [Conventions](docs/CONVENTIONS.md) | lint policy, error handling, unsafe, logging, i18n |
 

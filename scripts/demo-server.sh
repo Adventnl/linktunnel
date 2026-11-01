@@ -55,10 +55,23 @@ cat >"$SRV/config/config.toml" <<'DEMO_CONFIG'
 unattended_requires_stepup = false
 DEMO_CONFIG
 
+# Exercise the actual lightweight desktop profile as well as the bare framebuffer.
+# Isolate desktop settings from the developer/CI login and wait for real GUI windows.
+if [ "${SERVER_DEMO_DESKTOP:-}" = xfce ]; then
+  cat >>"$SRV/config/config.toml" <<'DESKTOP_CONFIG'
+[display]
+virtual = "always"
+size = "1920x1080"
+session = ["dbus-run-session", "--", "startxfce4"]
+DESKTOP_CONFIG
+fi
+
 # The server: no DISPLAY at all, so the agent must create its own screen.
-env -u DISPLAY -u WAYLAND_DISPLAY "$BIN/nexus-agent" --home "$SRV" --name "Server" --file-store \
+env -u DISPLAY -u WAYLAND_DISPLAY -u SESSION_MANAGER -u DBUS_SESSION_BUS_ADDRESS \
+  XDG_CONFIG_HOME="$SRV/desktop-config" XDG_CACHE_HOME="$SRV/desktop-cache" \
+  "$BIN/nexus-agent" --home "$SRV" --name "Server" --file-store \
   --signal-url "$SIGNAL_URL" --share-rw "$SHARE" >"$WORK/server.log" 2>&1 &
-PIDS+=($!)
+SERVER_PID=$!; PIDS+=("$SERVER_PID")
 env -u DISPLAY "$BIN/nexus-agent" --home "$CTL" --name "MacBook" --file-store \
   --signal-url "$SIGNAL_URL" --no-screen >"$WORK/controller.log" 2>&1 &
 PIDS+=($!)
@@ -67,6 +80,16 @@ for home in "$SRV" "$CTL"; do
   for _ in $(seq 1 100); do cli "$home" status 2>/dev/null | grep -q "Signaling .*connected (" && break; sleep 0.2; done
 done
 grep -q "serving a virtual screen" "$WORK/server.log" || fail "the server did not create a virtual screen (see $WORK/server.log)"
+if [ "${SERVER_DEMO_DESKTOP:-}" = xfce ]; then
+  XVFB_PID="$(pgrep -P "$SERVER_PID" -x Xvfb | head -n1)" || fail "server has no Xvfb child"
+  DISPLAY_NAME="$(tr '\0' '\n' <"/proc/$XVFB_PID/cmdline" | sed -n '2p')"
+  for _ in $(seq 1 100); do
+    xwininfo -display "$DISPLAY_NAME" -root -tree >"$WORK/desktop-windows.txt" 2>/dev/null || true
+    grep -q 'xfce4-panel' "$WORK/desktop-windows.txt" && break
+    sleep 0.2
+  done
+  grep -q 'xfce4-panel' "$WORK/desktop-windows.txt" || fail "Xfce did not create its panel"
+fi
 
 say "Pairing the controller with the server"
 cli "$SRV" pair offer --assume-words-match >"$WORK/offer.out" 2>&1 &
