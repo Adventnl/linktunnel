@@ -1,10 +1,11 @@
 # Ubuntu Server without a monitor
 
-Link Tunnel supports two modes on Ubuntu Server:
+Link Tunnel supports three modes on Ubuntu Server:
 
 | Mode | What you get |
 | --- | --- |
-| `xfce` (default) | A private 1920×1080 Xvfb virtual monitor with an Xfce desktop, terminal, Thunar file manager and GNOME Web browser. Choose **Connect** from Windows, Mac or Linux. |
+| `gnome` (default) | Modern GNOME Shell on a private 1920×1080 Wayland virtual monitor, a bottom dock, Files, Console, Firefox and Chromium. Choose **Connect** from Windows, Mac or Linux. |
+| `xfce` | A lighter Xvfb/Xfce desktop with Thunar, terminal and GNOME Web. |
 | `terminal` | A remote shell through **Terminal** or `nexus shell`; no X server or desktop is started. |
 
 The desktop runs as your normal Ubuntu account. It starts at boot without a monitor,
@@ -16,12 +17,14 @@ setup if a modest server needs a smaller desktop.
 Windows and Mac can both control this server. The server does not need the dashboard
 or viewer installed or running; its agent receives the connections. The setup adds
 the desktop and applications to Ubuntu Server, so installing the agent alone is not
-enough to get a full desktop. This is an Xfce desktop running on Ubuntu, with its own
-panel and file manager, rather than Ubuntu Desktop's GNOME interface.
+enough to get a full desktop. The default uses real GNOME Shell with simple native Adwaita
+appearance and a dock containing both browsers, Files and Console. Settings live in a private
+`linktunnel` dconf database so they do not change another desktop session for the same account.
+The private headless session stays awake; screen locking is not provided without GDM.
 
-This uses Ubuntu's [Xvfb package](https://packages.ubuntu.com/noble/xvfb), the
-[Xfce session](https://docs.xfce.org/xfce/xfce4-session/start), a private
-[D-Bus session](https://dbus.freedesktop.org/doc/dbus-run-session.1.html), and systemd
+GNOME runs with its headless virtual-monitor mode, captured through Mutter and PipeWire.
+It is supervised together with the agent inside a private
+[D-Bus session](https://dbus.freedesktop.org/doc/dbus-run-session.1.html), with systemd
 [user lingering](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html)
 for boot-time startup. No VNC or RDP service is required.
 
@@ -74,13 +77,15 @@ sudo python3 /usr/share/nexus-remote/setup-headless.py \
 From the source checkout, use `installers/linux/setup-headless.py` instead. Pass
 `--user yourlogin` if sudo does not identify your normal login. The script installs the
 desktop packages, enables user lingering, and starts `linktunnel-server.service`.
-Some packages need Ubuntu's `universe` repository enabled. The browser is Ubuntu's
-[epiphany-browser package (GNOME Web)](https://packages.ubuntu.com/noble/epiphany-browser).
-The setup installs Mesa's software renderer for machines with no GPU; it keeps the browser's
-normal sandbox. Package installation may take several minutes.
+Some packages need Ubuntu's `universe` repository enabled. Firefox (`org.mozilla.firefox`)
+and Chromium (`org.chromium.Chromium`) install per-user from Flathub with their normal
+sandboxes. Both appear in the dock and app grid; `~/.local/bin/firefox` and
+`~/.local/bin/chromium` launch them from a terminal. Run `flatpak update --user` for updates.
+The setup installs Mesa's software renderer for machines with no GPU. Package and browser
+installation may take several minutes.
 
 For **terminal only**, add `--desktop terminal` to the same command. You can rerun with
-`--desktop xfce` later. A rerun keeps identity, pairings and unrelated configuration,
+`--desktop gnome` later; use `--desktop xfce` for the lighter alternative. A rerun keeps identity, pairings and unrelated configuration,
 backs up a changed config, and restarts the agent (ending current sessions).
 
 ## Pair and connect
@@ -97,7 +102,7 @@ devices and confirm both. Repeat for each controller. New profiles allow future 
 to paired devices without a local approval dialog. Existing explicit access policy is
 preserved; if needed, use `~/.local/bin/linktunnel-server trust unattended CONTROLLER`.
 
-In the controller, click **Connect** for Xfce or **Terminal** for a shell. Terminal runs
+In the controller, click **Connect** for the desktop or **Terminal** for a shell. Terminal runs
 as your Ubuntu user; use normal `sudo` authentication for administration. The file manager
 can browse that user's files; Link Tunnel's separate file-transfer feature requires shared
 folders configured in `[files]`.
@@ -109,7 +114,7 @@ On the existing Windows SYSTEM host, CLI equivalents run in Administrator PowerS
 .\nexus.exe --system shell YOUR-SERVER
 ```
 
-Test keyboard/mouse, open Thunar and Web, disconnect/reconnect, then reboot the server
+Test keyboard/mouse, open Files, Firefox and Chromium, disconnect/reconnect, then reboot the server
 over SSH. Confirm it becomes reachable without any local login.
 
 ## Configuration and recovery
@@ -128,12 +133,13 @@ journalctl --user -u linktunnel-server -n 100 --no-pager
 systemctl --user disable --now linktunnel-server
 ```
 
-If Connect shows a blank framebuffer, check the journal for Xvfb/session startup and verify
-`Xvfb`, `dbus-run-session` and `startxfce4` are installed. Terminal remains available if GUI
+If Connect shows no desktop, check the journal for compositor/session startup and verify
+`gnome-shell`, `dbus-run-session`, the Python GI/GStreamer packages and PipeWire are installed.
+For the Xfce alternative, check `Xvfb` and `startxfce4`. Terminal remains available if capture
 startup fails. A server with an explicit attended or step-up policy still needs its existing
 approval/authentication workflow. A user service is used instead of the hardened `nexus`
 system-account unit so the desktop has the user's home and the browser can run its sandbox.
 
-The underlying Xvfb capture/input path already has Linux end-to-end coverage. The new
-installer and Xfce boot/browser behavior need acceptance on your fresh Ubuntu Server;
-Windows-side checks cannot establish that a monitorless server reboot works.
+The GNOME virtual monitor, PipeWire frames and Mutter input were exercised on Ubuntu 26.04
+without a monitor. A service restart can be checked without rebooting; a real boot acceptance
+check still needs a server reboot.

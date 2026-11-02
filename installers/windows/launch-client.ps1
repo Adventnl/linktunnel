@@ -23,7 +23,8 @@ if ($service -and $service.Status -eq 'Running') {
     # The service state is restricted to Administrators. Use its identity and pairings,
     # not an empty per-user dashboard which would make existing peers disappear.
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $enrolled = Test-Path -LiteralPath (Join-Path $env:ProgramData 'Nexus\run\desktop-user.sid')
+    if ($enrolled -or $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Start-Process -FilePath $app -ArgumentList '--system'
     } else {
         Start-Process -FilePath $app -ArgumentList '--system' -Verb RunAs

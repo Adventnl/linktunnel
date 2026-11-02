@@ -18,6 +18,7 @@ enum Listener {
     #[cfg(windows)]
     Pipe {
         name: String,
+        desktop_user: Option<String>,
         next: tokio::net::windows::named_pipe::NamedPipeServer,
     },
 }
@@ -106,19 +107,22 @@ impl IpcServer {
         };
         #[cfg(windows)]
         let listener = {
-            use tokio::net::windows::named_pipe::ServerOptions;
             let IpcEndpoint::Pipe(name) = &paths.endpoint else {
                 return Err(IpcError::Protocol(
                     "pipe endpoint required on this platform",
                 ));
             };
-            let first = ServerOptions::new()
-                .first_pipe_instance(true)
-                .reject_remote_clients(true)
-                .create(name)
+            let desktop_user = crate::windows_pipe::desktop_user(
+                paths
+                    .token_file
+                    .parent()
+                    .ok_or(IpcError::Protocol("missing runtime directory"))?,
+            )?;
+            let first = crate::windows_pipe::create(name, true, desktop_user.as_deref())
                 .map_err(|_| IpcError::AlreadyRunning(name.clone()))?;
             Listener::Pipe {
                 name: name.clone(),
+                desktop_user,
                 next: first,
             }
         };
@@ -159,11 +163,13 @@ impl IpcServer {
                 });
             },
             #[cfg(windows)]
-            Listener::Pipe { name, next } => {
-                use tokio::net::windows::named_pipe::ServerOptions;
-                let replacement = ServerOptions::new()
-                    .reject_remote_clients(true)
-                    .create(name.as_str())?;
+            Listener::Pipe {
+                name,
+                desktop_user,
+                next,
+            } => {
+                let replacement =
+                    crate::windows_pipe::create(name, false, desktop_user.as_deref())?;
                 let connected = std::mem::replace(next, replacement);
                 connected.connect().await?;
                 Ok(PendingConnection {

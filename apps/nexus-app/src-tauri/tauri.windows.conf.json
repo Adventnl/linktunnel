@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/nexus", "binaries/nexus-agent"],
+    "resources": {
+      "../../../installers/windows/install-desktop.ps1": "install-desktop.ps1",
+      "../../../installers/windows/uninstall-desktop.ps1": "uninstall-desktop.ps1"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "../../../installers/windows/desktop-hooks.nsh",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

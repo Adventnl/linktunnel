@@ -16,7 +16,11 @@ async fn launch_with_timeout(
     args: Vec<String>,
     timeout: Duration,
 ) -> Result<(), String> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    // The CLI hosts the native viewer, but its console must not appear beside the GUI.
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let mut child = command
         .args(args)
         .env("NEXUS_VIEWER_STATUS", "1")
         .stdin(Stdio::null())
@@ -87,6 +91,25 @@ async fn launch_with_timeout(
                 Err(format!("{reason}: {detail}"))
             }
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn gui_viewer_child_has_no_console_window() {
+        let script = r#"
+Add-Type 'using System; using System.Runtime.InteropServices; public static class NativeConsole { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
+if ([NativeConsole]::GetConsoleWindow() -ne [IntPtr]::Zero) { Write-Error 'Unexpected console'; exit 1 }
+Write-Output '{"nexusViewer":"ready"}'
+"#;
+        launch_with_timeout(
+            "powershell.exe".into(),
+            vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), script.into()],
+            Duration::from_secs(20),
+        ).await.unwrap();
     }
 }
 

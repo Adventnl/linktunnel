@@ -1,5 +1,5 @@
 //! Replaces the state tree's DACL, including explicit inherited grants left by earlier installs.
-//! Identity keys, trust and IPC tokens must be readable only by SYSTEM and Administrators.
+//! Device keys stay admin-only; an explicitly enrolled desktop owner may read runtime IPC.
 #![allow(unsafe_code)]
 use crate::ServiceError;
 use std::os::windows::ffi::OsStrExt;
@@ -31,16 +31,77 @@ pub fn restrict_to_system_and_admins(dir: &Path) -> Result<(), ServiceError> {
     let result = apply(dir, descriptor);
     // SAFETY: conversion allocated this descriptor with LocalAlloc, now no longer borrowed.
     let _ = unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
-    result
+    result?;
+    grant_desktop_runtime(dir)
+}
+
+fn grant_desktop_runtime(dir: &Path) -> Result<(), ServiceError> {
+    let runtime = dir.join("run");
+    let sid = match std::fs::read_to_string(runtime.join("desktop-user.sid")) {
+        Ok(sid) => sid,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(os("read desktop owner", e)),
+    };
+    let sid = sid.trim();
+    if sid.len() > 184
+        || !sid.starts_with("S-1-")
+        || !sid[2..].bytes().all(|c| c.is_ascii_digit() || c == b'-')
+    {
+        return Err(os("desktop owner", "invalid SID"));
+    }
+    // Only this directory gets traversal. No owner ACE is inherited by config/data/keys.
+    for (path, grants, recursive) in [
+        (dir, format!("(A;;GRGX;;;{sid})"), false),
+        (runtime.as_path(), format!("(A;OICI;GRGX;;;{sid})"), true),
+    ] {
+        let sddl: Vec<u16> = format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA){grants}")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: numeric SID, terminated SDDL and valid output pointer.
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                PCWSTR(sddl.as_ptr()),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                None,
+            )
+        }
+        .map_err(|e| os("desktop runtime ACL", e))?;
+        let result = if recursive {
+            apply(path, descriptor)
+        } else {
+            set_acl(path, descriptor)
+        };
+        // SAFETY: conversion owns this allocation, which is no longer borrowed.
+        let _ = unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+        result?;
+    }
+    Ok(())
 }
 fn apply(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> Result<(), ServiceError> {
+    use std::os::windows::fs::MetadataExt;
     let metadata = std::fs::symlink_metadata(path).map_err(|e| os("inspect state path", e))?;
-    if metadata.file_type().is_symlink() {
+    if metadata.file_attributes() & 0x400 != 0 {
+        // FILE_ATTRIBUTE_REPARSE_POINT, including junctions.
         return Err(os(
             "restrict state ACL",
             "state tree contains a reparse point",
         ));
     }
+    set_acl(path, descriptor)?;
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(path).map_err(|e| os("enumerate state files", e))? {
+            apply(
+                &entry.map_err(|e| os("inspect state entry", e))?.path(),
+                descriptor,
+            )?;
+        }
+    }
+    Ok(())
+}
+fn set_acl(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> Result<(), ServiceError> {
     let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     // SAFETY: path is terminated and descriptor remains valid throughout this traversal.
     if !unsafe {
@@ -58,14 +119,6 @@ fn apply(path: &Path, descriptor: PSECURITY_DESCRIPTOR) -> Result<(), ServiceErr
             "restrict state ACL",
             format!("{}: Win32 error {error}", path.display()),
         ));
-    }
-    if metadata.is_dir() {
-        for entry in std::fs::read_dir(path).map_err(|e| os("enumerate state files", e))? {
-            apply(
-                &entry.map_err(|e| os("inspect state entry", e))?.path(),
-                descriptor,
-            )?;
-        }
     }
     Ok(())
 }

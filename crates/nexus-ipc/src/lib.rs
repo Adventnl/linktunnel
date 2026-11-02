@@ -12,8 +12,10 @@
 //! 2. *Possession of the token.* The client sends the random token (read from that private file)
 //!    as its first frame; on Unix the server also verifies the peer's UID.
 //!
-//! On Windows the named pipe has the default ACL, so the token check is what keeps other local
-//! users out (the token file sits in the user's profile, which is ACL-protected).
+//! On Windows an installed host can enroll one desktop owner's SID. The pipe grants that SID,
+//! SYSTEM and Administrators access, rejects network clients, and still requires the token.
+//! Only runtime IPC files are shared with that owner; the machine's device keys stay admin-only.
+//! Without enrollment, the per-user pipe retains its default ACL and private token.
 
 #![deny(unsafe_code)]
 
@@ -21,6 +23,9 @@ mod client;
 mod conn;
 mod paths;
 mod server;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_pipe;
 
 pub use client::{EventReceiver, IpcClient};
 pub use conn::{IpcConnection, MAX_IPC_FRAME};

@@ -2,12 +2,16 @@
 """Installer regressions, without installing packages or touching system services."""
 import argparse
 import importlib.util
+import os
 from pathlib import Path
 import sys
+import shutil
+import subprocess
 import tempfile
 import tomllib
 import types
 import unittest
+from unittest.mock import patch
 
 # pwd is Unix-only; pure rendering/configuration checks also run on Windows.
 if sys.platform == "win32":
@@ -47,7 +51,8 @@ signal_urls = ["wss://backup.example/v1/ws"]
         self.assertEqual(parsed["security"], tomllib.loads(existing)["security"])
         self.assertEqual(parsed["files"], tomllib.loads(existing)["files"])
         self.assertEqual(parsed["net"]["signal_urls"], ["wss://backup.example/v1/ws"])
-        self.assertEqual(parsed["display"]["session"], ["dbus-run-session", "--", "startxfce4"])
+        self.assertEqual(parsed["display"]["session"], [])
+        self.assertEqual(parsed["display"]["virtual"], "never")
         self.assertEqual(desktop, setup.update_config(desktop, self.options()))
         terminal = tomllib.loads(setup.update_config(desktop, self.options(desktop="terminal")))
         self.assertEqual(terminal["display"]["virtual"], "never")
@@ -60,7 +65,33 @@ signal_urls = ["wss://backup.example/v1/ws"]
         self.assertFalse(config["audio"]["enabled"])
         self.assertEqual(config["security"]["consent"], "unattended")
         self.assertFalse(config["security"]["unattended_requires_stepup"])
-        self.assertEqual(config["display"]["virtual"], "always")
+        self.assertEqual(config["display"]["virtual"], "never")
+
+    def test_gnome_uses_a_private_compositor_and_keeps_browsers_sandboxed(self):
+        unit = setup.render_unit('/usr/bin/nexus-agent', '/home/user/server', 'gnome')
+        self.assertIn('/usr/bin/dbus-run-session -- /usr/bin/python3', unit)
+        self.assertIn('desktop/gnome-session.py', unit)
+        self.assertIn('Wants=pipewire.socket wireplumber.service', unit)
+        self.assertNotIn('NoNewPrivileges=', unit)
+        self.assertNotIn('--no-sandbox', Path(setup.__file__).read_text())
+        xfce = tomllib.loads(setup.update_config('', self.options(desktop='xfce')))
+        self.assertEqual(xfce['display']['virtual'], 'always')
+        self.assertEqual(xfce['display']['session'], setup.SESSION)
+
+    @unittest.skipUnless(sys.platform == 'linux' and shutil.which('dconf'), 'Linux dconf CLI')
+    def test_gnome_preferences_roundtrip_through_a_private_dconf_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            (profile / 'desktop').mkdir()
+            (profile / 'desktop/dconf-profile').write_text('user-db:linktunnel\n')
+            environment = {'HOME': directory, 'XDG_CONFIG_HOME': str(profile / '.config')}
+            with patch.dict(os.environ, environment):
+                setup.configure_gnome(profile)
+                result = subprocess.run(['dconf', 'read', '/org/gnome/desktop/interface/icon-theme'],
+                    env=os.environ | {'DCONF_PROFILE': str(profile / 'desktop/dconf-profile')},
+                    text=True, capture_output=True, check=True)
+                self.assertEqual(result.stdout.strip(), "'Adwaita'")
+            self.assertTrue((profile / '.config/dconf/linktunnel').is_file())
 
     def test_invalid_urls_and_sizes_fail_before_setup(self):
         for value in ("https://host/v1/ws", "ws://host/", "ws://host:0/v1/ws",

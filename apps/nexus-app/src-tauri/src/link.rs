@@ -44,8 +44,15 @@ pub fn agent_paths() -> IpcPaths {
     IpcPaths::in_dir(&paths.runtime_dir)
 }
 
-/// An elevated Windows dashboard can manage the machine-wide host with `--system`.
+/// Use the installed host when this account has been enrolled by the installer.
 pub fn agent_scope() -> Scope {
+    #[cfg(windows)]
+    if std::env::var_os("NEXUS_HOME").is_none()
+        && Paths::resolve(Scope::System)
+            .is_ok_and(|paths| paths.runtime_dir.join("desktop-user.sid").is_file())
+    {
+        return Scope::System;
+    }
     scope_for_args(std::env::args().skip(1))
 }
 
