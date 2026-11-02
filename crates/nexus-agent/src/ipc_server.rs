@@ -314,14 +314,18 @@ async fn unpair(shared: &Arc<Shared>, device_id: &[u8]) -> Result<(), AgentError
     shared.emit(Ev::DeviceRemoved(nexus_proto::v1::DeviceRemoved {
         device_id: device_id.to_vec().into(),
     }));
-    // Then tell the server so the other device learns of it (re-sent on reconnect if this fails).
+    // Notify independently so an unresponsive server cannot delay the local acknowledgement.
+    // The persisted revocation is re-sent on reconnect if delivery fails or we stop first.
+    let signed = revocation::revoke_key(&shared.identity, &key, now);
     for signal in shared.signals() {
-        let signed = revocation::revoke_key(&shared.identity, &key, now);
-        if let Err(e) = signal.revoke_pairing(signed).await
-            && e.server_code() != Some(nexus_proto::v1::SignalErrorCode::NotFound)
-        {
-            warn!(error = %e, "could not notify the server of the revocation yet; will retry on reconnect");
-        }
+        let signed = signed.clone();
+        tokio::spawn(async move {
+            if let Err(e) = signal.revoke_pairing(signed).await
+                && e.server_code() != Some(nexus_proto::v1::SignalErrorCode::NotFound)
+            {
+                warn!(error = %e, "could not notify the server of the revocation yet; will retry on reconnect");
+            }
+        });
     }
     shared.audit.record(
         "pairing.revoked",

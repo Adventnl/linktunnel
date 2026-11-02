@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { Key, Locale } from "../lib/i18n";
 import type { AgentStatus, Bridge, Device } from "../lib/types";
 import { Button, Modal } from "./Modal";
@@ -17,6 +16,7 @@ export function SettingsDialog({
   onLocale,
   onClose,
   onError,
+  onUnpair,
 }: {
   bridge: Bridge;
   t: T;
@@ -28,8 +28,8 @@ export function SettingsDialog({
   onLocale: (l: Locale) => void;
   onClose: () => void;
   onError: (text: string) => void;
+  onUnpair: (device: Device) => void;
 }) {
-  const [confirming, setConfirming] = useState<Device | null>(null);
   const fail = (e: unknown) => onError(e instanceof Error ? e.message : String(e));
   return (
     <Modal title={t("settings.title")} onClose={onClose} closeLabel={t("common.close")} wide>
@@ -74,7 +74,7 @@ export function SettingsDialog({
               <li key={d.id} className="rounded-lg border border-line p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="truncate font-medium">{d.name}</span>
-                  <Button kind="ghost" onClick={() => setConfirming(d)}>
+                  <Button kind="ghost" onClick={() => onUnpair(d)}>
                     {t("settings.unpair")}
                   </Button>
                 </div>
@@ -87,26 +87,6 @@ export function SettingsDialog({
           </ul>
         </section>
       </div>
-      {confirming && (
-        <div role="alertdialog" aria-label={t("settings.unpair")} className="mt-4 rounded-lg border border-danger p-3">
-          <p className="mb-3 text-sm">{t("settings.unpair.confirm", { name: confirming.name })}</p>
-          <div className="flex justify-end gap-2">
-            <Button autoFocus onClick={() => setConfirming(null)}>
-              {t("confirm.cancel")}
-            </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                const id = confirming.id;
-                setConfirming(null);
-                void bridge.unpair(id).catch(fail);
-              }}
-            >
-              {t("settings.unpair")}
-            </Button>
-          </div>
-        </div>
-      )}
     </Modal>
   );
 }

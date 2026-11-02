@@ -48,6 +48,7 @@ export const MOCK_SNAPSHOT: Snapshot = {
 };
 
 export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
+  snapshot = structuredClone(snapshot);
   const listeners = new Set<(e: AppEvent) => void>();
   const emit = (e: AppEvent) => listeners.forEach((l) => l(e));
   let lockdown = snapshot.status?.lockdown ?? false;
@@ -91,7 +92,12 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
       lockdown = on;
       if (snapshot.status) emit({ kind: "snapshot", snapshot: { ...snapshot, status: { ...snapshot.status, lockdown } } });
     },
-    unpair: async (id) => emit({ kind: "device_removed", id }),
+    unpair: async (id) => {
+      snapshot.devices = snapshot.devices.filter((device) => device.id !== id);
+      snapshot.sessions = snapshot.sessions.filter((session) => session.deviceId !== id);
+      emit({ kind: "device_removed", id });
+      emit({ kind: "sessions_changed", sessions: snapshot.sessions });
+    },
     pairOffer: async () => {
       const pairingId = nextId++;
       void sleep(1200).then(() =>

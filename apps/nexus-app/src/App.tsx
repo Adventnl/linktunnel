@@ -6,6 +6,7 @@ import { DeviceCard } from "./components/DeviceCard";
 import { Button } from "./components/Modal";
 import { PairingDialog } from "./components/PairingDialog";
 import { PhonePanel } from "./components/PhonePanel";
+import { UnpairDialog } from "./components/UnpairDialog";
 import { SettingsDialog, type Theme } from "./components/SettingsDialog";
 import { DESTRUCTIVE, type PaletteEntry, type Verb } from "./lib/palette";
 import { parseLocale, translate, type Key, type Locale } from "./lib/i18n";
@@ -47,6 +48,7 @@ export function App({ bridge }: { bridge: Bridge }) {
   const [palette, setPalette] = useState(false);
   const [settings, setSettings] = useState(false);
   const [pairing, setPairing] = useState(false);
+  const [unpairing, setUnpairing] = useState<Device | null>(null);
   const [phone, setPhone] = useState(false);
   const [confirm, setConfirm] = useState<{ device: Device; action: PowerAction } | null>(null);
   const [terminal, setTerminal] = useState<Device | null>(null);
@@ -195,7 +197,7 @@ export function App({ bridge }: { bridge: Bridge }) {
         {status && (
           <span className="flex items-center gap-1.5 rounded-full bg-panel px-3 py-1 text-xs text-muted" title={status.signalUrl}>
             <span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ background: status.signalConnected ? "var(--dot-green)" : "var(--dot-yellow)" }} />
-            {status.signalConnected ? t("signal.on") : t("signal.off")}
+            {status.signalConnected ? t("signal.on") : status.signalUrl ? t("signal.disconnected") : t("signal.off")}
           </span>
         )}
         <Button onClick={() => setPalette(true)} title={t("palette.hint")}>
@@ -218,6 +220,12 @@ export function App({ bridge }: { bridge: Bridge }) {
       </header>
 
       {bridge.mock && <p role="status" className="rounded-lg border border-line bg-panel px-4 py-2 text-sm text-muted">{t("demo.notice")}</p>}
+      {status && !status.signalConnected && (
+        <div role="status" className="rounded-lg border border-line bg-panel px-4 py-3 text-sm">
+          <p>{t(status.signalUrl ? "pair.offline" : "pair.unconfigured")}</p>
+          {status.signalUrl && <p className="mt-2 break-words text-xs text-muted">{status.signalUrl}</p>}
+        </div>
+      )}
 
       {state.snapshot.sessions.length > 0 && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-danger bg-panel px-4 py-2 text-sm">
@@ -252,7 +260,7 @@ export function App({ bridge }: { bridge: Bridge }) {
             <ul className={`grid content-start gap-4 ${terminal ? "sm:grid-cols-1" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
               {devices.map((d) => (
                 <li key={d.id}>
-                  <DeviceCard device={d} now={now} wakingSince={waking[d.id] ?? null} connecting={connecting[d.id] ?? false} connectionError={connectionErrors[d.id]} t={t} onAction={run} />
+                  <DeviceCard device={d} now={now} wakingSince={waking[d.id] ?? null} connecting={connecting[d.id] ?? false} connectionError={connectionErrors[d.id]} t={t} onAction={run} onUnpair={setUnpairing} />
                 </li>
               ))}
             </ul>
@@ -296,9 +304,18 @@ export function App({ bridge }: { bridge: Bridge }) {
           }}
           onClose={() => setSettings(false)}
           onError={(text) => toast("error", text)}
+          onUnpair={(device) => {
+            setSettings(false);
+            setUnpairing(device);
+          }}
         />
       )}
-      {pairing && <PairingDialog bridge={bridge} t={t} sas={state.pairingSas} result={state.pairingResult} onClose={() => setPairing(false)} />}
+      {pairing && <PairingDialog bridge={bridge} t={t} status={status} sas={state.pairingSas} result={state.pairingResult} onClose={() => setPairing(false)} />}
+      {unpairing && <UnpairDialog bridge={bridge} device={unpairing} t={t} onClose={() => setUnpairing(null)} onRemoved={(id) => {
+        dispatch({ kind: "device_removed", id });
+        if (terminal?.id === id) setTerminal(null);
+        setWaking(({ [id]: _drop, ...rest }) => rest);
+      }} />}
       {phone && <PhonePanel bridge={bridge} t={t} onClose={() => setPhone(false)} />}
       {confirm && (
         <ConfirmDialog

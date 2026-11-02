@@ -18,6 +18,7 @@ export function DeviceCard({
   connectionError,
   t,
   onAction,
+  onUnpair,
 }: {
   device: Device;
   now: number;
@@ -27,6 +28,7 @@ export function DeviceCard({
   connectionError?: string;
   t: T;
   onAction: (device: Device, verb: Verb | "files" | "settings") => void;
+  onUnpair: (device: Device) => void;
 }) {
   const [more, setMore] = useState(false);
   const up = canConnect(device);
@@ -131,6 +133,9 @@ export function DeviceCard({
             )}
           </div>
         )}
+        <Button kind="ghost" onClick={() => onUnpair(device)}>
+          {t("settings.unpair")}
+        </Button>
       </div>
     </article>
   );

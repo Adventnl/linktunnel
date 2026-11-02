@@ -22,7 +22,7 @@ for tool in Xvfb xdotool import; do command -v "$tool" >/dev/null || { echo "$to
 
 say "Building (agent, CLI, signaling server, frontend, app)"
 (cd "$ROOT" && cargo build -q -p nexus-signal -p nexus-agent -p nexus-cli)
-(cd "$ROOT/apps/nexus-app" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npx vite build >/dev/null)
+(cd "$ROOT/apps/nexus-app" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run prepare:viewer && npx vite build >/dev/null)
 cargo build -q --manifest-path "$ROOT/apps/nexus-app/src-tauri/Cargo.toml"
 
 "$BIN/nexus-signal" --listen "127.0.0.1:$PORT" --audience "127.0.0.1:$PORT" >"$WORK/signal.log" 2>&1 &

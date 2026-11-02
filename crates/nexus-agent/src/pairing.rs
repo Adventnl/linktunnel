@@ -79,9 +79,12 @@ async fn start(shared: &Arc<Shared>, code: PairingCode, side: Side) -> Result<u6
         .map(|(url, client)| (url.clone(), client.clone()))
         .collect();
     if signals.is_empty() {
-        return Err(AgentError::Unavailable(
-            "pairing needs a connected signaling server".into(),
-        ));
+        let reason = if shared.cfg.signal_url.is_none() && shared.cfg.signal_urls.is_empty() {
+            "No pairing server is configured. Set net.signal_url in config.toml (or start nexus-agent with --signal-url), using the same server on both devices."
+        } else {
+            "The pairing servers are unreachable. Make sure a configured server is running and your network or VPN is connected. The agent reconnects automatically; try again when it is online."
+        };
+        return Err(AgentError::Unavailable(reason.into()));
     }
 
     let id = shared.next_pairing_id.fetch_add(1, Ordering::SeqCst);

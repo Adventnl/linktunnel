@@ -10,7 +10,7 @@ export interface AppState {
   snapshot: Snapshot;
   consents: ConsentRequest[];
   pairingSas: PairingSas | null;
-  pairingResult: { success: boolean; reason: string; peerName: string } | null;
+  pairingResult: { pairingId: number; success: boolean; reason: string; peerName: string } | null;
   toasts: Toast[];
   nextToast: number;
 }
@@ -69,7 +69,7 @@ export function reduce(state: AppState, e: AppEvent): AppState {
     case "pairing_sas":
       return { ...state, pairingSas: e.sas, pairingResult: null };
     case "pairing_finished":
-      return { ...state, pairingSas: null, pairingResult: { success: e.success, reason: e.reason, peerName: e.peerName } };
+      return { ...state, pairingSas: null, pairingResult: { pairingId: e.pairingId, success: e.success, reason: e.reason, peerName: e.peerName } };
     case "notice":
       return pushToast(state, e.level, e.text);
     default:

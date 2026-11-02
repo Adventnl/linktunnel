@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "app.nexus-remote.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:viewer && npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:viewer && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["binaries/nexus"],
     "category": "Utility",
     "shortDescription": "Secure remote control for your own devices",
     "targets": ["deb", "appimage", "msi", "nsis", "app", "dmg"],

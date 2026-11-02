@@ -361,6 +361,33 @@ async fn unpairing_ends_the_relationship_on_both_sides_immediately() {
 }
 
 #[tokio::test]
+async fn unpairing_while_offline_stays_removed_and_notifies_peer_on_reconnect() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;
+    let mut pc = start_device("Windows PC", 2, &dir.path().join("b"), Some(server.url())).await;
+    wait_signal(&mac).await;
+    wait_signal(&pc).await;
+    pair(&mut pc, &mut mac).await;
+
+    // Removal must work without any server connection and survive importing the old record.
+    let pc = pc.restart(None).await;
+    tokio::time::timeout(Duration::from_secs(1), pc.client.unpair(mac.id()))
+        .await
+        .expect("offline unpair should acknowledge immediately")
+        .unwrap();
+    assert!(pc.client.list_devices().await.unwrap().devices.is_empty());
+    assert_eq!(mac.client.list_devices().await.unwrap().devices.len(), 1);
+    let pc = pc.restart(Some(server.url())).await;
+    wait_signal(&pc).await;
+    eventually("offline revocation to reach the other device", || async {
+        mac.client.list_devices().await.unwrap().devices.is_empty()
+    })
+    .await;
+    assert!(pc.client.list_devices().await.unwrap().devices.is_empty());
+}
+
+#[tokio::test]
 async fn losing_signaling_pushes_device_presence_changes_to_the_dashboard() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().unwrap();
