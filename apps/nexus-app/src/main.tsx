@@ -7,9 +7,11 @@ import { selectBridge } from "./lib/bridge";
 
 const root = document.getElementById("root");
 if (root) {
+  const bridge = selectBridge();
+  document.documentElement.dataset.runtime = bridge.mock ? "browser" : "native";
   createRoot(root).render(
     <StrictMode>
-      <App bridge={selectBridge()} />
+      <App bridge={bridge} />
     </StrictMode>,
   );
 }
