@@ -206,9 +206,16 @@ pub struct PairingSas {
     rename_all_fields = "camelCase"
 )]
 pub enum AppEvent {
-    Notice {
-        level: String,
+    ViewerStats {
+        id: String,
         text: String,
+    },
+    ConnectRequested {
+        id: String,
+    },
+    ViewerEnded {
+        id: String,
+        reason: String,
     },
     Agent {
         agent: &'static str,

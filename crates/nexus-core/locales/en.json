@@ -1,4 +1,5 @@
 {
+  "cli.phone.pair_code": "Android pairing code: ",
   "app.name": "linktunnel",
   "cli.about": "Secure, real-time remote control for your own devices",
   "cli.identity.created": "Created a new device identity.",

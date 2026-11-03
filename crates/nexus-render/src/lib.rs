@@ -18,10 +18,15 @@
 mod windows_keyboard;
 
 mod app;
+pub mod embed;
 mod gpu;
 mod keymap;
 pub mod layout;
+mod mailbox;
 pub mod session;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_embed;
 
 pub use app::{run, run_with_ready};
 pub use keymap::hid_for;

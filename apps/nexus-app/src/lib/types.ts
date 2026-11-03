@@ -1,4 +1,23 @@
 /** What the UI knows about the world. The Rust side (src-tauri) produces exactly these shapes. */
+import type { Key } from "./i18n";
+export type Translator = (
+  key: Key,
+  args?: Record<string, string | number>,
+) => string;
+export type ScaleMode = "fit" | "fill" | "pixel";
+export type Quality = "auto" | "sharp" | "smooth";
+export interface Viewport {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+  scale: ScaleMode;
+}
+export interface ScreenOptions {
+  viewport: Viewport;
+  quality: Quality;
+}
 
 export type PresenceState =
   | "online"
@@ -87,6 +106,9 @@ export interface PairingSas {
 export type PowerAction = "lock" | "sleep" | "restart" | "shutdown";
 
 export type AppEvent =
+  | { kind: "viewer_stats"; id: string; text: string }
+  | { kind: "connect_requested"; id: string }
+  | { kind: "viewer_ended"; id: string; reason: string }
   | { kind: "agent"; agent: Snapshot["agent"]; error: string | null }
   | { kind: "snapshot"; snapshot: Snapshot }
   | { kind: "device_changed"; device: Device }
@@ -96,10 +118,27 @@ export type AppEvent =
   | { kind: "consent_request"; request: ConsentRequest }
   | { kind: "consent_resolved"; requestId: number }
   | { kind: "pairing_sas"; sas: PairingSas }
-  | { kind: "pairing_finished"; pairingId: number; success: boolean; reason: string; peerName: string }
-  | { kind: "terminal_ready"; terminalId: number; name: string; reattached: boolean }
+  | {
+      kind: "pairing_finished";
+      pairingId: number;
+      success: boolean;
+      reason: string;
+      peerName: string;
+    }
+  | {
+      kind: "terminal_ready";
+      terminalId: number;
+      name: string;
+      reattached: boolean;
+    }
   | { kind: "terminal_output"; terminalId: number; dataB64: string }
-  | { kind: "terminal_ended"; terminalId: number; exited: boolean; exitCode: number; reason: string }
+  | {
+      kind: "terminal_ended";
+      terminalId: number;
+      exited: boolean;
+      exitCode: number;
+      reason: string;
+    }
   | { kind: "notice"; level: "info" | "error"; text: string };
 
 /** Everything the UI can ask the app to do. */
@@ -116,7 +155,12 @@ export interface Bridge {
   phoneCalls(): Promise<void>;
   snapshot(): Promise<Snapshot>;
   onEvent(cb: (e: AppEvent) => void): Promise<() => void>;
-  connectScreen(id: string): Promise<void>;
+  connectScreen(id: string, options?: ScreenOptions): Promise<void>;
+  viewerLayout(viewport: Viewport): Promise<void>;
+  viewerClose(): Promise<void>;
+  windowAction(
+    action: "minimize" | "maximize" | "close" | "fullscreen" | "drag",
+  ): Promise<void>;
   wake(id: string): Promise<void>;
   power(id: string, action: PowerAction): Promise<void>;
   setUnattended(id: string, on: boolean): Promise<void>;
@@ -130,8 +174,17 @@ export interface Bridge {
   pairJoin(code: string): Promise<{ pairingId: number }>;
   pairConfirm(pairingId: number, wordsMatch: boolean): Promise<void>;
   pairCancel(pairingId: number): Promise<void>;
-  consentDecide(requestId: number, allow: boolean, remember: boolean): Promise<void>;
-  terminalOpen(id: string, cols: number, rows: number, name?: string): Promise<{ terminalId: number }>;
+  consentDecide(
+    requestId: number,
+    allow: boolean,
+    remember: boolean,
+  ): Promise<void>;
+  terminalOpen(
+    id: string,
+    cols: number,
+    rows: number,
+    name?: string,
+  ): Promise<{ terminalId: number }>;
   terminalInput(terminalId: number, dataB64: string): Promise<void>;
   terminalResize(terminalId: number, cols: number, rows: number): Promise<void>;
   terminalClose(terminalId: number, kill: boolean): Promise<void>;
@@ -139,9 +192,22 @@ export interface Bridge {
   quit(): Promise<void>;
 }
 
-export interface PhoneDevice { serial: string; state: string; model: string }
-export interface PhoneOptions { serial: string; screenOff: boolean; mediaAudio: boolean; maxSize: number; maxFps: number }
-export interface PhoneSession { serial: string | null; error: string | null }
+export interface PhoneDevice {
+  serial: string;
+  state: string;
+  model: string;
+}
+export interface PhoneOptions {
+  serial: string;
+  screenOff: boolean;
+  mediaAudio: boolean;
+  maxSize: number;
+  maxFps: number;
+}
+export interface PhoneSession {
+  serial: string | null;
+  error: string | null;
+}
 export interface PhoneStatus {
   adb: { Ok: string } | { Err: string };
   scrcpy: { Ok: string } | { Err: string };

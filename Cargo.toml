@@ -65,6 +65,7 @@ nexus-net = { path = "crates/nexus-net" }
 nexus-portfwd = { path = "crates/nexus-portfwd" }
 nexus-presence = { path = "crates/nexus-presence" }
 nexus-power = { path = "crates/nexus-power" }
+nexus-phone = { path = "crates/nexus-phone" }
 nexus-terminal = { path = "crates/nexus-terminal" }
 nexus-ipc = { path = "crates/nexus-ipc" }
 nexus-codec = { path = "crates/nexus-codec", default-features = false }

@@ -13,7 +13,8 @@
     "test:phone": "node scripts/test-phone.mjs",
     "test:pairing": "node scripts/test-pairing.mjs",
     "tauri": "tauri",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "test:workspace": "node scripts/test-workspace.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

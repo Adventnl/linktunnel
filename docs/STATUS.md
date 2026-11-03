@@ -3,6 +3,35 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## Windows integrated workspace — 2026-11-03
+
+The desktop now uses a light-glass device sidebar and integrated workspace. Windows embeds the
+native GPU viewer as a child HWND, with resize, fullscreen, Fit / Fill / Actual Pixels,
+quality preferences and measured session statistics. Device context menus include deliberate
+offline Unpair. The terminal fills the workspace and has contrast-aware ANSI colors.
+The renderer decodes H.264 in order but presents from a one-slot latest-picture mailbox.
+App composition, control state, viewport synchronization, sidebar, titlebar and native process
+ownership now have separate source responsibilities. Existing user/developer guides were updated.
+
+The existing `nexus` CLI gained `status --json`, `devices --json`, standalone viewer sizing and
+fullscreen flags, and phone status/devices/pair/connect/disconnect/view without the dashboard.
+Pairing codes are entered privately rather than passed in command-line arguments.
+
+Verified on Windows: 29 frontend tests, 29 CLI tests, 33 core tests (including locale parity),
+12 renderer tests (including real offscreen GPU rendering), and 13 desktop-backend tests.
+Strict Clippy passes for CLI/render and the standalone desktop backend. Workspace, pairing
+and phone browser integration checks pass; screenshots cover light/dark, narrow layout,
+device menu, settings, pairing, terminal and connection failure. The visual review scored
+all five requested corrections resolved; its final verdict applies to that fix list.
+
+`scripts/test-embedded-viewer.ps1` received a real 1920x1080 stream from an existing paired
+device and verified native child parentage, resize to 777x444 and hiding, with remote input
+disabled. The release viewer passed the same check. A Windows NSIS setup executable was built.
+This change has not been installed over the user's running app. Fresh-install provisioning,
+WAN performance, hardware encode/decode and macOS/Linux embedding were not verified here;
+other desktop platforms retain their standalone viewer fallback. No frame-rate, bitrate or
+end-to-end latency guarantee follows from the UI and mailbox changes.
+
 ## Windows controller bundle and Ubuntu Server setup — 2026-11-02
 
 Added a portable Windows controller ZIP (dashboard, native viewer/CLI and agent). Its launcher

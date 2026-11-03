@@ -10,6 +10,7 @@ mod link;
 mod phone;
 mod tray;
 mod viewer;
+mod workspace;
 
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ pub fn run() {
             let link = link::AgentLink::new(link::agent_paths());
             app.manage(Arc::clone(&link));
             app.manage(nexus_phone::Phone::default());
+            app.manage(Arc::new(workspace::Workspace::default()));
             let handle = app.handle().clone();
             *link.tray_ok.lock() = tray::build(&handle, &link);
             alert::register_panic_hotkey(&handle);
@@ -43,6 +45,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            workspace::viewer_layout,
+            workspace::viewer_close,
+            workspace::window_action,
             commands::snapshot,
             commands::connect_screen,
             commands::wake,
@@ -80,6 +85,8 @@ pub fn run() {
                 // in-flight start as well as reaping an already running viewer.
                 let phone = handle.state::<nexus_phone::Phone>();
                 let _ = tauri::async_runtime::block_on(phone.stop());
+                let workspace = handle.state::<Arc<workspace::Workspace>>();
+                let _ = tauri::async_runtime::block_on(workspace.close());
             }
         }),
         Err(e) => {

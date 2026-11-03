@@ -14,10 +14,14 @@ pub struct Rect {
 }
 
 /// How the picture is scaled to the window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ScaleMode {
     /// Largest size that fits, aspect ratio preserved, letterboxed.
+    #[default]
     Fit,
+    /// Cover the viewport without distortion; crop equally from opposite edges.
+    Fill,
     /// One picture pixel per window pixel (centred; cropped if the window is smaller).
     Pixel,
 }
@@ -28,7 +32,8 @@ pub fn dest_rect(pic: (u32, u32), win: (u32, u32), mode: ScaleMode) -> Rect {
     let (pw, ph) = (pic.0.max(1), pic.1.max(1));
     let (ww, wh) = (win.0.max(1), win.1.max(1));
     let (w, h) = match mode {
-        ScaleMode::Pixel => (pw, ph),
+        ScaleMode::Pixel => (pw.min(ww), ph.min(wh)),
+        ScaleMode::Fill => (ww, wh),
         ScaleMode::Fit => {
             // Compare ww/pw with wh/ph without floating point.
             if u64::from(ww) * u64::from(ph) <= u64::from(wh) * u64::from(pw) {
@@ -54,6 +59,46 @@ pub fn dest_rect(pic: (u32, u32), win: (u32, u32), mode: ScaleMode) -> Rect {
         w,
         h,
     }
+}
+
+/// Visible source pixels. Keeping this common to rendering and input avoids clicks drifting
+/// when Fill or Actual Pixels crop the remote desktop.
+#[must_use]
+pub fn source_rect(pic: (u32, u32), win: (u32, u32), mode: ScaleMode) -> Rect {
+    let (pw, ph) = (pic.0.max(1), pic.1.max(1));
+    let (ww, wh) = (win.0.max(1), win.1.max(1));
+    let (w, h) = match mode {
+        ScaleMode::Fit => (pw, ph),
+        ScaleMode::Pixel => (pw.min(ww), ph.min(wh)),
+        ScaleMode::Fill if u64::from(pw) * u64::from(wh) > u64::from(ww) * u64::from(ph) => (
+            u32::try_from(u64::from(ph) * u64::from(ww) / u64::from(wh))
+                .unwrap_or(pw)
+                .max(1),
+            ph,
+        ),
+        ScaleMode::Fill => (
+            pw,
+            u32::try_from(u64::from(pw) * u64::from(wh) / u64::from(ww))
+                .unwrap_or(ph)
+                .max(1),
+        ),
+    };
+    Rect {
+        x: (pw - w) / 2,
+        y: (ph - h) / 2,
+        w,
+        h,
+    }
+}
+
+/// Map a viewport coordinate through the same crop used by the presenter.
+#[must_use]
+pub fn window_to_source(pos: (f64, f64), dest: Rect, source: Rect) -> Option<(i32, i32)> {
+    let (x, y) = window_to_picture(pos, (source.w, source.h), dest)?;
+    Some((
+        x.saturating_add(i32::try_from(source.x).ok()?),
+        y.saturating_add(i32::try_from(source.y).ok()?),
+    ))
 }
 
 /// Maps a window position to a picture pixel, or `None` if it is in the letterbox bars.
@@ -124,8 +169,8 @@ mod tests {
             Rect {
                 x: 0,
                 y: 0,
-                w: 100,
-                h: 100
+                w: 50,
+                h: 50
             }
         );
         // Degenerate sizes never divide by zero.
@@ -165,5 +210,45 @@ mod tests {
             Some((1919, 1079))
         );
         assert_eq!(window_to_picture((960.0, 400.0), pic, dest), None);
+    }
+
+    #[test]
+    fn fill_crops_without_distorting_and_pointer_tracks_visible_pixels() {
+        let source = source_rect((1920, 1080), (800, 800), ScaleMode::Fill);
+        let dest = dest_rect((1920, 1080), (800, 800), ScaleMode::Fill);
+        assert_eq!(
+            source,
+            Rect {
+                x: 420,
+                y: 0,
+                w: 1080,
+                h: 1080
+            }
+        );
+        assert_eq!(window_to_source((0.0, 0.0), dest, source), Some((420, 0)));
+        assert_eq!(
+            window_to_source((400.0, 400.0), dest, source),
+            Some((960, 540))
+        );
+        assert_eq!(window_to_source((800.0, 400.0), dest, source), None);
+        let portrait = source_rect((1080, 1920), (800, 600), ScaleMode::Fill);
+        assert_eq!(
+            portrait,
+            Rect {
+                x: 0,
+                y: 555,
+                w: 1080,
+                h: 810
+            }
+        );
+        assert_eq!(
+            source_rect((1920, 1080), (800, 600), ScaleMode::Pixel),
+            Rect {
+                x: 560,
+                y: 240,
+                w: 800,
+                h: 600
+            }
+        );
     }
 }

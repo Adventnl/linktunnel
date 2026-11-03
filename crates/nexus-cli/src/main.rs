@@ -14,6 +14,7 @@ mod dashboard;
 mod files_cmds;
 mod forward_cmds;
 mod identity_cmd;
+mod phone_cmds;
 mod power_cmds;
 mod remote_cmds;
 mod shell_cmds;
@@ -75,9 +76,20 @@ enum Command {
     /// Check that this machine is ready to run linktunnel.
     Doctor,
     /// Show the running agent's status.
-    Status,
+    Status {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// List paired devices and their live state.
-    Devices,
+    Devices {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Android phone control over local adb/scrcpy, independent of the desktop agent.
+    #[command(subcommand)]
+    Phone(phone_cmds::PhoneCommand),
     /// Pair this device with another one.
     #[command(subcommand)]
     Pair(agent_cmds::PairCommand),
@@ -293,8 +305,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Auth(cmd) => auth_cmds::run(&ctx, cmd).await,
         Command::Id(cmd) => identity_cmd::run(&ctx, &cmd),
         Command::Doctor => doctor(&ctx).await,
-        Command::Status => agent_cmds::status(&ctx).await,
-        Command::Devices => agent_cmds::devices(&ctx).await,
+        Command::Status { json } => agent_cmds::status(&ctx, json).await,
+        Command::Devices { json } => agent_cmds::devices(&ctx, json).await,
+        Command::Phone(cmd) => phone_cmds::run(ctx.locale, cmd).await,
         Command::Pair(cmd) => agent_cmds::pair(&ctx, &cmd).await,
         Command::Unpair { device } => agent_cmds::unpair(&ctx, &device).await,
         Command::Ping {
@@ -466,4 +479,43 @@ async fn doctor(ctx: &AppContext) -> Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    #[test]
+    fn scripts_and_viewer_preferences_parse_without_opening_a_gui() {
+        assert!(Cli::try_parse_from(["nexus", "--system", "status", "--json"]).is_ok());
+        assert!(Cli::try_parse_from(["nexus", "devices", "--json"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "nexus",
+                "remote",
+                "view",
+                "pc",
+                "--scale",
+                "fill",
+                "--fullscreen",
+                "--fps",
+                "60"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from(["nexus", "remote", "view", "pc", "--scale", "invalid"]).is_err()
+        );
+    }
+    #[test]
+    fn phone_commands_validate_quality_and_keep_pairing_code_off_command_line() {
+        assert!(Cli::try_parse_from(["nexus", "phone", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["nexus", "phone", "pair", "192.168.1.2:35000"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["nexus", "phone", "pair", "192.168.1.2:35000", "123456"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["nexus", "phone", "view", "serial", "--fps", "121"]).is_err());
+        assert!(
+            Cli::try_parse_from(["nexus", "phone", "view", "serial", "--max-size", "100"]).is_err()
+        );
+    }
 }

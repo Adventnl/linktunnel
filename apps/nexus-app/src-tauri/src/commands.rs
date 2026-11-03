@@ -24,7 +24,12 @@ pub async fn snapshot(link: Link<'_>) -> CmdResult<Snapshot> {
 /// Opens the native viewer window by running `nexus remote view` (video never passes through the
 /// web layer; the viewer is its own wgpu/winit window).
 #[tauri::command]
-pub async fn connect_screen(link: Link<'_>, id: String) -> CmdResult<()> {
+pub async fn connect_screen(
+    app: AppHandle,
+    link: Link<'_>,
+    id: String,
+    options: Option<crate::workspace::ScreenOptions>,
+) -> CmdResult<()> {
     let want = dto::unhex(&id)?;
     let list = link.client()?.list_devices().await.map_err(err)?;
     if !list
@@ -34,17 +39,7 @@ pub async fn connect_screen(link: Link<'_>, id: String) -> CmdResult<()> {
     {
         return Err("no such device".to_owned());
     }
-    spawn_viewer(&id).await
-}
-
-pub async fn spawn_viewer(id: &str) -> CmdResult<()> {
-    let mut args = Vec::new();
-    if link::agent_scope() == nexus_core::Scope::System {
-        args.push("--system".to_owned());
-    }
-    // IDs are unambiguous even when two paired computers share a name.
-    args.extend(["remote", "view", id, "--audio"].map(str::to_owned));
-    crate::viewer::launch(link::nexus_cli(), args).await
+    crate::workspace::connect(app, id, options).await
 }
 
 #[tauri::command]

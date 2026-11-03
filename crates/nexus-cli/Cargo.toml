@@ -26,6 +26,7 @@ crossterm = { version = "0.29", default-features = false, features = ["events"] 
 nexus-audit.workspace = true
 nexus-input.workspace = true
 nexus-media.workspace = true
+nexus-phone.workspace = true
 nexus-core.workspace = true
 nexus-crypto.workspace = true
 nexus-ipc.workspace = true

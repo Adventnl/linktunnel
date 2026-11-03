@@ -11,7 +11,7 @@ const executablePath = process.env.CHROMIUM ?? [
   "/usr/bin/chromium", "/usr/bin/chromium-browser",
 ].find(existsSync);
 const browser = await chromium.launch({ executablePath, headless: true });
-const server = await createServer({ server: { host: "127.0.0.1", port: 0 }, logLevel: "error" });
+const server = await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false }, logLevel: "error" });
 await server.listen();
 const shots = fileURLToPath(new URL("../shots/", import.meta.url));
 mkdirSync(shots, { recursive: true });
@@ -40,6 +40,7 @@ try {
         invoke: async (command, args) => {
           window.testCalls.push({ command, args });
           switch (command) {
+            case "viewer_layout": return;
             case "plugin:event|listen": listener = args.handler; return args.handler;
             case "plugin:event|unlisten": return;
             case "snapshot": return { agent: "connected", error: null, sessions: [], devices: [device],
@@ -87,11 +88,13 @@ try {
     await page.waitForFunction(() => window.testCalls.some((c) => c.command === "pair_cancel" && c.args.pairingId === 2));
     // Unpair remains available offline, cancellation keeps the device, and failures allow retry.
     await page.evaluate(() => window.testEmit({ kind: "signal_state", connected: false }));
-    await card.getByRole("button", { name: "Unpair", exact: true }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Unpair", exact: true }).click();
     const removal = page.getByRole("dialog", { name: "Unpair", exact: true });
     await removal.getByRole("button", { name: "Cancel" }).click();
     assert.equal(await card.count(), 1);
-    await card.getByRole("button", { name: "Unpair", exact: true }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Unpair", exact: true }).click();
     await page.evaluate(() => { window.testFailUnpair = true; });
     await removal.getByRole("button", { name: "Unpair", exact: true }).click();
     await removal.getByRole("alert").filter({ hasText: "Could not save" }).waitFor();

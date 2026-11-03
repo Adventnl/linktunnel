@@ -37,11 +37,19 @@ pub struct ViewerOptions {
     pub key_remap: bool,
     /// Play the target's sound on this machine.
     pub audio: bool,
+    /// Initial picture scaling.
+    pub scale: crate::layout::ScaleMode,
+    /// Start a standalone viewer fullscreen.
+    pub fullscreen: bool,
 }
 
 /// Messages from the network thread to the window.
 #[derive(Debug)]
 pub enum UiEvent {
+    /// A single wakeup for the latest decoded picture.
+    PaintLatest,
+    /// Geometry from the supervising desktop workspace.
+    Viewport(crate::embed::Viewport),
     /// The session is up.
     Opened {
         /// Remote picture size.
@@ -583,6 +591,8 @@ mod tests {
             clipboard: false,
             key_remap: false,
             audio: false,
+            scale: crate::layout::ScaleMode::Fit,
+            fullscreen: false,
         };
         let reason = tokio::time::timeout(Duration::from_secs(20), run(options, rx, &notify))
             .await

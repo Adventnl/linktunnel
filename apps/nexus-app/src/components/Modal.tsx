@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { Icon } from "./Icon";
 
 /** An accessible modal: labelled, closes on Escape, returns focus, keeps Tab inside. */
 export function Modal({
@@ -61,7 +62,7 @@ export function Modal({
         <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
           <h2 className="text-base font-semibold">{title}</h2>
           <button type="button" data-close aria-label={closeLabel} onClick={onClose} className="rounded p-1 text-muted hover:text-fg">
-            ✕
+            <Icon name="close" size={17} />
           </button>
         </div>
         <div className="px-5 py-4">{children}</div>

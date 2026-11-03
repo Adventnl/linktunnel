@@ -1,58 +1,71 @@
-# linktunnel desktop app
+# Link Tunnel desktop
 
-The dashboard window and tray icon: live status dots for every paired device, one-click
-**Connect / Terminal / Wake / Lock / Sleep / Restart / Shut down**, a command palette (⌘K / Ctrl+K),
-the pairing wizard (code + four-word comparison), attended-access consent prompts, per-device
-"pre-authorise" switches, a lockdown switch, English and 简体中文, light/dark/automatic theme.
+A light-glass workspace for paired computers. Select a computer in the sidebar, then open
+its desktop or terminal. Windows embeds the native GPU viewer in the workspace, with one
+window to move, resize or fullscreen. macOS/Linux retain the standalone native viewer.
+Video never passes through React or the webview.
 
-```
- React + TypeScript + Tailwind (src/)         Rust (src-tauri/)
- ┌──────────────────────────────┐   invoke   ┌────────────────────────────┐   IPC    ┌─────────────┐
- │ dashboard, palette, dialogs, │ ─────────▶ │ thin commands + tray       │ ───────▶ │ nexus-agent │
- │ xterm.js terminal            │ ◀───────── │ events from the agent      │ ◀─────── │ (local)     │
- └──────────────────────────────┘ nexus://   └────────────────────────────┘ Unix     └─────────────┘
-                                   event                                      socket /
-                                                                              named pipe
-```
+- Right-click a device, press Shift+F10, or use its actions button for power and Unpair.
+  Offline devices can still be removed. Removal requires confirmation and revokes local access.
+- Fit shows the whole screen. Fill crops edges without distorting the picture; Actual Pixels
+  shows a centered crop at native pixel size. Rendering and pointer mapping share that crop.
+- Quality preference applies to the next connection: Automatic, Sharper text (30 fps,
+  20 Mbit/s starting budget), or Smoother motion (60 fps, 30 Mbit/s starting budget).
+  Network adaptation remains active; these are preferences, not promised throughput.
+- FPS, received bitrate and latency appear in the connected workspace footer.
+- Native video hides behind dialogs, device menus, other devices and the terminal tab.
+  Disconnect cancels pending startup as well as stopping an established viewer.
+- The command palette is optional (Ctrl+K / Command+K). Settings retain light/dark/system
+  appearance, English/Simplified Chinese, access controls and offline removal.
+- Phone control uses separate local adb/scrcpy authorization. Its native window and Stop
+  lifecycle remain separate from agent pairing and lockdown. See [phone control](../../docs/PHONE_CONTROL.md).
 
-* Desktop sessions go through the local agent, exactly like the `nexus` CLI. If no agent is running the window says so and reconnects on its own.
-* New pairings need a shared, reachable signaling server. If it is offline, the dashboard shows the
-  configured servers and the pairing wizard waits for reconnection. Check that the server computer
-  is on and its network/VPN is connected. If none is configured, set `net.signal_url` in the agent's
-  `config.toml` (or use `nexus-agent --signal-url …`) and restart the agent.
-* **Unpair** is on every device card and in Settings, including for offline devices. Confirming removes
-  local access and ends sessions immediately; the other device learns of the revocation when a
-  signaling server is reachable. Pair again later to restore access.
-* **Phone** opens a separate Android control panel, available without the desktop agent. It uses locally installed
-  adb and scrcpy 3.3+ with Android's own USB/wireless authorisation; video/audio stay in the native scrcpy window.
-  Android owns the debugging keys. linktunnel agent pairing, audit and lockdown do not govern this transport.
-  See [Redmi / Android phone control](../../docs/PHONE_CONTROL.md) for setup, call audio and verification limits.
-* **Video never passes through the web layer.** "Connect" launches the native viewer (`nexus remote view`,
-  a wgpu/winit window with local cursor and low-latency presentation). The terminal *is* in the web layer: xterm.js
-  rendering bytes the agent relays over the encrypted session.
-  Tauri dev/build compiles and bundles this viewer beside the dashboard, so Connect also works when
-  launched from Finder without a shell `PATH`. The local agent must still be installed and running.
-* With a tray icon present, closing the window hides it; the tray menu lists devices with their status dots and connects on click.
+The local agent must be installed and running. Pairing needs a reachable configured signaling
+server. The UI reports an unavailable agent/server and recovers when it reconnects.
 
-## Develop
+## Commands without the dashboard
+
+The bundled `nexus` executable is the CLI. On an installed Windows host, use `--system`:
+
 ```sh
-npm install
-npm run dev          # the UI in a browser with a built-in mock agent (no Tauri needed)
-npm test             # state, palette, i18n parity, encoding
-npm run typecheck
-npm run build && npm run screenshots   # headless-Chromium screenshots into ./shots
-npm run test:phone   # local Chromium: phone panel against a simulated native boundary
-npm run test:pairing # local Chromium: pairing recovery and offline device removal
-
-# the real app (needs the Tauri system libraries; see https://tauri.app/start/prerequisites/)
-npx tauri dev
-npx tauri build      # .deb / AppImage / .msi / .nsis / .app / .dmg for the host platform
+nexus --system devices --json
+nexus --system status --json
+nexus --system remote view MY-PC --scale fill --fullscreen --fps 60 --mbps 30
+nexus --system shell MY-PC
+nexus phone devices
+nexus phone pair 192.168.1.2:35000  # prompts privately for the pairing code
+nexus phone view SERIAL --screen-off --fps 60
+nexus --help
 ```
-On Linux the system libraries are `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev`.
-For direct backend `cargo build` or `cargo test` commands, first run `npm run prepare:viewer` to stage
-the native viewer. Generated sidecars live in `src-tauri/binaries/` and are not committed.
 
-## Verified
-`scripts/demo-app.sh` builds the app, starts a real signaling server and two real agents, runs the app on a virtual X
-display, screenshots the live dashboard, then **drives the GUI with xdotool to open a terminal on the paired server and
-run a command**, which lands on the server through the encrypted session. See docs/STATUS.md for what was and was not run.
+File copy, port forwarding, identity, pairing, consent, trust, power, wake, audit, updates,
+lockdown and incoming-session disconnection are also available through the CLI.
+See the [user guide](../../docs/USER_GUIDE.md) for the command reference.
+
+## Source and checks
+
+`src/App.tsx` composes the shell and dialogs. `src/hooks/` owns app control and native viewport
+synchronization; components render the workspace. `src-tauri/src/workspace.rs` owns native
+session commands; `viewer.rs` supervises the process. `crates/nexus-render` owns decode,
+one-slot presentation, GPU scaling and remote input; `crates/nexus-cli` owns CLI operations.
+
+```sh
+npm ci
+npm run dev             # clearly labelled browser preview; cannot control a real desktop
+npm test
+npm run test:workspace
+npm run test:pairing
+npm run test:phone
+npm run build
+npm run screenshots     # .impeccable/review/ at the repository root
+npx tauri dev
+npx tauri build
+```
+
+On Windows, dot-source `scripts/windows-build-env.ps1` before native Cargo builds.
+`installers/windows/build-desktop.ps1` builds the Windows installer with agent and viewer.
+`scripts/test-embedded-viewer.ps1 -Device DEVICE` checks a real paired stream in a hidden
+native parent, including resize and overlay hiding, with remote input disabled.
+
+The browser preview and UI tests simulate the native boundary. They do not measure WAN
+performance or prove a hardware encoder. See [acceleration limits](../../docs/ACCELERATION.md).

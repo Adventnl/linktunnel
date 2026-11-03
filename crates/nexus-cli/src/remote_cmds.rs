@@ -54,6 +54,12 @@ pub enum RemoteCommand {
         /// Starting bitrate in Mbit/s.
         #[arg(long, default_value_t = 0)]
         mbps: u32,
+        /// Picture scaling: fit preserves the whole desktop; fill crops edges without bars.
+        #[arg(long, value_enum, default_value = "fit")]
+        scale: ViewScale,
+        /// Start fullscreen.
+        #[arg(long)]
+        fullscreen: bool,
         /// Watch only; send no input.
         #[arg(long)]
         view_only: bool,
@@ -104,6 +110,22 @@ pub enum RemoteCommand {
         #[arg(long, default_value_t = 0)]
         monitor: u32,
     },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ViewScale {
+    Fit,
+    Fill,
+    Pixel,
+}
+impl From<ViewScale> for nexus_render::layout::ScaleMode {
+    fn from(value: ViewScale) -> Self {
+        match value {
+            ViewScale::Fit => Self::Fit,
+            ViewScale::Fill => Self::Fill,
+            ViewScale::Pixel => Self::Pixel,
+        }
+    }
 }
 
 /// An open viewer session plus what is needed to drive it.
@@ -178,6 +200,8 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
             monitor,
             fps,
             mbps,
+            scale,
+            fullscreen,
             view_only,
             no_clipboard,
             no_key_remap,
@@ -187,6 +211,8 @@ pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
                 monitor,
                 fps,
                 mbps,
+                scale,
+                fullscreen,
                 view_only,
                 clipboard: !no_clipboard,
                 key_remap: !no_key_remap,
@@ -264,6 +290,8 @@ async fn finish(ctx: &AppContext, live: Live) -> Result<ExitCode> {
 
 /// What `nexus remote view` was asked for.
 struct ViewFlags {
+    scale: ViewScale,
+    fullscreen: bool,
     monitor: u32,
     fps: u32,
     mbps: u32,
@@ -289,19 +317,21 @@ async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCod
         clipboard: flags.clipboard,
         key_remap: flags.key_remap,
         audio: flags.audio,
+        scale: flags.scale.into(),
+        fullscreen: flags.fullscreen,
     };
     // The window owns the main thread; it runs its own network thread.
     let report_status = std::env::var_os("NEXUS_VIEWER_STATUS").is_some();
     let reason = tokio::task::block_in_place(|| {
         nexus_render::run_with_ready(options, move || {
             if report_status {
-                viewer_status(serde_json::json!({"nexusViewer": "ready"}));
+                viewer_status(&serde_json::json!({"nexusViewer": "ready"}));
             }
         })
     })
     .map_err(|e| anyhow::anyhow!(e))?;
     if report_status {
-        viewer_status(serde_json::json!({"nexusViewer": "ended", "reason": reason}));
+        viewer_status(&serde_json::json!({"nexusViewer": "ended", "reason": reason}));
     }
     println!(
         "{}",
@@ -310,7 +340,7 @@ async fn view(ctx: &AppContext, query: &str, flags: ViewFlags) -> Result<ExitCod
     Ok(ExitCode::SUCCESS)
 }
 
-fn viewer_status(status: serde_json::Value) {
+fn viewer_status(status: &serde_json::Value) {
     use std::io::Write as _;
     // A dedicated, flushed line lets the dashboard distinguish a process from a working viewer.
     let mut out = std::io::stdout().lock();

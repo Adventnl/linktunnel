@@ -137,9 +137,21 @@ pub(crate) fn resolve(l: Locale, devices: &[DeviceView], query: &str) -> Result<
     }
 }
 
-pub async fn status(ctx: &AppContext) -> Result<ExitCode> {
+pub async fn status(ctx: &AppContext, json: bool) -> Result<ExitCode> {
     let l = ctx.locale;
     let s = connect(ctx).await?.status().await?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "deviceId": short_id(&s.device_id), "deviceName": s.device_name, "agentVersion": s.agent_version,
+                "signalConnected": s.signal_connected, "signalUrl": s.signal_url, "relayUrl": s.relay_url,
+                "directAddresses": s.direct_addresses, "pairedDevices": s.paired_devices,
+                "activeSessions": s.active_sessions, "lockdown": s.lockdown,
+            }))?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
     let onoff = |b: bool| tr(l, if b { "cli.on" } else { "cli.off" });
     println!(
         "{:<18} {} ({})",
@@ -190,9 +202,24 @@ pub async fn status(ctx: &AppContext) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-pub async fn devices(ctx: &AppContext) -> Result<ExitCode> {
+pub async fn devices(ctx: &AppContext, json: bool) -> Result<ExitCode> {
     let l = ctx.locale;
     let list = connect(ctx).await?.list_devices().await?;
+    if json {
+        let devices: Vec<_> = list
+            .devices
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "id": d.device_id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                    "name": d.name, "online": d.online, "state": d.state, "path": d.path,
+                    "unattended": d.unattended,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&devices)?);
+        return Ok(ExitCode::SUCCESS);
+    }
     if list.devices.is_empty() {
         println!("{}", tr(l, "cli.devices.empty"));
         return Ok(ExitCode::SUCCESS);

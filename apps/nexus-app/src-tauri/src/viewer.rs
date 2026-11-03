@@ -1,160 +1,272 @@
-//! Supervise viewer startup: a spawned process is not yet a remote desktop.
-
+//! Own the native viewer process, including pending consent, layout and teardown.
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
-
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 
-pub async fn launch(program: PathBuf, args: Vec<String>) -> Result<(), String> {
-    launch_with_timeout(program, args, Duration::from_secs(90)).await
+enum ViewerEvent {
+    Ended(String),
+    Stats(String),
+    Fullscreen,
 }
 
-async fn launch_with_timeout(
+pub async fn launch_managed(
+    app: tauri::AppHandle,
+    id: String,
     program: PathBuf,
     args: Vec<String>,
-    timeout: Duration,
+    parent: Option<isize>,
+    viewport: Option<crate::workspace::Viewport>,
+    controls: tokio::sync::mpsc::Receiver<crate::workspace::Control>,
 ) -> Result<(), String> {
+    use tauri::Emitter as _;
+    use tauri::Manager as _;
+    supervise(
+        program,
+        args,
+        parent,
+        viewport,
+        controls,
+        Duration::from_secs(90),
+        move |event| {
+            let event = match event {
+                ViewerEvent::Fullscreen => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let result = window.is_fullscreen().and_then(|fullscreen| window.set_fullscreen(!fullscreen));
+                        if let Err(error) = result { tracing::warn!(%error, "cannot toggle workspace fullscreen"); }
+                    }
+                    return;
+                }
+                ViewerEvent::Ended(reason) => crate::dto::AppEvent::ViewerEnded {
+                    id: id.clone(),
+                    reason,
+                },
+                ViewerEvent::Stats(text) => crate::dto::AppEvent::ViewerStats {
+                    id: id.clone(),
+                    text,
+                },
+            };
+            let _ = app.emit(crate::link::EVENT, event);
+        },
+    )
+    .await
+}
+
+/// Keep the native child alive, respond to layout/close even while consent is pending, and
+/// acknowledge Connect only after the first decoded picture.
+async fn supervise(
+    program: PathBuf,
+    args: Vec<String>,
+    parent: Option<isize>,
+    viewport: Option<crate::workspace::Viewport>,
+    mut controls: tokio::sync::mpsc::Receiver<crate::workspace::Control>,
+    startup_timeout: Duration,
+    notify: impl Fn(ViewerEvent) + Send + 'static,
+) -> Result<(), String> {
+    use crate::workspace::Control;
+    use tokio::io::AsyncWriteExt as _;
     let mut command = Command::new(program);
-    // The CLI hosts the native viewer, but its console must not appear beside the GUI.
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let mut child = command
+    command.creation_flags(0x0800_0000);
+    command
         .args(args)
         .env("NEXUS_VIEWER_STATUS", "1")
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    if let Some(parent) = parent {
+        command.env("NEXUS_VIEWER_PARENT", parent.to_string());
+        if let Some(viewport) = viewport {
+            command.env(
+                "NEXUS_VIEWER_VIEWPORT",
+                serde_json::to_string(&viewport).map_err(|e| e.to_string())?,
+            );
+        }
+    }
+    let mut child = command
         .spawn()
-        .map_err(|e| format!("cannot start the viewer (is `nexus` installed?): {e}"))?;
-    let stdout = child.stdout.take().ok_or("viewer output unavailable")?;
+        .map_err(|e| format!("cannot start desktop viewer: {e}"))?;
+    let mut input = child.stdin.take().ok_or("viewer input unavailable")?;
+    let mut output =
+        BufReader::new(child.stdout.take().ok_or("viewer output unavailable")?).lines();
     let stderr = child.stderr.take().ok_or("viewer errors unavailable")?;
-    // Drain stderr for the whole viewer lifetime, retaining only a bounded tail.
     let errors = tokio::spawn(async move {
         let mut reader = BufReader::new(stderr);
         let mut tail = Vec::new();
-        let mut buf = [0u8; 1024];
-        while let Ok(n) = reader.read(&mut buf).await {
+        let mut buffer = [0u8; 1024];
+        while let Ok(n) = reader.read(&mut buffer).await {
             if n == 0 {
                 break;
             }
-            tail.extend_from_slice(&buf[..n]);
+            tail.extend_from_slice(&buffer[..n]);
             if tail.len() > 8192 {
                 tail.drain(..tail.len() - 8192);
             }
         }
         String::from_utf8_lossy(&tail).trim().to_owned()
     });
-    let mut lines = BufReader::new(stdout).lines();
-    let startup = tokio::time::timeout(timeout, async {
-        while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
-            let Ok(status) = serde_json::from_str::<serde_json::Value>(&line) else {
-                continue;
-            };
-            match status["nexusViewer"].as_str() {
-                Some("ready") => return Ok(()),
-                Some("ended") => {
-                    return Err(status["reason"]
-                        .as_str()
-                        .unwrap_or("viewer closed before receiving the desktop")
-                        .to_owned());
-                }
-                _ => {}
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let mut ready = Some(ready_tx);
+        let timeout = tokio::time::sleep(startup_timeout);
+        tokio::pin!(timeout);
+        let mut close_ack = None;
+        let reason = loop {
+            tokio::select! {
+                command = controls.recv() => match command {
+                    Some(Control::Layout(viewport)) if parent.is_some() => {
+                        match serde_json::to_vec(&viewport) {
+                            Ok(mut bytes) => { bytes.push(b'\n'); if let Err(e) = input.write_all(&bytes).await { break format!("viewer layout failed: {e}"); } }
+                            Err(e) => break e.to_string(),
+                        }
+                    }
+                    Some(Control::Layout(_)) => {},
+                    Some(Control::Close(ack)) => { close_ack = Some(ack); break "closed".into(); }
+                    None => break "closed".into(),
+                },
+                line = output.next_line() => match line {
+                    Ok(Some(line)) => {
+                        if let Ok(status) = serde_json::from_str::<serde_json::Value>(&line) {
+                            match status["nexusViewer"].as_str() {
+                                Some("ready") => { if let Some(tx) = ready.take() { let _ = tx.send(Ok(())); } }
+                                Some("stats") => { if let Some(text) = status["text"].as_str() { notify(ViewerEvent::Stats(text.to_owned())); } }
+                                Some("fullscreen") => notify(ViewerEvent::Fullscreen),
+                                Some("ended") => break status["reason"].as_str().unwrap_or("desktop ended").to_owned(),
+                                _ => {},
+                            }
+                        }
+                    }
+                    Ok(None) => break "viewer exited".into(),
+                    Err(e) => break e.to_string(),
+                },
+                _ = &mut timeout, if ready.is_some() => break "timed out waiting for the remote desktop".into(),
             }
+        };
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        let detail = errors.await.unwrap_or_default();
+        let reason = if reason == "closed" || detail.is_empty() {
+            reason
+        } else {
+            format!("{reason}: {detail}")
+        };
+        if let Some(tx) = ready {
+            let _ = tx.send(Err(reason.clone()));
         }
-        Err("viewer exited before receiving the desktop".to_owned())
-    })
-    .await;
-    match startup {
-        Ok(Ok(())) => {
-            // Keep draining stdout and reap the process after the viewer closes.
-            tauri::async_runtime::spawn(async move {
-                while matches!(lines.next_line().await, Ok(Some(_))) {}
-                let _ = child.wait().await;
-                let _ = errors.await;
-            });
-            Ok(())
+        notify(ViewerEvent::Ended(reason));
+        if let Some(ack) = close_ack {
+            let _ = ack.send(());
         }
-        result => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            let detail = errors.await.unwrap_or_default();
-            let reason = match result {
-                Ok(Err(reason)) => reason,
-                _ => "timed out waiting for the remote desktop; check the PC's agent and network, then try Connect again".to_owned(),
-            };
-            if detail.is_empty() {
-                Err(reason)
-            } else {
-                Err(format!("{reason}: {detail}"))
-            }
-        }
-    }
+    });
+    ready_rx
+        .await
+        .map_err(|_| "viewer supervisor stopped".to_owned())?
 }
 
 #[cfg(all(test, windows))]
-mod windows_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn gui_viewer_child_has_no_console_window() {
-        let script = r#"
-Add-Type 'using System; using System.Runtime.InteropServices; public static class NativeConsole { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
-if ([NativeConsole]::GetConsoleWindow() -ne [IntPtr]::Zero) { Write-Error 'Unexpected console'; exit 1 }
-Write-Output '{"nexusViewer":"ready"}'
-"#;
-        launch_with_timeout(
-            "powershell.exe".into(),
-            vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), script.into()],
-            Duration::from_secs(20),
-        ).await.unwrap();
-    }
-}
-
-#[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::workspace::{Control, Scale, Viewport};
+    use tokio::sync::{mpsc, oneshot};
 
-    async fn shell(script: &str, timeout: Duration) -> Result<(), String> {
-        launch_with_timeout("/bin/sh".into(), vec!["-c".into(), script.into()], timeout).await
+    fn args(script: &str) -> Vec<String> {
+        ["-NoProfile", "-NonInteractive", "-Command", script]
+            .map(str::to_owned)
+            .to_vec()
     }
-
     #[tokio::test]
-    async fn requires_a_remote_picture_not_just_a_process() {
-        assert!(shell("exit 0", Duration::from_secs(2)).await.is_err());
-        assert!(
-            shell(
-                "printf '%s\\n' '{\"nexusViewer\":\"ready\"}'",
-                Duration::from_secs(2)
-            )
+    async fn close_interrupts_pending_startup_and_reaps_before_acknowledging() {
+        let (tx, rx) = mpsc::channel(4);
+        let start = tokio::spawn(supervise(
+            "powershell.exe".into(),
+            args("Start-Sleep -Seconds 30"),
+            None,
+            None,
+            rx,
+            Duration::from_secs(10),
+            |_| {},
+        ));
+        let (ack, closed) = oneshot::channel();
+        tx.send(Control::Close(ack)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), closed)
             .await
-            .is_ok()
-        );
+            .unwrap()
+            .unwrap();
+        assert_eq!(start.await.unwrap().unwrap_err(), "closed");
     }
-
     #[tokio::test]
-    async fn reports_startup_failures_and_times_out_hung_viewers() {
-        let error = shell(
-            "echo 'session setup failed' >&2; exit 1",
-            Duration::from_secs(2),
+    async fn needs_a_picture_and_times_out_a_hung_start() {
+        let (_tx, rx) = mpsc::channel(4);
+        let error = supervise(
+            "powershell.exe".into(),
+            args("[Console]::Error.WriteLine('capture failed'); exit 1"),
+            None,
+            None,
+            rx,
+            Duration::from_secs(10),
+            |_| {},
         )
         .await
         .unwrap_err();
-        assert!(error.contains("session setup failed"));
-        let error = shell(
-            "printf '%s\\n' '{\"nexusViewer\":\"ended\",\"reason\":\"PC refused access\"}'",
-            Duration::from_secs(2),
+        assert!(error.contains("capture failed"));
+        let (_tx, rx) = mpsc::channel(4);
+        let error = supervise(
+            "powershell.exe".into(),
+            args("Start-Sleep -Seconds 30"),
+            None,
+            None,
+            rx,
+            Duration::from_millis(50),
+            |_| {},
         )
         .await
         .unwrap_err();
-        assert!(error.contains("PC refused access"));
-        assert!(
-            shell("exec sleep 10", Duration::from_millis(50))
+        assert!(error.contains("timed out"));
+    }
+    #[tokio::test]
+    async fn gui_child_has_no_console_and_receives_layout_after_ready() {
+        let script = r#"
+Add-Type 'using System; using System.Runtime.InteropServices; public static class ViewerConsole { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'
+if ([ViewerConsole]::GetConsoleWindow() -ne [IntPtr]::Zero) { Write-Error 'unexpected console'; exit 1 }
+Write-Output '{"nexusViewer":"ready"}'
+$layout = [Console]::ReadLine() | ConvertFrom-Json
+if ($layout.width -eq 777 -and $layout.scale -eq 'fill') { Write-Output '{"nexusViewer":"ended","reason":"layout received"}' }
+"#;
+        let (tx, rx) = mpsc::channel(4);
+        let (ended, mut result) = mpsc::unbounded_channel();
+        supervise(
+            "powershell.exe".into(),
+            args(script),
+            Some(1),
+            None,
+            rx,
+            Duration::from_secs(20),
+            move |event| {
+                if let ViewerEvent::Ended(reason) = event {
+                    let _ = ended.send(reason);
+                }
+            },
+        )
+        .await
+        .unwrap();
+        tx.send(Control::Layout(Viewport {
+            x: 20,
+            y: 80,
+            width: 777,
+            height: 500,
+            visible: true,
+            scale: Scale::Fill,
+        }))
+        .await
+        .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), result.recv())
                 .await
-                .unwrap_err()
-                .contains("timed out")
+                .unwrap()
+                .unwrap(),
+            "layout received"
         );
     }
 }

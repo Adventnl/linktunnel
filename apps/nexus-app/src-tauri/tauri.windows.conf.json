@@ -1,6 +1,9 @@
 {
   "bundle": {
-    "externalBin": ["binaries/nexus", "binaries/nexus-agent"],
+    "externalBin": [
+      "binaries/nexus",
+      "binaries/nexus-agent"
+    ],
     "resources": {
       "../../../installers/windows/install-desktop.ps1": "install-desktop.ps1",
       "../../../installers/windows/uninstall-desktop.ps1": "uninstall-desktop.ps1"
@@ -12,5 +15,21 @@
         "displayLanguageSelector": false
       }
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Link Tunnel",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 420,
+        "minHeight": 520,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "windowEffects": { "effects": ["mica"] }
+      }
+    ]
   }
 }

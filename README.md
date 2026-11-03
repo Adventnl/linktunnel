@@ -59,6 +59,17 @@ docs/          architecture, ADRs, protocol, threat model, guides
 scripts/       demos and checks that double as end-to-end tests
 ```
 
+## Start here
+
+Use the [user guide](docs/USER_GUIDE.md) for setup and commands, the
+[desktop README](apps/nexus-app/README.md) for the workspace and development checks,
+and [status](docs/STATUS.md) for platform verification. Architecture, protocol, security
+and decision history are linked from [architecture](docs/ARCHITECTURE.md).
+
+The Windows app now uses a light-glass sidebar and an embedded native desktop, contextual
+device actions, fullscreen and picture sizing. `nexus --help` exposes the command line;
+`status --json`, `devices --json` and `phone` commands also work without the dashboard.
+
 ## Intended use
 For controlling devices you own or are explicitly authorised to administer. Consent, visibility and audit are built in: one-time pairing, automatic access for paired devices, optional per-session approval, lockdown, a signed tamper-evident audit log. It is not designed for covert use and should not be used that way.
 

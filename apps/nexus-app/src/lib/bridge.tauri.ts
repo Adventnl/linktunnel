@@ -20,7 +20,10 @@ export const tauriBridge: Bridge = {
     const off = await listen<AppEvent>("nexus://event", (e) => cb(e.payload));
     return off;
   },
-  connectScreen: (id) => invoke("connect_screen", { id }),
+  connectScreen: (id, options) => invoke("connect_screen", { id, options: options ?? null }),
+  viewerLayout: (viewport) => invoke("viewer_layout", { viewport }),
+  viewerClose: () => invoke("viewer_close"),
+  windowAction: (action) => invoke("window_action", { action }),
   wake: (id) => invoke("wake", { id }),
   power: (id: string, action: PowerAction) => invoke("power", { id, action }),
   setUnattended: (id, on) => invoke("set_unattended", { id, on }),

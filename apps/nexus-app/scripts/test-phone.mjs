@@ -12,7 +12,7 @@ const executablePath = process.env.CHROMIUM ?? [
   "/usr/bin/chromium", "/usr/bin/chromium-browser",
 ].find(existsSync);
 const browser = await chromium.launch({ executablePath, headless: true });
-const server = process.env.PHONE_TEST_URL ? null : await createServer({ server: { host: "127.0.0.1", port: 0 }, logLevel: "error" });
+const server = process.env.PHONE_TEST_URL ? null : await createServer({ server: { host: "127.0.0.1", port: 0, strictPort: false }, logLevel: "error" });
 await server?.listen();
 const base = process.env.PHONE_TEST_URL ?? server.resolvedUrls.local[0];
 const shots = fileURLToPath(new URL("../shots/", import.meta.url));
@@ -35,6 +35,7 @@ async function setup(platform, missing = false) {
       invoke: async (command, args) => {
         window.phoneTestCalls.push({ command, args });
         switch (command) {
+          case "viewer_layout": return;
           case "plugin:event|listen": return 1;
           case "plugin:event|unlisten": return;
           case "snapshot": return { agent: "unreachable", status: null, devices: [], sessions: [], error: null };

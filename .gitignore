@@ -39,3 +39,7 @@ apps/*/.vite/
 /apps/nexus-app/src-tauri/gen/
 /apps/nexus-app/src-tauri/binaries/
 !.env.example
+
+# Design verification captures and temporary direction input
+/.impeccable/review/
+/.impeccable/brief-body.md

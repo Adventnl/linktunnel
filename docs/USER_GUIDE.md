@@ -114,7 +114,33 @@ is required. This supports the current desktop, not GDM/login. See [Mac to Ubunt
 | `terminal` refused on a Windows service | by design (`--no-terminal`, else it would be a SYSTEM shell); see WINDOWS.md |
 | Attended prompt never appears on a headless box | nobody is connected to answer: use `nexus trust unattended` for that device, or run `nexus consent` |
 
-## Native viewer additions
+## Desktop workspace and command line
+
+The Windows desktop app keeps the device sidebar, native remote picture and terminal in one
+window. Right-click a device (or Shift+F10 / its actions button) for power actions and Unpair.
+Unpair remains available offline and requires confirmation. The toolbar provides fullscreen,
+sidebar collapse, Fit / Fill / Actual Pixels, and quality preferences. Fill removes bars by
+cropping edges; it never stretches the desktop. Quality changes apply to the next connection.
+The connected footer reports measured FPS, received bitrate and latency. macOS/Linux retain
+the standalone native-viewer fallback.
+
+The same operations work without the dashboard. On an installed Windows host, add `--system`:
+
+```sh
+nexus --system devices --json
+nexus --system status --json
+nexus --system remote view DEVICE --scale fill --fullscreen --fps 60 --mbps 30
+nexus phone status
+nexus phone devices
+nexus phone pair IP:PAIRING_PORT  # asks for the code privately
+nexus phone connect IP:CONNECTION_PORT
+nexus phone view SERIAL --screen-off --fps 60
+```
+
+The phone CLI owns its scrcpy process until the window closes or Ctrl+C is pressed.
+Phone authorization is separate from desktop pairing and lockdown.
+
+### Native presentation
 
 The viewer uses native GPU presentation where available. `NEXUS_SOFTWARE_VIEWER=1` forces the
 software fallback. Ctrl+Alt+Shift+B toggles the target's Windows normal-desktop privacy shield

@@ -20,7 +20,7 @@ use winit::keyboard::{ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, CustomCursor, Fullscreen, Icon, Window, WindowId};
 
 use crate::keymap::hid_for;
-use crate::layout::{self, Rect, ScaleMode, dest_rect, window_to_picture};
+use crate::layout::{self, Rect, ScaleMode, dest_rect, source_rect, window_to_source};
 use crate::session::{Command, UiEvent, ViewerOptions, spawn};
 
 type Surf = Surface<Arc<Window>, Arc<Window>>;
@@ -32,6 +32,9 @@ struct App {
     surface: Option<Surf>,
     gpu: Option<crate::gpu::Gpu>,
     picture: Option<Picture>,
+    mailbox: Arc<crate::mailbox::Mailbox<Box<Picture>>>,
+    embedded: bool,
+    viewport: Option<crate::embed::Viewport>,
     scale: ScaleMode,
     dest: Rect,
     mods: ModifiersState,
@@ -68,10 +71,38 @@ pub fn run_with_ready(
         .map_err(|e| format!("cannot open a window: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy: EventLoopProxy<UiEvent> = event_loop.create_proxy();
-    let handle = spawn(options.clone(), move |ev| {
-        let _ = proxy.send_event(ev);
+    let mailbox = Arc::new(crate::mailbox::Mailbox::default());
+    let outgoing = Arc::clone(&mailbox);
+    let net_proxy = proxy.clone();
+    let handle = spawn(options.clone(), move |ev| match ev {
+        UiEvent::Picture(pic) => {
+            if outgoing.put(pic) {
+                let _ = net_proxy.send_event(UiEvent::PaintLatest);
+            }
+        }
+        event => {
+            let _ = net_proxy.send_event(event);
+        }
     });
+    let embedded = cfg!(windows) && std::env::var_os("NEXUS_VIEWER_PARENT").is_some();
+    let viewport = std::env::var("NEXUS_VIEWER_VIEWPORT")
+        .ok()
+        .and_then(|value| serde_json::from_str::<crate::embed::Viewport>(&value).ok())
+        .filter(crate::embed::Viewport::valid);
+    if embedded {
+        let controls = proxy.clone();
+        std::thread::Builder::new()
+            .name("viewer-layout".into())
+            .spawn(move || {
+                crate::embed::read_controls(std::io::stdin(), |viewport| {
+                    let _ = controls.send_event(UiEvent::Viewport(viewport));
+                });
+                let _ = controls.send_event(UiEvent::Ended("dashboard closed".into()));
+            })
+            .map_err(|e| format!("cannot start viewer controls: {e}"))?;
+    }
     let initial_monitor = options.monitor;
+    let initial_scale = options.scale;
     let mut app = App {
         options,
         commands: handle.commands,
@@ -79,7 +110,10 @@ pub fn run_with_ready(
         surface: None,
         gpu: None,
         picture: None,
-        scale: ScaleMode::Fit,
+        mailbox,
+        embedded,
+        viewport,
+        scale: initial_scale,
         dest: Rect {
             x: 0,
             y: 0,
@@ -125,6 +159,16 @@ impl App {
                 self.title_stats.clone()
             };
             w.set_title(&title);
+            if self.embedded {
+                use std::io::Write as _;
+                let mut output = std::io::stdout().lock();
+                let _ = writeln!(
+                    output,
+                    "{}",
+                    serde_json::json!({"nexusViewer": "stats", "text": title})
+                );
+                let _ = output.flush();
+            }
         }
     }
 
@@ -138,7 +182,18 @@ impl App {
                     self.scale,
                 );
             }
-            if let Err(e) = gpu.paint(size.width, size.height, self.dest, self.picture.is_some()) {
+            if let Err(e) = gpu.paint(
+                size.width,
+                size.height,
+                self.dest,
+                self.picture.as_ref().map(|pic| {
+                    source_rect(
+                        (pic.width, pic.height),
+                        (size.width, size.height),
+                        self.scale,
+                    )
+                }),
+            ) {
                 tracing::error!(error = %e, "GPU presentation failed");
             }
             return;
@@ -164,12 +219,28 @@ impl App {
                 self.scale,
             );
             self.dest = dest;
-            blit(&mut buffer, size.width, size.height, pic, dest);
+            let source = source_rect(
+                (pic.width, pic.height),
+                (size.width, size.height),
+                self.scale,
+            );
+            blit(&mut buffer, size.width, size.height, pic, dest, source);
         }
         let _ = buffer.present();
     }
 
     fn toggle_fullscreen(&self) {
+        if self.embedded {
+            use std::io::Write as _;
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(
+                output,
+                "{}",
+                serde_json::json!({"nexusViewer": "fullscreen"})
+            );
+            let _ = output.flush();
+            return;
+        }
         if let Some(w) = &self.window {
             w.set_fullscreen(if w.fullscreen().is_some() {
                 None
@@ -189,20 +260,22 @@ impl App {
 }
 
 /// Copies `pic` into the window buffer (0RGB u32 per pixel) scaled into `dest`.
-fn blit(buffer: &mut [u32], win_w: u32, win_h: u32, pic: &Picture, dest: Rect) {
+fn blit(buffer: &mut [u32], win_w: u32, win_h: u32, pic: &Picture, dest: Rect, source: Rect) {
     let (pw, ph) = (pic.width as usize, pic.height as usize);
     if pic.bgra.len() < pw * ph * 4 || pw == 0 || ph == 0 {
         return;
     }
     let (ww, dw, dh) = (win_w as usize, dest.w as usize, dest.h as usize);
     // Map each destination column to a source column once per frame.
-    let xmap: Vec<usize> = (0..dw).map(|x| (x * pw / dw.max(1)).min(pw - 1)).collect();
+    let xmap: Vec<usize> = (0..dw)
+        .map(|x| (source.x as usize + x * source.w as usize / dw.max(1)).min(pw - 1))
+        .collect();
     for dy in 0..dh {
         let wy = dest.y as usize + dy;
         if wy >= win_h as usize {
             break;
         }
-        let sy = (dy * ph / dh.max(1)).min(ph - 1);
+        let sy = (source.y as usize + dy * source.h as usize / dh.max(1)).min(ph - 1);
         let src_row = &pic.bgra[sy * pw * 4..(sy + 1) * pw * 4];
         let row = &mut buffer[wy * ww..(wy + 1) * ww];
         for (dx, sx) in xmap.iter().enumerate() {
@@ -234,6 +307,23 @@ impl ApplicationHandler<UiEvent> for App {
                 .ok(),
             )
             .with_inner_size(LogicalSize::new(1024.0, 640.0));
+        #[cfg(windows)]
+        let attrs = if self.embedded {
+            let parent = std::env::var("NEXUS_VIEWER_PARENT")
+                .ok()
+                .and_then(|v| v.parse::<isize>().ok())
+                .unwrap_or(0);
+            match crate::windows_embed::attributes(attrs, parent) {
+                Ok(attrs) => attrs,
+                Err(e) => {
+                    self.exit_reason = Some(e);
+                    event_loop.exit();
+                    return;
+                }
+            }
+        } else {
+            attrs
+        };
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -243,6 +333,19 @@ impl ApplicationHandler<UiEvent> for App {
             }
         };
         window.set_ime_allowed(true);
+        if self.options.fullscreen && !self.embedded {
+            window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+        if self.embedded
+            && let Some(viewport) = &self.viewport
+        {
+            window.set_outer_position(winit::dpi::PhysicalPosition::new(viewport.x, viewport.y));
+            let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+                viewport.width,
+                viewport.height,
+            ));
+            self.scale = viewport.scale;
+        }
         #[cfg(windows)]
         match crate::windows_keyboard::KeyboardCapture::start(&window, self.commands.clone()) {
             Ok(capture) => self.keyboard_capture = Some(capture),
@@ -283,7 +386,9 @@ impl ApplicationHandler<UiEvent> for App {
                 self.native = Some(native);
                 self.monitor_count = monitors.max(1);
                 tracing::info!(width, height, %encoder, "viewer connected");
-                if let Some(w) = &self.window {
+                if let Some(w) = &self.window
+                    && !self.embedded
+                {
                     // Open at the remote size when it fits a typical display, else a sensible window.
                     let _ = w.request_inner_size(LogicalSize::new(
                         f64::from(width.min(1600)),
@@ -306,7 +411,26 @@ impl ApplicationHandler<UiEvent> for App {
                 // The previous monitor's cursor bitmap and picture are meaningless now.
                 self.picture = None;
             }
-            UiEvent::Picture(pic) => {
+            UiEvent::Viewport(viewport) => {
+                self.scale = viewport.scale;
+                if let Some(window) = &self.window {
+                    window.set_visible(viewport.visible && self.picture.is_some());
+                    window.set_outer_position(winit::dpi::PhysicalPosition::new(
+                        viewport.x, viewport.y,
+                    ));
+                    let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+                        viewport.width,
+                        viewport.height,
+                    ));
+                    window.request_redraw();
+                }
+                self.viewport = Some(viewport);
+            }
+            UiEvent::Picture(_) => {}
+            UiEvent::PaintLatest => {
+                let Some(pic) = self.mailbox.take() else {
+                    return;
+                };
                 if let Some(gpu) = &mut self.gpu
                     && let Err(e) = gpu.upload(&pic)
                 {
@@ -316,6 +440,11 @@ impl ApplicationHandler<UiEvent> for App {
                 }
                 self.picture = Some(*pic);
                 if let Some(ready) = self.on_ready.take() {
+                    if self.embedded
+                        && let Some(window) = &self.window
+                    {
+                        window.set_visible(self.viewport.as_ref().is_none_or(|v| v.visible));
+                    }
                     ready();
                 }
                 if let Some(w) = &self.window {
@@ -521,8 +650,11 @@ impl ApplicationHandler<UiEvent> for App {
                 if let (Some(size), Some(window)) = (self.picture_size(), &self.window) {
                     let win = window.inner_size();
                     let dest = dest_rect(size, (win.width, win.height), self.scale);
-                    if let Some((px, py)) = window_to_picture((position.x, position.y), size, dest)
-                    {
+                    if let Some((px, py)) = window_to_source(
+                        (position.x, position.y),
+                        dest,
+                        source_rect(size, (win.width, win.height), self.scale),
+                    ) {
                         // The picture may be a scaled-down version of the monitor.
                         let (x, y) = layout::to_native((px, py), size, self.native);
                         let monitor = u8::try_from(self.monitor).unwrap_or(0);
@@ -562,7 +694,11 @@ impl ApplicationHandler<UiEvent> for App {
                             f64::from(dest.y) + f64::from(dest.h.saturating_sub(1)),
                         ),
                     );
-                    if let Some(pixel) = window_to_picture(position, size, dest) {
+                    if let Some(pixel) = window_to_source(
+                        position,
+                        dest,
+                        source_rect(size, (win.width, win.height), self.scale),
+                    ) {
                         let (x, y) = layout::to_native(pixel, size, self.native);
                         let monitor = u8::try_from(self.monitor).unwrap_or(0);
                         // Touch wire events are monitor-local; identify the current monitor first.

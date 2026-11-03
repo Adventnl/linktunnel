@@ -142,19 +142,12 @@ pub fn build(app: &AppHandle, link: &Arc<AgentLink>) -> bool {
                         && let Some(d) = link.devices().into_iter().find(|d| d.id == dev)
                     {
                         let app = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            if let Err(error) = crate::commands::spawn_viewer(&d.id).await {
-                                use tauri::Emitter as _;
-                                AgentLink::show_window(&app);
-                                let _ = app.emit(
-                                    crate::link::EVENT,
-                                    crate::dto::AppEvent::Notice {
-                                        level: "error".into(),
-                                        text: error,
-                                    },
-                                );
-                            }
-                        });
+                        use tauri::Emitter as _;
+                        AgentLink::show_window(&app);
+                        let _ = app.emit(
+                            crate::link::EVENT,
+                            crate::dto::AppEvent::ConnectRequested { id: d.id },
+                        );
                     }
                 }
             }

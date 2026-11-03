@@ -1,4 +1,5 @@
 {
+  "cli.phone.pair_code": "Android 配对码：",
   "app.name": "linktunnel",
   "cli.about": "为您自己的设备提供安全、实时的远程控制",
   "cli.identity.created": "已创建新的设备身份。",

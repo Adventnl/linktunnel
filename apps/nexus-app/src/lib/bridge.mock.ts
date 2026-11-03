@@ -71,6 +71,9 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
       return () => listeners.delete(cb);
     },
     connectScreen: async () => { throw new Error("Remote control requires the installed linktunnel app. This browser is a demo."); },
+    viewerLayout: async () => {},
+    viewerClose: async () => {},
+    windowAction: async () => {},
     wake: async (id) => {
       // Pretend the machine takes a moment to come up.
       void sleep(1500).then(() => {

@@ -13,6 +13,7 @@ pub(crate) struct Gpu {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
+    crop: wgpu::Buffer,
     picture: Option<(wgpu::Texture, wgpu::BindGroup, u32, u32)>,
 }
 impl Gpu {
@@ -53,10 +54,11 @@ impl Gpu {
         surface.configure(&device, &config);
         let pipeline = make_pipeline(&device, config.format);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let crop = crop_buffer(&device);
         Ok(Self {
             instance,
             window,
@@ -66,6 +68,7 @@ impl Gpu {
             config,
             pipeline,
             sampler,
+            crop,
             picture: None,
         })
     }
@@ -115,6 +118,10 @@ impl Gpu {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.crop.as_entire_binding(),
+                    },
                 ],
             });
             self.picture = Some((texture, bind, pic.width, pic.height));
@@ -138,7 +145,7 @@ impl Gpu {
         width: u32,
         height: u32,
         dest: Rect,
-        show_picture: bool,
+        source: Option<Rect>,
     ) -> Result<(), String> {
         if width == 0 || height == 0 {
             return Ok(());
@@ -147,6 +154,16 @@ impl Gpu {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
+        }
+        if let (Some(source), Some((_, _, pw, ph))) = (source, &self.picture) {
+            let values = [
+                source.x as f32 / *pw as f32,
+                source.y as f32 / *ph as f32,
+                source.w as f32 / *pw as f32,
+                source.h as f32 / *ph as f32,
+            ];
+            let bytes: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
+            self.queue.write_buffer(&self.crop, 0, &bytes);
         }
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
@@ -191,7 +208,9 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if show_picture && let Some((_, bind, _, _)) = &self.picture {
+            if source.is_some()
+                && let Some((_, bind, _, _)) = &self.picture
+            {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, bind, &[]);
                 pass.set_viewport(
@@ -209,6 +228,19 @@ impl Gpu {
         self.queue.present(frame);
         Ok(())
     }
+}
+
+fn crop_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    use wgpu::util::DeviceExt as _;
+    let bytes: Vec<u8> = [0.0_f32, 0.0, 1.0, 1.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("desktop crop"),
+        contents: &bytes,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    })
 }
 
 fn make_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
@@ -282,6 +314,7 @@ mod tests {
             );
             let sampler = device.create_sampler(&Default::default());
             let source_view = source.create_view(&Default::default());
+            let crop = crop_buffer(&device);
             let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &pipeline.get_bind_group_layout(0),
@@ -293,6 +326,10 @@ mod tests {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: crop.as_entire_binding(),
                     },
                 ],
             });
