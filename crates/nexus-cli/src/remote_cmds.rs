@@ -27,6 +27,8 @@ use crate::agent_cmds::{connect_with_events, resolve};
 
 #[derive(Debug, Subcommand)]
 pub enum RemoteCommand {
+    /// Open a remote terminal or run a command (also works from scripts and coding agents).
+    Terminal(crate::shell_cmds::TerminalOptions),
     /// Save a picture of a paired device's screen.
     Screenshot {
         /// Device name or ID.
@@ -189,6 +191,7 @@ async fn send(live: &Live, events: Vec<InputEvent>) -> Result<()> {
 
 pub async fn run(ctx: &AppContext, cmd: RemoteCommand) -> Result<ExitCode> {
     match cmd {
+        RemoteCommand::Terminal(options) => crate::shell_cmds::shell(ctx, &options).await,
         RemoteCommand::Screenshot {
             device,
             output,

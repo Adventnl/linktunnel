@@ -5,6 +5,7 @@
       "binaries/nexus-agent"
     ],
     "resources": {
+      "resources/phone-tools/": "phone-tools/",
       "../../../installers/windows/install-desktop.ps1": "install-desktop.ps1",
       "../../../installers/windows/uninstall-desktop.ps1": "uninstall-desktop.ps1"
     },

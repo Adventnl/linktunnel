@@ -132,7 +132,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[role="switch"]').getAttribute("aria-checked") === "true");
   await page.keyboard.press("Escape");
   assert.equal(await page.getByText("Search commands", { exact: true }).count(), 0);
-  assert.equal(await page.getByText("Phone", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Phone", exact: true }).count(), 1);
   assert.deepEqual(errors, []);
   console.log("Workspace checks passed: native bounds, quality, fill, sidebar, dialog visibility, fullscreen, disconnect, keyboard/context menu, offline removal entry, failure/retry and viewer exit.");
 } finally { await browser.close(); await server.close(); }

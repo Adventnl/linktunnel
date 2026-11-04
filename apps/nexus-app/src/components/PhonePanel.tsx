@@ -72,6 +72,28 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
             {tool("adb")}{tool("scrcpy")}
           </div>
         </details>
+        <details open={!devices.some((device) => device.state === "device")} className="rounded-lg border border-line p-3">
+          <summary className="cursor-pointer font-semibold">{t("phone.wireless")}</summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-muted">{t("phone.wireless_help")}</p>
+            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void run(async () => {
+              const pairingCode = code; setCode(""); await bridge.phonePair(pairAddress.trim(), pairingCode);
+              if (alive.current) setMessage(t("phone.paired"));
+            }); }}>
+              <label className="block space-y-1">{t("phone.pair_address")}<input className={field} placeholder="192.168.1.20:37123" value={pairAddress} disabled={busy} onChange={(e) => setPairAddress(e.target.value)} autoComplete="off" /></label>
+              <label className="block space-y-1">{t("phone.code")}<input className={field} type="password" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} disabled={busy} onChange={(e) => setCode(e.target.value)} autoComplete="off" /></label>
+              <Button type="submit" disabled={busy || !adbReady || !pairAddress || !/^[0-9]{6}$/.test(code)}>{t("phone.pair")}</Button>
+            </form>
+            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void run(async () => { await bridge.phoneConnect(address.trim()); await refresh(); }); }}>
+              <label className="block space-y-1">{t("phone.connect_address")}<input className={field} placeholder="192.168.1.20:40221" value={address} disabled={busy} onChange={(e) => setAddress(e.target.value)} autoComplete="off" /></label>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={busy || !adbReady || !address}>{t("phone.connect")}</Button>
+                <Button disabled={busy || !adbReady || !address} onClick={() => void run(async () => { await bridge.phoneDisconnect(address.trim()); await refresh(); })}>{t("phone.disconnect")}</Button>
+              </div>
+            </form>
+            <p className="text-xs text-muted">{t("phone.network")}</p>
+          </div>
+        </details>
         <section className="space-y-3">
           <h3 className="font-semibold">{t("phone.control")}</h3>
           <label className="block space-y-1">{t("phone.device")}
@@ -105,28 +127,6 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
           <p className="text-xs text-muted">{t("phone.limits")}</p>
           <p className="text-xs text-muted">{t("phone.lifecycle")}</p>
         </section>
-        <details className="rounded-lg border border-line p-3">
-          <summary className="cursor-pointer font-semibold">{t("phone.wireless")}</summary>
-          <div className="mt-3 space-y-3">
-            <p className="text-muted">{t("phone.wireless_help")}</p>
-            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void run(async () => {
-              const pairingCode = code; setCode(""); await bridge.phonePair(pairAddress.trim(), pairingCode);
-              if (alive.current) setMessage(t("phone.paired"));
-            }); }}>
-              <label className="block space-y-1">{t("phone.pair_address")}<input className={field} placeholder="192.168.1.20:37123" value={pairAddress} disabled={busy} onChange={(e) => setPairAddress(e.target.value)} autoComplete="off" /></label>
-              <label className="block space-y-1">{t("phone.code")}<input className={field} type="password" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} disabled={busy} onChange={(e) => setCode(e.target.value)} autoComplete="off" /></label>
-              <Button type="submit" disabled={busy || !adbReady || !pairAddress || !/^[0-9]{6}$/.test(code)}>{t("phone.pair")}</Button>
-            </form>
-            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void run(async () => { await bridge.phoneConnect(address.trim()); await refresh(); }); }}>
-              <label className="block space-y-1">{t("phone.connect_address")}<input className={field} placeholder="192.168.1.20:40221" value={address} disabled={busy} onChange={(e) => setAddress(e.target.value)} autoComplete="off" /></label>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={busy || !adbReady || !address}>{t("phone.connect")}</Button>
-                <Button disabled={busy || !adbReady || !address} onClick={() => void run(async () => { await bridge.phoneDisconnect(address.trim()); await refresh(); })}>{t("phone.disconnect")}</Button>
-              </div>
-            </form>
-            <p className="text-xs text-muted">{t("phone.network")}</p>
-          </div>
-        </details>
         <section className="space-y-2 rounded-lg border border-line p-3">
           <h3 className="font-semibold">{t("phone.calls")}</h3><p>{t("phone.calls_help")}</p>
           {status?.platform === "windows" ? <>

@@ -35,7 +35,7 @@ pub(crate) async fn open(
             cols: req.cols.clamp(1, 1000),
             rows: req.rows.clamp(1, 1000),
             shell: req.shell,
-            args: Vec::new(),
+            args: req.args,
             cwd: req.cwd,
             name: req.name,
             reattach_only: req.reattach_only,

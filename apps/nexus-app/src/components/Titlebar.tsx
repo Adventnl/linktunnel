@@ -24,6 +24,9 @@ export function Titlebar({ model, onWindowAction }: {
         <span className="tailscale-mark" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</span>
         <span><small>Tailscale</small><strong>{desktopInfo.account ?? t("account.unavailable")}</strong></span>
       </div>
+      <button className="settings-trigger" aria-label={t("phone.title")} type="button" onClick={() => model.setPhone(true)}>
+        <Icon name="phone" size={18} /><span>{t("phone.title")}</span>
+      </button>
       <button className="settings-trigger" aria-label={t("settings.title")} type="button" onClick={() => model.setSettings(true)}>
         <Icon name="settings" size={18} /><span>{t("settings.title")}</span>
       </button>

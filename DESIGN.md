@@ -227,7 +227,7 @@ Selects use translucent chrome fill, normal foreground, field corners and paddin
 
 ### Navigation
 
-Computer rows pair an icon, name, status dot and label. A single selection lens glides beneath the active row using transform only (320ms, exponential ease-out). Hover adds a quiet translucent fill. Power and unpair actions remain in a context menu; narrow layouts retain the same row language in a horizontal strip. The top bar carries account context and settings, without local-computer or utility footers.
+Computer rows pair an icon, name, status dot and label. A single selection lens glides beneath the active row using transform only (320ms, exponential ease-out). Hover adds a quiet translucent fill. Power and unpair actions remain in a context menu; narrow layouts retain the same row language in a horizontal strip. The top bar carries account context, Phone and Settings, without local-computer or utility footers.
 
 ### Appearance and Lockdown
 
@@ -250,7 +250,9 @@ Desktop pixels stay native. Windows can lift the live picture into a separate wi
 
 ### Don't:
 
-- Don't restore the phone, command-search, CLI or local-computer utility footer to this desktop shell.
+- Don't restore the command-search, CLI or local-computer utility footer to this desktop shell.
 - Don't blur the remote desktop picture or make glass obscure working content.
 - Don't use glyphs in place of the shared SVG action icons.
 - Don't animate layout dimensions for the moving selection lens.
+
+Phone control is available in the top bar using the shared phone icon and glass control. Its panel keeps wireless pairing open when no phone is present and explains that the tools are included; USB remains an optional connection method. Native Android pixels stay in the separate viewer.

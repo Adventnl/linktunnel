@@ -16,7 +16,7 @@ Existing Tauri 2 desktop shell with React/TypeScript, Rust agents and a native w
 
 ## Capabilities and Constraints
 
-Preserve authenticated local agent IPC, device identity, pairing verification, consent, lockdown, clipboard, audio, remote input and terminal controls. The desktop shell removes phone, command-search, CLI-help and local-machine status utilities; underlying CLI and phone capabilities remain independent. Lockdown belongs in Settings. Video stays in a native surface. English and Simplified Chinese catalogs remain in parity. CLI access must not require the dashboard.
+Preserve authenticated local agent IPC, device identity, pairing verification, consent, lockdown, clipboard, audio, remote input and terminal controls. The top bar exposes Phone for wireless Android pairing and mirroring using bundled tools. Phone control and CLI access remain independent of the desktop agent. The shell omits command-search, CLI-help and local-machine status utilities. Lockdown belongs in Settings. Video stays in a native surface. English and Simplified Chinese catalogs remain in parity. CLI access must not require the dashboard.
 
 ## Brand Commitments
 

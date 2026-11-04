@@ -72,6 +72,8 @@ try {
   await page.getByText("The linktunnel agent is not running", { exact: true }).waitFor();
   const open = dialog.getByRole("button", { name: "Open phone", exact: true });
   await open.waitFor();
+  assert.equal(await dialog.getByText(/Phone tools are included with linktunnel/).count(), 1);
+  assert.equal(await dialog.getByText(/brew install|winget install/).count(), 0);
   await open.click({ trial: true });
   assert.equal(await open.isEnabled(), true);
   assert.equal(await dialog.getByRole("option", { name: /Other phone/ }).evaluate((option) => option.disabled), true);

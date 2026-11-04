@@ -43,3 +43,7 @@ apps/*/.vite/
 # Design verification captures and temporary direction input
 /.impeccable/review/
 /.impeccable/brief-body.md
+
+# Downloaded and verified at build time
+/apps/nexus-app/src-tauri/resources/phone-tools/
+/apps/nexus-app/src-tauri/resources/.phone-tools-*/

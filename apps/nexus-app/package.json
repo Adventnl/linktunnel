@@ -6,7 +6,7 @@
   "description": "linktunnel desktop app: live device dashboard, terminal, pairing and consent prompts.",
   "scripts": {
     "dev": "vite",
-    "prepare:viewer": "node scripts/prepare-viewer.mjs",
+    "prepare:viewer": "npm run prepare:phone && node scripts/prepare-viewer.mjs",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -14,7 +14,8 @@
     "test:pairing": "node scripts/test-pairing.mjs",
     "tauri": "tauri",
     "screenshots": "node scripts/screenshots.mjs",
-    "test:workspace": "node scripts/test-workspace.mjs"
+    "test:workspace": "node scripts/test-workspace.mjs",
+    "prepare:phone": "node scripts/prepare-phone.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

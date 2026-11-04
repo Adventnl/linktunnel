@@ -25,7 +25,7 @@ pub(super) fn command(path: &Path) -> Command {
 }
 
 pub(super) fn spawn(cmd: &mut Command) -> Result<Child, Error> {
-    cmd.spawn().map_err(|e| Error::Tool(format!("Cannot start phone tool. Install adb and scrcpy 3.3+, then restart linktunnel (or set NEXUS_ADB / NEXUS_SCRCPY to absolute paths): {e}")))
+    cmd.spawn().map_err(|e| Error::Tool(format!("Cannot start the bundled phone tool. Reinstall the complete linktunnel app. Source builds: run npm run prepare:phone in apps/nexus-app: {e}")))
 }
 
 pub(super) async fn output(cmd: &mut Command, timeout: Duration) -> Result<String, Error> {

@@ -17,7 +17,8 @@ Video never passes through React or the webview.
   Disconnect cancels pending startup as well as stopping an established viewer.
 - The command palette is optional (Ctrl+K / Command+K). Settings retain light/dark/system
   appearance, English/Simplified Chinese, access controls and offline removal.
-- Phone control uses separate local adb/scrcpy authorization. Its native window and Stop
+- The Phone button opens wireless Android pairing and control. adb/scrcpy are bundled;
+  no separate tool installation is needed. Phone control uses separate Android authorization. Its native window and Stop
   lifecycle remain separate from agent pairing and lockdown. See [phone control](../../docs/PHONE_CONTROL.md).
 
 The local agent must be installed and running. Pairing needs a reachable configured signaling
@@ -31,7 +32,8 @@ The bundled `nexus` executable is the CLI. On an installed Windows host, use `--
 nexus --system devices --json
 nexus --system status --json
 nexus --system remote view MY-PC --scale fill --fullscreen --fps 60 --mbps 30
-nexus --system shell MY-PC
+nexus --system remote terminal MY-PC
+nexus remote terminal "Henrik server" --cwd /srv/project --command 'git status --short' --timeout 60
 nexus phone devices
 nexus phone pair 192.168.1.2:35000  # prompts privately for the pairing code
 nexus phone view SERIAL --screen-off --fps 60

@@ -172,19 +172,7 @@ enum Command {
         port: u16,
     },
     /// Open a terminal on a paired device (`--name` keeps it running when you disconnect).
-    Shell {
-        /// Device name or ID.
-        device: String,
-        /// Persistent session name: detach with Ctrl-] . and come back with the same name.
-        #[arg(short, long)]
-        name: Option<String>,
-        /// Program to run instead of the device's default shell.
-        #[arg(long)]
-        program: Option<String>,
-        /// Only re-attach to an existing named session.
-        #[arg(long)]
-        attach_only: bool,
-    },
+    Shell(shell_cmds::TerminalOptions),
     /// Lock, sleep, restart or shut down a paired device.
     Power {
         /// Device name or ID.
@@ -329,12 +317,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Proxy { device, host, port } => {
             forward_cmds::proxy(&ctx, &device, &host, port).await
         }
-        Command::Shell {
-            device,
-            name,
-            program,
-            attach_only,
-        } => shell_cmds::shell(&ctx, &device, name, program, attach_only).await,
+        Command::Shell(options) => shell_cmds::shell(&ctx, &options).await,
         Command::Power {
             device,
             action,
@@ -506,6 +489,57 @@ mod cli_tests {
             Cli::try_parse_from(["nexus", "remote", "view", "pc", "--scale", "invalid"]).is_err()
         );
     }
+    #[test]
+    fn remote_terminal_accepts_commands_and_persistent_takeover() {
+        let parsed = Cli::try_parse_from([
+            "nexus",
+            "remote",
+            "terminal",
+            "Henrik server",
+            "--command",
+            "pwd",
+            "--cwd",
+            "/srv",
+            "--timeout",
+            "60",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.command,
+            Command::Remote(remote_cmds::RemoteCommand::Terminal(_))
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "nexus",
+                "shell",
+                "server",
+                "--name",
+                "codex",
+                "--attach-only"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from(["nexus", "remote", "terminal", "server", "--attach-only"])
+                .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "nexus",
+                "remote",
+                "terminal",
+                "server",
+                "--command",
+                "pwd",
+                "--name",
+                "codex"
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["nexus", "shell", "server", "--timeout", "0"]).is_err());
+        assert!(Cli::try_parse_from(["nexus", "shell", "server", "--", "-c", "pwd"]).is_ok());
+    }
+
     #[test]
     fn phone_commands_validate_quality_and_keep_pairing_code_off_command_line() {
         assert!(Cli::try_parse_from(["nexus", "phone", "status"]).is_ok());

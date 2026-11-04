@@ -14,6 +14,51 @@
 | macOS | `installers/macos/build-pkg.sh`. **Untested on a Mac.** |
 | Desktop app | `cd apps/nexus-app && npm ci && npx tauri build` (see its README) |
 
+
+## Remote terminals for scripts and coding agents
+
+Use the same paired device name as the app (quote spaces), or its device ID:
+
+```sh
+nexus devices --json
+nexus remote terminal "Henrik server"
+nexus remote terminal "Henrik server" --name codex
+nexus remote terminal "Henrik server" --name codex --attach-only
+nexus remote terminal "Henrik server" --cwd /srv/project --command 'git status --short' --timeout 60
+printf 'pwd\nexit 3\n' | nexus remote terminal "Henrik server"
+```
+
+This uses the existing agent and terminal grant, consent, unattended-access rules
+and lockdown. It opens a control-only session, so no screen or GUI is required.
+`--command` runs in the remote default shell and returns its exit code (0–255);
+errors, refusal, disconnection and timeout fail locally. Rebuild/update the local
+agent with the CLI so it forwards command arguments. The remote terminal protocol
+already supports those arguments.
+
+Pipes automatically stream input/output without enabling local raw mode or
+interpreting Ctrl-] shortcuts. EOF signals terminal EOF and output continues until
+the remote shell exits. This is still a **PTY**: stdout and stderr are merged,
+line endings/echo follow the target terminal, and it is not a binary file pipe.
+Use `nexus cp` for files. For a finite job, prefer `--command` and `--timeout`;
+Windows interactive shells can handle EOF differently. `--no-tty` also disables
+local raw mode explicitly.
+
+`--command` uses `-c` (Unix shells and PowerShell). For cmd.exe use
+`--program cmd.exe --command 'dir'`; the CLI uses `/C`. Advanced shell arguments
+can follow `--`, e.g. `--program /bin/sh -- -c 'pwd; exit 7'`. The target's allowed
+shell policy still applies. `--cwd` is a path on the target.
+
+Named sessions retain shell state and replay recent output; attaching with the
+same name takes over that terminal from another controller, including the app.
+Ctrl-] then `.` detaches and Ctrl-] then `k` kills it in interactive mode.
+`--attach-only` requires `--name`. Commands use ephemeral terminals to avoid
+silently attaching to an old job. Timeout or Ctrl+C closes the attachment;
+ephemeral shells are killed, while named shells remain available for reattachment.
+
+On macOS the app's CLI is `/Applications/linktunnel.app/Contents/MacOS/nexus`
+(the package installer also links it into `/usr/local/bin`). CLI use never needs
+the dashboard window. Phone control is separate: see [wireless phone setup](PHONE_CONTROL.md).
+
 ## 2. Try it on one machine
 ```sh
 ./scripts/demo-local.sh      # signaling server + two agents + CLI, separate processes
@@ -38,7 +83,7 @@
 | Watch and control a screen | `nexus remote view <device> [--audio]` |
 | Hear its sound | `nexus remote view <device> --audio` (the device needs the `audio` grant; sharing on by default, `[audio] enabled = false` to stop) |
 | Screenshot / type / click | `nexus remote screenshot|type|key|click <device> …` |
-| Open a terminal | `nexus shell <device> [--name work]` (named = survives disconnect; detach `Ctrl-] .`, kill `Ctrl-] k`) |
+| Open a terminal | `nexus remote terminal <device> [--name work]` (alias: `nexus shell`) (named = survives disconnect; detach `Ctrl-] .`, kill `Ctrl-] k`) |
 | Copy files | `nexus ls <device>:`, `nexus cp ./a.zip <device>:/path/`, `nexus cp <device>:/path/b.zip .` (resumable, hash-verified) |
 | Reach a service on it | `nexus forward <device> 5432` → `localhost:5432` |
 | Use plain `ssh` through the tunnel | `~/.ssh/config`: `Host box` / `ProxyCommand nexus proxy box` then `ssh box` (the target's sshd listens on its own loopback) |

@@ -1373,6 +1373,57 @@ async fn a_named_terminal_survives_a_disconnect_through_the_agents() {
     .await;
     assert!(ended.exited || !ended.reason.is_empty());
     mac.client.close_session(sid).await.unwrap();
+
+    // Non-interactive commands must retain shell arguments and the working directory
+    // across local IPC, encrypted terminal transport, and the remote PTY host.
+    let sid = session().await;
+    let command = mac
+        .client
+        .open_terminal(nexus_proto::v1::OpenTerminal {
+            session_id: sid,
+            cols: 80,
+            rows: 24,
+            args: vec![
+                "-c".into(),
+                "printf 'command-result:%s' \"$PWD\"; exit 7".into(),
+            ],
+            cwd: dir
+                .path()
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .terminal_id;
+    let mut output = String::new();
+    loop {
+        let ev = tokio::time::timeout(Duration::from_secs(10), mac.events.next())
+            .await
+            .unwrap()
+            .unwrap();
+        match ev.body {
+            Some(Ev::TerminalOutput(o)) if o.terminal_id == command => {
+                output.push_str(&String::from_utf8_lossy(&o.data))
+            }
+            Some(Ev::TerminalEnded(e)) if e.terminal_id == command => {
+                assert!(e.exited, "{e:?}");
+                assert_eq!(e.exit_code, 7);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        output.contains(&format!(
+            "command-result:{}",
+            dir.path().canonicalize().unwrap().display()
+        )),
+        "{output}"
+    );
+    mac.client.close_session(sid).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

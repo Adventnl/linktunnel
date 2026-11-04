@@ -26,7 +26,9 @@ pub fn run() {
         .setup(|app| {
             let link = link::AgentLink::new(link::agent_paths());
             app.manage(Arc::clone(&link));
-            app.manage(nexus_phone::Phone::default());
+            app.manage(nexus_phone::Phone::bundled(
+                app.path().resource_dir()?.join("phone-tools"),
+            ));
             app.manage(Arc::new(workspace::Workspace::default()));
             let handle = app.handle().clone();
             *link.tray_ok.lock() = tray::build(&handle, &link);

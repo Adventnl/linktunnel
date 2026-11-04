@@ -71,6 +71,7 @@ export function useApp(bridge: Bridge) {
   const themeTransition = useRef<ViewTransition | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [settings, setSettings] = useState(false);
+  const [phone, setPhone] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [unpairing, setUnpairing] = useState<Device | null>(null);
   const [selectedId, selectDevice] = useState<string | null>(null);
@@ -346,6 +347,7 @@ export function useApp(bridge: Bridge) {
       .panic()
       .catch((error: unknown) => toast("error", String(error)));
   const modalOpen =
+    phone ||
     settings ||
     pairing ||
     !!unpairing ||
@@ -388,6 +390,8 @@ export function useApp(bridge: Bridge) {
     now,
     settings,
     setSettings,
+    phone,
+    setPhone,
     pairing,
     setPairing,
     unpairing,

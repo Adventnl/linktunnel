@@ -520,6 +520,8 @@ message OpenTerminal {
   // Persistent session name; empty = ephemeral.
   string name = 6;
   bool reattach_only = 7;
+  // Arguments passed directly to the allowed shell, without local shell expansion.
+  repeated string args = 8;
 }
 
 message TerminalStarted {

@@ -1,4 +1,4 @@
-//! Local Android control using separately installed adb and scrcpy (3.3 or newer).
+//! Local Android control using bundled adb and scrcpy (3.3 or newer).
 //!
 //! Android grants access through its own USB authorisation or wireless pairing. This
 //! transport is independent of linktunnel agent pairing, sessions and lockdown. No call
@@ -7,7 +7,7 @@
 
 mod process;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -126,23 +126,89 @@ pub struct Phone {
     cancel: Notify,
 }
 
+/// Directory name shared with the build-time phone-tools manifest.
+fn tool_target() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", _) => "x86_64-apple-darwin",
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+        ("windows", "x86") => "i686-pc-windows-msvc",
+        ("windows", _) => "x86_64-pc-windows-msvc",
+        _ => "x86_64-unknown-linux-gnu",
+    }
+}
+
+fn discover_bundle(executable: &Path) -> Option<PathBuf> {
+    let parent = executable.parent()?;
+    // CLI sidecar beside a Windows app, or inside a macOS .app's Contents/MacOS.
+    let mut roots = vec![parent.join("phone-tools")];
+    if let Some(contents) = parent.parent() {
+        roots.push(contents.join("Resources/phone-tools"));
+        // Tauri's Linux deb/AppImage resources sit under lib/<product>.
+        roots.push(contents.join("lib/linktunnel/phone-tools"));
+    }
+    #[cfg(debug_assertions)]
+    roots.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/nexus-app/src-tauri/resources/phone-tools"),
+    );
+    roots
+        .into_iter()
+        .find(|root| root.join(tool_target()).is_dir())
+}
+
 impl Default for Phone {
     fn default() -> Self {
-        let scrcpy: PathBuf = std::env::var_os("NEXUS_SCRCPY")
-            .unwrap_or_else(|| "scrcpy".into())
-            .into();
-        // Portable Windows scrcpy distributions ship adb next to scrcpy.exe.
+        match std::env::current_exe()
+            .ok()
+            .and_then(|exe| discover_bundle(&exe))
+        {
+            Some(root) => Self::bundled(root),
+            None => Self::with_tools(None),
+        }
+    }
+}
+
+impl Phone {
+    /// Use the app's resource directory, independent of Finder's PATH. Explicit developer
+    /// NEXUS_ADB/NEXUS_SCRCPY overrides remain available for troubleshooting.
+    #[must_use]
+    pub fn bundled(root: impl AsRef<Path>) -> Self {
+        let root = root.as_ref();
+        #[cfg(debug_assertions)]
+        let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/nexus-app/src-tauri/resources/phone-tools");
+        #[cfg(debug_assertions)]
+        let root = if root.join(tool_target()).is_dir() {
+            root
+        } else {
+            &development
+        };
+        Self::with_tools(Some(&root.join(tool_target())))
+    }
+
+    fn with_tools(bundle: Option<&Path>) -> Self {
+        let executable = |name: &str| {
+            let name = if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_owned()
+            };
+            bundle.map_or_else(|| PathBuf::from(&name), |dir| dir.join(&name))
+        };
+        let scrcpy = std::env::var_os("NEXUS_SCRCPY")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| executable("scrcpy"));
         let adjacent = scrcpy.with_file_name(if cfg!(windows) { "adb.exe" } else { "adb" });
-        let adb = std::env::var_os("NEXUS_ADB").map_or_else(
-            || {
+        let adb = std::env::var_os("NEXUS_ADB")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
                 if scrcpy.is_absolute() && adjacent.is_file() {
                     adjacent
                 } else {
-                    "adb".into()
+                    executable("adb")
                 }
-            },
-            PathBuf::from,
-        );
+            });
         Self {
             adb,
             scrcpy,
@@ -150,9 +216,17 @@ impl Default for Phone {
             cancel: Notify::new(),
         }
     }
-}
 
-impl Phone {
+    fn scrcpy(&self) -> Command {
+        let mut command = process::command(&self.scrcpy);
+        command.env("ADB", &self.adb);
+        let server = self.scrcpy.with_file_name("scrcpy-server");
+        if self.scrcpy.is_absolute() && server.is_file() {
+            command.env("SCRCPY_SERVER_PATH", server);
+        }
+        command
+    }
+
     fn adb(&self) -> Command {
         process::command(&self.adb)
     }
@@ -160,7 +234,7 @@ impl Phone {
     /// Check installed prerequisites and reap a window that the user closed.
     pub async fn status(&self) -> Status {
         let mut adb_cmd = self.adb();
-        let mut scrcpy_cmd = process::command(&self.scrcpy);
+        let mut scrcpy_cmd = self.scrcpy();
         let (adb, scrcpy) = tokio::join!(
             process::output(adb_cmd.arg("version"), Duration::from_secs(5)),
             process::output(scrcpy_cmd.arg("--version"), Duration::from_secs(5)),
@@ -273,11 +347,8 @@ impl Phone {
         if managed.child.is_some() {
             return Err(Error::Busy);
         }
-        let version = process::output(
-            process::command(&self.scrcpy).arg("--version"),
-            Duration::from_secs(5),
-        )
-        .await?;
+        let version =
+            process::output(self.scrcpy().arg("--version"), Duration::from_secs(5)).await?;
         check_version(&version)?;
         let devices = self.devices().await?;
         if !devices
@@ -288,8 +359,8 @@ impl Phone {
                 "Select an online, authorised phone. Accept the debugging prompt on the phone first.",
             ));
         }
-        let mut cmd = process::command(&self.scrcpy);
-        cmd.args(args).env("ADB", &self.adb);
+        let mut cmd = self.scrcpy();
+        cmd.args(args);
         let (child, logs) = process::viewer(&mut cmd, Duration::from_secs(30)).await?;
         managed.child = Some(child);
         managed.logs = Some(logs);
@@ -378,7 +449,10 @@ fn check_version(out: &str) -> Result<String, Error> {
         .lines()
         .find(|l| l.starts_with("scrcpy "))
         .ok_or_else(|| {
-            Error::Tool("Could not identify scrcpy. Install scrcpy 3.3 or newer.".into())
+            Error::Tool(
+                "Could not identify the phone viewer. Reinstall the complete linktunnel app."
+                    .into(),
+            )
         })?;
     let version = line.split_whitespace().nth(1).unwrap_or_default();
     let mut parts = version.split('.');
@@ -391,7 +465,9 @@ fn check_version(out: &str) -> Result<String, Error> {
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(0);
     if major < 3 || (major == 3 && minor < 3) {
-        return Err(Error::Tool("Install scrcpy 3.3 or newer.".into()));
+        return Err(Error::Tool(
+            "The phone viewer is outdated. Reinstall the complete linktunnel app.".into(),
+        ));
     }
     Ok(line.to_owned())
 }

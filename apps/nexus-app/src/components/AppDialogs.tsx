@@ -1,3 +1,4 @@
+import { PhonePanel } from "./PhonePanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConsentDialog } from "./ConsentDialog";
 import { PairingDialog } from "./PairingDialog";
@@ -36,6 +37,7 @@ export function AppDialogs({ model }: { model: AppModel }) {
   const remember = model.remember;
   return (
     <>
+      {model.phone && <PhonePanel bridge={bridge} t={t} onClose={() => model.setPhone(false)} />}
       {settings && (
         <SettingsDialog
           bridge={bridge}

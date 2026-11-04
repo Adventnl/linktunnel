@@ -26,6 +26,8 @@ for B in nexus-agent nexus; do
 done
 sed "s/@VERSION@/$VERSION/g" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"
+node "$ROOT/apps/nexus-app/scripts/prepare-phone.mjs" universal-apple-darwin
+cp -R "$ROOT/apps/nexus-app/src-tauri/resources/phone-tools" "$APP/Contents/Resources/phone-tools"
 install -m644 "$ROOT/apps/nexus-app/src-tauri/icons/icon.icns" "$APP/Contents/Resources/linktunnel.icns"
 mkdir -p "$OUT/root/Applications"; mv "$APP" "$OUT/root/Applications/"
 APP="$OUT/root/Applications/linktunnel.app"

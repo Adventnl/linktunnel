@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "externalBin": ["binaries/nexus"],
+    "resources": { "resources/phone-tools/": "phone-tools/" },
     "category": "Utility",
     "shortDescription": "Secure remote control for your own devices",
     "targets": ["deb", "appimage", "msi", "nsis", "app", "dmg"],

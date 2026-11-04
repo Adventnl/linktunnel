@@ -24,32 +24,31 @@ PINs, first unlock after boot, protected content, Android lock rules and HyperOS
 permissions still apply. Not every application can be mirrored or every gesture
 reproduced. This does not bypass an Android lock.
 
-## Desktop prerequisites
+## Included phone tools
 
-Install **scrcpy 3.3+** and **Android SDK Platform Tools** on each computer.
-They are external dependencies, not bundled in the Nexus installer.
+The desktop installers include **scrcpy 5.0.1**, **adb**, the matching Android
+server, and the portable distribution's runtime libraries. No Homebrew, winget,
+Android SDK installation, root, companion APK, or first-run tool download is needed.
+Both Apple Silicon and Intel Macs are supported. Wireless pairing works without a
+USB cable; start with the wireless steps below.
 
-Windows ([official scrcpy installation guide](https://github.com/Genymobile/scrcpy/blob/master/doc/windows.md)):
+`apps/nexus-app/scripts/prepare-phone.mjs` downloads pinned official distributions
+**during development/build**, verifies the SHA-256 hashes in `phone-tools.json`, and
+stages the complete portable payload under `src-tauri/resources/phone-tools`.
+The Tauri dev/build hooks and macOS package builder run it automatically. Cached
+archives are rechecked before reuse; failed downloads or checksums fail the build.
+Downloaded binaries stay outside Git. Each payload preserves its upstream license
+and records its release URL, archive and hash in `nexus-origin.json`.
 
-```powershell
-winget install --id Genymobile.scrcpy --exact
-winget install --id Google.PlatformTools --exact
-```
+The app resolves tools from its resources, independent of Finder's PATH or the
+working directory. The bundled CLI finds them beside itself or in the app's
+Resources directory. `NEXUS_SCRCPY` / `NEXUS_ADB` remain explicit developer overrides;
+standalone source CLI builds may also use PATH tools. scrcpy receives the same adb
+path as discovery/pairing and an explicit matching `SCRCPY_SERVER_PATH`.
 
-Mac, using Homebrew:
-
-```sh
-brew install scrcpy
-brew install --cask android-platform-tools
-```
-
-Restart Nexus to inherit the new PATH. The panel reports tool versions or missing
-prerequisites. For a portable installation, set `NEXUS_SCRCPY` and `NEXUS_ADB` to
-absolute executable paths in Nexus's launch environment. An absolute scrcpy path
-uses its adjacent adb if available. The same adb is passed to scrcpy, keeping
-discovery and control on the same server and credentials. Mac GUI apps may need
-these overrides when Homebrew is absent from their PATH. Use native executables,
-not `.bat` wrappers.
+Source development: `cd apps/nexus-app && npm run prepare:phone`. The CLI's debug
+build can discover these prepared resources. Build downloads need network access;
+installed apps do not download executable tools.
 
 ## Redmi Note 14 Pro: USB setup
 
@@ -146,12 +145,22 @@ Verified on Windows during implementation:
   differences, missing tools, offline agent, exact device/options, pairing ports,
   code clearing, failures, stop and closed-window status.
 
+Additional macOS verification for bundled tools:
+
+- Pinned macOS Apple Silicon/Intel, Windows x64 and Linux x64 archives passed
+  checksum verification and payload extraction.
+- The native Apple Silicon `.app` built successfully. Its bundled CLI reported
+  adb and scrcpy 5.0.1 successfully with an empty PATH, no tool overrides, and an
+  unrelated working directory.
+- Phone and workspace browser integration checks passed after restoring Phone
+  navigation and making wireless pairing the first setup action.
+
 **Not hardware-verified:** Redmi USB/wireless input, display-off behaviour, media
-routing, measured latency/fps, Mac native execution, Phone Link call transfer,
+routing, measured latency/fps, Redmi mirroring on Mac, Phone Link call transfer,
 computer microphone or headphone routing. No phone was connected. Browser tests
 do not prove phone or Bluetooth compatibility.
 
-Acceptance with your phone: USB first, then Wi-Fi; drag/scroll/type/paste; turn the
+Acceptance with your phone: pair over Wi-Fi without a USB cable; drag/scroll/type/paste; turn the
 physical display off; lock/unlock with your normal PIN; close/reopen; disconnect
 cable/Wi-Fi; verify Stop and app quit. On Windows, make a test call and confirm the
 other person hears the PC microphone, their voice uses your selected PC output,
