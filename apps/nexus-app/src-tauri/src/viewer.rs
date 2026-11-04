@@ -9,6 +9,7 @@ enum ViewerEvent {
     Ended(String),
     Stats(String),
     Fullscreen,
+    Geometry(u32, u32),
 }
 
 pub async fn launch_managed(
@@ -33,11 +34,20 @@ pub async fn launch_managed(
             let event = match event {
                 ViewerEvent::Fullscreen => {
                     if let Some(window) = app.get_webview_window("main") {
-                        let result = window.is_fullscreen().and_then(|fullscreen| window.set_fullscreen(!fullscreen));
-                        if let Err(error) = result { tracing::warn!(%error, "cannot toggle workspace fullscreen"); }
+                        let result = window
+                            .is_fullscreen()
+                            .and_then(|fullscreen| window.set_fullscreen(!fullscreen));
+                        if let Err(error) = result {
+                            tracing::warn!(%error, "cannot toggle workspace fullscreen");
+                        }
                     }
                     return;
                 }
+                ViewerEvent::Geometry(width, height) => crate::dto::AppEvent::ViewerGeometry {
+                    id: id.clone(),
+                    width,
+                    height,
+                },
                 ViewerEvent::Ended(reason) => crate::dto::AppEvent::ViewerEnded {
                     id: id.clone(),
                     reason,
@@ -78,12 +88,12 @@ async fn supervise(
         .kill_on_drop(true);
     if let Some(parent) = parent {
         command.env("NEXUS_VIEWER_PARENT", parent.to_string());
-        if let Some(viewport) = viewport {
-            command.env(
-                "NEXUS_VIEWER_VIEWPORT",
-                serde_json::to_string(&viewport).map_err(|e| e.to_string())?,
-            );
-        }
+    }
+    if let Some(viewport) = viewport {
+        command.env(
+            "NEXUS_VIEWER_VIEWPORT",
+            serde_json::to_string(&viewport).map_err(|e| e.to_string())?,
+        );
     }
     let mut child = command
         .spawn()
@@ -116,13 +126,12 @@ async fn supervise(
         let reason = loop {
             tokio::select! {
                 command = controls.recv() => match command {
-                    Some(Control::Layout(viewport)) if parent.is_some() => {
+                    Some(Control::Layout(viewport)) => {
                         match serde_json::to_vec(&viewport) {
                             Ok(mut bytes) => { bytes.push(b'\n'); if let Err(e) = input.write_all(&bytes).await { break format!("viewer layout failed: {e}"); } }
                             Err(e) => break e.to_string(),
                         }
                     }
-                    Some(Control::Layout(_)) => {},
                     Some(Control::Close(ack)) => { close_ack = Some(ack); break "closed".into(); }
                     None => break "closed".into(),
                 },
@@ -132,6 +141,13 @@ async fn supervise(
                             match status["nexusViewer"].as_str() {
                                 Some("ready") => { if let Some(tx) = ready.take() { let _ = tx.send(Ok(())); } }
                                 Some("stats") => { if let Some(text) = status["text"].as_str() { notify(ViewerEvent::Stats(text.to_owned())); } }
+                                Some("geometry") => {
+                                    if let (Some(width), Some(height)) = (status["width"].as_u64(), status["height"].as_u64()) {
+                                        if (1..=32768).contains(&width) && (1..=32768).contains(&height) {
+                                            notify(ViewerEvent::Geometry(width as u32, height as u32));
+                                        }
+                                    }
+                                }
                                 Some("fullscreen") => notify(ViewerEvent::Fullscreen),
                                 Some("ended") => break status["reason"].as_str().unwrap_or("desktop ended").to_owned(),
                                 _ => {},
@@ -258,6 +274,7 @@ if ($layout.width -eq 777 -and $layout.scale -eq 'fill') { Write-Output '{"nexus
             height: 500,
             visible: true,
             scale: Scale::Fill,
+            detached: false,
         }))
         .await
         .unwrap();

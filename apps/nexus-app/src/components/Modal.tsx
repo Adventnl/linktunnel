@@ -50,14 +50,14 @@ export function Modal({
     }
   };
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 p-4 pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-scrim fixed inset-0 z-40 flex items-center justify-center p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onKeyDown={onKeyDown}
-        className={`w-full ${wide ? "max-w-3xl" : "max-w-md"} rounded-xl border bg-panel text-fg shadow-[var(--shadow)] ${danger ? "border-danger" : "border-line"}`}
+        className={`w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-xl border bg-panel text-fg shadow-[var(--shadow)] ${danger ? "border-danger" : "border-line"}`}
       >
         <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
           <h2 className="text-base font-semibold">{title}</h2>

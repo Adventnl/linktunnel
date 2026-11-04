@@ -128,9 +128,53 @@ pub fn to_native(pos: (i32, i32), picture: (u32, u32), native: Option<(u32, u32)
     (scale(pos.0, picture.0, nw), scale(pos.1, picture.1, nh))
 }
 
+/// Largest remote-shaped client area within the supplied bounds, including portrait screens.
+#[must_use]
+pub fn windowed_size(remote: (u32, u32), bounds: (u32, u32)) -> (u32, u32) {
+    let rect = dest_rect(remote, bounds, ScaleMode::Fit);
+    (rect.w, rect.h)
+}
+
+/// Follow the edge that changed most during a free window resize.
+#[must_use]
+pub fn aspect_resize(remote: (u32, u32), size: (u32, u32), previous: (u32, u32)) -> (u32, u32) {
+    let (rw, rh) = (u64::from(remote.0.max(1)), u64::from(remote.1.max(1)));
+    let (w, h) = (size.0.max(1), size.1.max(1));
+    let height = ((u64::from(w) * rh + rw / 2) / rw).clamp(1, u64::from(u32::MAX)) as u32;
+    if h.abs_diff(height) <= 1 {
+        return (w, h);
+    }
+    if u64::from(w.abs_diff(previous.0)) * rh >= u64::from(h.abs_diff(previous.1)) * rw {
+        (w, height)
+    } else {
+        (
+            ((u64::from(h) * rw + rh / 2) / rh).clamp(1, u64::from(u32::MAX)) as u32,
+            h,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn separate_windows_preserve_remote_aspect_on_open_and_resize() {
+        assert_eq!(windowed_size((1920, 1080), (1600, 1000)), (1600, 900));
+        assert_eq!(windowed_size((1080, 1920), (1600, 1000)), (562, 1000));
+        assert_eq!(
+            aspect_resize((1920, 1080), (1200, 900), (1600, 900)),
+            (1200, 675)
+        );
+        assert_eq!(
+            aspect_resize((1920, 1080), (1600, 600), (1600, 900)),
+            (1067, 600)
+        );
+        assert_eq!(
+            aspect_resize((1920, 1080), (1067, 600), (1067, 600)),
+            (1067, 600)
+        );
+    }
 
     #[test]
     fn fit_letterboxes_and_centres() {

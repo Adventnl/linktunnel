@@ -1,10 +1,8 @@
-import { CommandPalette } from "./CommandPalette";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConsentDialog } from "./ConsentDialog";
 import { PairingDialog } from "./PairingDialog";
 import { UnpairDialog } from "./UnpairDialog";
 import { SettingsDialog } from "./SettingsDialog";
-import { PhonePanel } from "./PhonePanel";
 import type { Key } from "../lib/i18n";
 import type { AppModel } from "../hooks/useApp";
 
@@ -17,16 +15,12 @@ export function AppDialogs({ model }: { model: AppModel }) {
     setLocale,
     theme,
     setTheme,
-    palette,
-    setPalette,
     settings,
     setSettings,
     pairing,
     setPairing,
     unpairing,
     setUnpairing,
-    phone,
-    setPhone,
     confirm,
     setConfirm,
     terminal,
@@ -38,25 +32,19 @@ export function AppDialogs({ model }: { model: AppModel }) {
     status,
     devices,
     consent,
-    palettePick,
   } = model;
   const remember = model.remember;
   return (
     <>
-      {palette && (
-        <CommandPalette
-          devices={devices}
-          t={t}
-          onRun={palettePick}
-          onClose={() => setPalette(false)}
-        />
-      )}
       {settings && (
         <SettingsDialog
           bridge={bridge}
           t={t}
           status={status}
           devices={devices}
+          onLockdown={model.toggleLockdown}
+          quality={model.quality}
+          onQuality={model.setQuality}
           theme={theme}
           locale={locale}
           onTheme={(v) => {
@@ -97,9 +85,6 @@ export function AppDialogs({ model }: { model: AppModel }) {
             setWaking(({ [id]: _drop, ...rest }) => rest);
           }}
         />
-      )}
-      {phone && (
-        <PhonePanel bridge={bridge} t={t} onClose={() => setPhone(false)} />
       )}
       {confirm && (
         <ConfirmDialog

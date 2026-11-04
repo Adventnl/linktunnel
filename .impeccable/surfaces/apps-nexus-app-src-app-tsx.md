@@ -9,9 +9,9 @@ related_targets: []
 Mode: Operate. Target: Windows desktop Tauri shell, with browser preview and existing platform fallbacks.
 
 ## Direction contract
-THESIS: One connected workspace: a compact device sidebar and a native desktop beside it. The user pinned macOS Liquid Glass; this takes precedence over the direction roll and its catalog challengers.
-OWN-WORLD: Frosted pale slate glass, luminous white work surface, restrained ocean-blue selection, soft inset highlights, system UI type and consistent 1.6px line icons. Dark appearance follows the same materials with charcoal glass.
-STORY: Pick a computer, see its live state, connect in place, switch to terminal, adjust fit and quality, disconnect. Device context menus hold power and removal; safety dialogs remain deliberate.
-FIRST VIEWPORT: A 56px integrated titlebar, 248px translucent sidebar with device rows and a quiet utility footer, remaining width a roomy selected-device surface. The primary Connect action sits beside Terminal below a large monitor icon; once connected, the native picture occupies that area with a compact persistent toolbar. Sidebar collapse and fullscreen expand the workspace.
-FORM: Brief-pinned Liquid Glass desktop split view. seed:5da85ba90808f2cc. Code-led app surface. Signature interaction: the selection highlight glides to the device while its workspace settles in; connection reveals the native viewport in place. Reduced motion removes the transition.
+THESIS: Remote computers in a quiet, continuous glass workspace. The computer list and the session are the only primary navigation.
+OWN-WORLD: Clear white or smoked neutral glass, layered specular rims, visible background diffusion, blue connection actions, native typography. Full light/dark parity.
+STORY: Choose a computer, connect, work in the embedded session or lift it into its own window. Settings holds appearance, language and lockdown.
+FIRST VIEWPORT: At 1920×1080, a compact 64px top bar holds the brand at left and Tailscale account plus Settings at right. A floating 252px computer list sits beside an open selected-device surface. No local-machine footer, utilities, duplicated device title or security/status footer. The active desktop has its own aspect-correct surface and compact controls.
+FORM: User-pinned Liquid Glass split workspace; existing seed:5da85ba90808f2cc retained. Code-led implementation. Signature interaction: theme changes dissolve across a soft diagonal gradient; the device selection glides within the glass list. Native picture pixels stay sharp. Detached windows follow remote proportions; fullscreen may letterbox.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

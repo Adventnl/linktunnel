@@ -206,6 +206,11 @@ pub struct PairingSas {
     rename_all_fields = "camelCase"
 )]
 pub enum AppEvent {
+    ViewerGeometry {
+        id: String,
+        width: u32,
+        height: u32,
+    },
     ViewerStats {
         id: String,
         text: String,

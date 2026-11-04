@@ -34,6 +34,8 @@ struct App {
     picture: Option<Picture>,
     mailbox: Arc<crate::mailbox::Mailbox<Box<Picture>>>,
     embedded: bool,
+    last_window_size: (u32, u32),
+    reported_picture_size: Option<(u32, u32)>,
     viewport: Option<crate::embed::Viewport>,
     scale: ScaleMode,
     dest: Rect,
@@ -84,12 +86,13 @@ pub fn run_with_ready(
             let _ = net_proxy.send_event(event);
         }
     });
-    let embedded = cfg!(windows) && std::env::var_os("NEXUS_VIEWER_PARENT").is_some();
+    let parent_available = cfg!(windows) && std::env::var_os("NEXUS_VIEWER_PARENT").is_some();
     let viewport = std::env::var("NEXUS_VIEWER_VIEWPORT")
         .ok()
         .and_then(|value| serde_json::from_str::<crate::embed::Viewport>(&value).ok())
         .filter(crate::embed::Viewport::valid);
-    if embedded {
+    let embedded = parent_available && !viewport.as_ref().is_some_and(|v| v.detached);
+    if std::env::var_os("NEXUS_VIEWER_STATUS").is_some() {
         let controls = proxy.clone();
         std::thread::Builder::new()
             .name("viewer-layout".into())
@@ -112,6 +115,8 @@ pub fn run_with_ready(
         picture: None,
         mailbox,
         embedded,
+        last_window_size: (1024, 576),
+        reported_picture_size: None,
         viewport,
         scale: initial_scale,
         dest: Rect {
@@ -172,26 +177,50 @@ impl App {
         }
     }
 
+    fn presentation_scale(&self) -> ScaleMode {
+        if !self.embedded
+            && self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.fullscreen().is_none())
+            && self.scale == ScaleMode::Fit
+        {
+            // Rounding and in-flight native resize events must not introduce black strips.
+            ScaleMode::Fill
+        } else {
+            self.scale
+        }
+    }
+
+    fn size_window_to_remote(&mut self, remote: (u32, u32)) {
+        if self.embedded {
+            return;
+        }
+        if let Some(window) = &self.window {
+            if window.fullscreen().is_some() {
+                return;
+            }
+            let monitor = window.current_monitor().map(|m| m.size());
+            let bounds = monitor.map_or((1280, 800), |s| (s.width * 4 / 5, s.height * 4 / 5));
+            let size = layout::windowed_size(remote, bounds);
+            self.last_window_size = size;
+            let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(size.0, size.1));
+        }
+    }
+
     fn paint(&mut self) {
+        let scale = self.presentation_scale();
         if let (Some(window), Some(gpu)) = (&self.window, &mut self.gpu) {
             let size = window.inner_size();
             if let Some(pic) = &self.picture {
-                self.dest = dest_rect(
-                    (pic.width, pic.height),
-                    (size.width, size.height),
-                    self.scale,
-                );
+                self.dest = dest_rect((pic.width, pic.height), (size.width, size.height), scale);
             }
             if let Err(e) = gpu.paint(
                 size.width,
                 size.height,
                 self.dest,
                 self.picture.as_ref().map(|pic| {
-                    source_rect(
-                        (pic.width, pic.height),
-                        (size.width, size.height),
-                        self.scale,
-                    )
+                    source_rect((pic.width, pic.height), (size.width, size.height), scale)
                 }),
             ) {
                 tracing::error!(error = %e, "GPU presentation failed");
@@ -213,17 +242,9 @@ impl App {
         };
         buffer.fill(0);
         if let Some(pic) = &self.picture {
-            let dest = dest_rect(
-                (pic.width, pic.height),
-                (size.width, size.height),
-                self.scale,
-            );
+            let dest = dest_rect((pic.width, pic.height), (size.width, size.height), scale);
             self.dest = dest;
-            let source = source_rect(
-                (pic.width, pic.height),
-                (size.width, size.height),
-                self.scale,
-            );
+            let source = source_rect((pic.width, pic.height), (size.width, size.height), scale);
             blit(&mut buffer, size.width, size.height, pic, dest, source);
         }
         let _ = buffer.present();
@@ -306,7 +327,7 @@ impl ApplicationHandler<UiEvent> for App {
                 )
                 .ok(),
             )
-            .with_inner_size(LogicalSize::new(1024.0, 640.0));
+            .with_inner_size(LogicalSize::new(1024.0, 576.0));
         #[cfg(windows)]
         let attrs = if self.embedded {
             let parent = std::env::var("NEXUS_VIEWER_PARENT")
@@ -386,15 +407,7 @@ impl ApplicationHandler<UiEvent> for App {
                 self.native = Some(native);
                 self.monitor_count = monitors.max(1);
                 tracing::info!(width, height, %encoder, "viewer connected");
-                if let Some(w) = &self.window
-                    && !self.embedded
-                {
-                    // Open at the remote size when it fits a typical display, else a sensible window.
-                    let _ = w.request_inner_size(LogicalSize::new(
-                        f64::from(width.min(1600)),
-                        f64::from(height.min(1000)),
-                    ));
-                }
+                self.size_window_to_remote((width, height));
             }
             UiEvent::DisplaysChanged(monitors) => {
                 self.monitor_count = u32::try_from(monitors.len()).unwrap_or(1).max(1);
@@ -413,15 +426,42 @@ impl ApplicationHandler<UiEvent> for App {
             }
             UiEvent::Viewport(viewport) => {
                 self.scale = viewport.scale;
+                #[cfg(windows)]
+                if std::env::var_os("NEXUS_VIEWER_PARENT").is_some()
+                    && self.embedded == viewport.detached
+                {
+                    if let Some(window) = &self.window {
+                        let parent = std::env::var("NEXUS_VIEWER_PARENT")
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
+                        match crate::windows_embed::set_detached(window, parent, viewport.detached)
+                        {
+                            Ok(()) => {
+                                self.embedded = !viewport.detached;
+                                if viewport.detached {
+                                    self.size_window_to_remote(
+                                        self.picture_size().unwrap_or((1920, 1080)),
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "cannot change viewer presentation")
+                            }
+                        }
+                    }
+                }
                 if let Some(window) = &self.window {
-                    window.set_visible(viewport.visible && self.picture.is_some());
-                    window.set_outer_position(winit::dpi::PhysicalPosition::new(
-                        viewport.x, viewport.y,
-                    ));
-                    let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
-                        viewport.width,
-                        viewport.height,
-                    ));
+                    if self.embedded {
+                        window.set_visible(viewport.visible && self.picture.is_some());
+                        window.set_outer_position(winit::dpi::PhysicalPosition::new(
+                            viewport.x, viewport.y,
+                        ));
+                        let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+                            viewport.width,
+                            viewport.height,
+                        ));
+                    }
                     window.request_redraw();
                 }
                 self.viewport = Some(viewport);
@@ -437,6 +477,29 @@ impl ApplicationHandler<UiEvent> for App {
                     self.exit_reason = Some(e);
                     event_loop.exit();
                     return;
+                }
+                let picture_size = (pic.width, pic.height);
+                if self.reported_picture_size != Some(picture_size) {
+                    // Adaptive stream resolution can change without changing the screen shape.
+                    // Preserve the user's window size through those quality adjustments.
+                    let aspect_changed = self.reported_picture_size.is_none_or(|previous| {
+                        u64::from(previous.0) * u64::from(picture_size.1)
+                            != u64::from(picture_size.0) * u64::from(previous.1)
+                    });
+                    self.reported_picture_size = Some(picture_size);
+                    if aspect_changed {
+                        self.size_window_to_remote(picture_size);
+                    }
+                    if std::env::var_os("NEXUS_VIEWER_STATUS").is_some() {
+                        use std::io::Write as _;
+                        let mut output = std::io::stdout().lock();
+                        let _ = writeln!(
+                            output,
+                            "{}",
+                            serde_json::json!({"nexusViewer": "geometry", "width": pic.width, "height": pic.height})
+                        );
+                        let _ = output.flush();
+                    }
                 }
                 self.picture = Some(*pic);
                 if let Some(ready) = self.on_ready.take() {
@@ -524,6 +587,27 @@ impl ApplicationHandler<UiEvent> for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested | WindowEvent::Resized(_) => {
+                if let WindowEvent::Resized(size) = &event {
+                    if !self.embedded && size.width > 0 && size.height > 0 {
+                        if let Some(window) = &self.window {
+                            if window.fullscreen().is_none() && !window.is_maximized() {
+                                if let Some(remote) = self.picture_size() {
+                                    let next = layout::aspect_resize(
+                                        remote,
+                                        (size.width, size.height),
+                                        self.last_window_size,
+                                    );
+                                    self.last_window_size = next;
+                                    if next != (size.width, size.height) {
+                                        let _ = window.request_inner_size(
+                                            winit::dpi::PhysicalSize::new(next.0, next.1),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 self.paint();
                 if matches!(event, WindowEvent::Resized(_))
                     && let Some(w) = &self.window
@@ -649,11 +733,11 @@ impl ApplicationHandler<UiEvent> for App {
                 self.last_pos = Some(position);
                 if let (Some(size), Some(window)) = (self.picture_size(), &self.window) {
                     let win = window.inner_size();
-                    let dest = dest_rect(size, (win.width, win.height), self.scale);
+                    let dest = dest_rect(size, (win.width, win.height), self.presentation_scale());
                     if let Some((px, py)) = window_to_source(
                         (position.x, position.y),
                         dest,
-                        source_rect(size, (win.width, win.height), self.scale),
+                        source_rect(size, (win.width, win.height), self.presentation_scale()),
                     ) {
                         // The picture may be a scaled-down version of the monitor.
                         let (x, y) = layout::to_native((px, py), size, self.native);
@@ -683,7 +767,7 @@ impl ApplicationHandler<UiEvent> for App {
                 };
                 if let (Some(size), Some(window)) = (self.picture_size(), &self.window) {
                     let win = window.inner_size();
-                    let dest = dest_rect(size, (win.width, win.height), self.scale);
+                    let dest = dest_rect(size, (win.width, win.height), self.presentation_scale());
                     let position = (
                         touch.location.x.clamp(
                             f64::from(dest.x),
@@ -697,7 +781,7 @@ impl ApplicationHandler<UiEvent> for App {
                     if let Some(pixel) = window_to_source(
                         position,
                         dest,
-                        source_rect(size, (win.width, win.height), self.scale),
+                        source_rect(size, (win.width, win.height), self.presentation_scale()),
                     ) {
                         let (x, y) = layout::to_native(pixel, size, self.native);
                         let monitor = u8::try_from(self.monitor).unwrap_or(0);

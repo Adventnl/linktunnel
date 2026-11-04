@@ -1,0 +1,22 @@
+{
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Link Tunnel",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 420,
+        "minHeight": 520,
+        "center": true,
+        "decorations": true,
+        "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 28 },
+        "windowEffects": { "effects": ["underWindowBackground"], "state": "active" }
+      }
+    ]
+  }
+}

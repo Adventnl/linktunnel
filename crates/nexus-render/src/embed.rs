@@ -19,6 +19,9 @@ pub struct Viewport {
     pub visible: bool,
     /// Picture scaling preference.
     pub scale: ScaleMode,
+    /// Lift the native picture into a decorated, aspect-correct window.
+    #[serde(default)]
+    pub detached: bool,
 }
 
 /// Read bounded JSON lines. Oversize or malformed messages cannot grow an input allocation.

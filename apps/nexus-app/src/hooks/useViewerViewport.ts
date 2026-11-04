@@ -58,6 +58,7 @@ export function useViewerViewport(
           !overlayOpen &&
           !document.hidden,
         scale,
+        detached: model.detached,
       };
       model.viewport.current = bounds;
       const key = JSON.stringify(bounds);
@@ -68,6 +69,9 @@ export function useViewerViewport(
     };
     const observer = new ResizeObserver(update);
     observer.observe(element);
+    // Aspect fitting can keep the picture's size unchanged while its parent moves it.
+    // Observe the stage too so collapsing the sidebar updates the native x/y bounds.
+    if (element.parentElement) observer.observe(element.parentElement);
     window.addEventListener("resize", update);
     document.addEventListener("visibilitychange", update);
     update();
@@ -79,6 +83,8 @@ export function useViewerViewport(
     };
   }, [
     bridge,
+    model.detached,
+    model.remoteSize,
     deviceId,
     active,
     showTerminal,

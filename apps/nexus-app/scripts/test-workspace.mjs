@@ -27,7 +27,11 @@ try {
         switch (command) {
           case "plugin:event|listen": listeners.add(args.handler); return args.handler;
           case "plugin:event|unlisten": listeners.delete(args.eventId); return;
+          case "desktop_info": return { platform: "windows", embedded: true, account: "Test account" };
           case "snapshot": return { agent: "connected", error: null, sessions: [], devices: [device, { ...device, id: "02", name: "Offline PC", state: "offline", online: false }], status: { deviceId: "03", deviceName: "Local PC", fingerprint: "TEST", agentVersion: "test", signalConnected: true, signalUrl: "", lockdown: false, pairedDevices: 2, activeSessions: 0 } };
+          case "set_lockdown":
+            window.emit({ kind: "snapshot", snapshot: { agent: "connected", error: null, sessions: [], devices: [device], status: { deviceId: "03", deviceName: "Local PC", fingerprint: "TEST", agentVersion: "test", signalConnected: true, signalUrl: "", lockdown: args.on, pairedDevices: 1, activeSessions: 0 } } });
+            return;
           case "viewer_layout": case "viewer_close": case "window_action": return;
           case "terminal_open": return { terminalId: 42 };
           case "terminal_close": case "terminal_input": case "terminal_resize": return;
@@ -44,7 +48,9 @@ try {
   const overview = page.getByRole("article");
   await overview.getByRole("heading", { name: "Windows PC" }).waitFor();
   const windowsBefore = page.context().pages().length;
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel("Quality preference").selectOption("sharp");
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
   await overview.getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect", exact: true }).waitFor();
   await page.waitForTimeout(200);
@@ -55,13 +61,29 @@ try {
   assert.ok(start.args.options.viewport.width > 600);
   await page.getByLabel("Picture size").selectOption("fill");
   await page.waitForFunction(() => window.calls.some((call) => call.command === "viewer_layout" && call.args.viewport.scale === "fill"));
+  const beforeCollapse = await page.locator(".viewport-active").boundingBox();
   await page.getByRole("button", { name: "Toggle sidebar" }).click();
-  await page.waitForFunction(() => window.calls.some((call) => call.command === "viewer_layout" && call.args.viewport.x < 10 && call.args.viewport.visible));
-  await page.keyboard.press("Control+k");
+  await page.waitForFunction(() => {
+    const rect = document.querySelector(".viewport-active").getBoundingClientRect();
+    const bounds = window.calls.filter(call => call.command === "viewer_layout").at(-1)?.args.viewport;
+    return bounds?.visible && bounds.x === Math.round(rect.x * devicePixelRatio) && bounds.width === Math.round(rect.width * devicePixelRatio);
+  });
+  const afterCollapse = await page.locator(".viewport-active").boundingBox();
+  assert.ok(afterCollapse.x < beforeCollapse.x, "Collapsing navigation moves the native picture with the workspace");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("dialog").waitFor();
   await page.waitForFunction(() => window.calls.filter((call) => call.command === "viewer_layout").at(-1)?.args.viewport.visible === false);
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => window.calls.filter((call) => call.command === "viewer_layout").at(-1)?.args.viewport.visible === true);
+  const bounds = await page.locator(".viewport-active").boundingBox();
+  assert.ok(Math.abs(bounds.width / bounds.height - 1920 / 1080) < 0.01, "Embedded viewport follows the remote aspect ratio");
+  await page.getByRole("button", { name: "Open in separate window", exact: true }).click();
+  await page.waitForFunction(() => window.calls.filter(call => call.command === "viewer_layout").at(-1)?.args.viewport.detached === true);
+  await page.getByRole("button", { name: "Return to workspace", exact: true }).first().click();
+  await page.waitForFunction(() => window.calls.filter(call => call.command === "viewer_layout").at(-1)?.args.viewport.detached === false);
+  assert.equal(await page.evaluate(() => window.calls.filter(call => call.command === "connect_screen").length), 1, "Pop out and return preserve the session");
+  await page.evaluate(() => window.emit({ kind: "viewer_geometry", id: "01", width: 1080, height: 1920 }));
+  await page.waitForFunction(() => { const r = document.querySelector(".viewport-active").getBoundingClientRect(); return Math.abs(r.width / r.height - 1080 / 1920) < .01; });
   await page.getByRole("button", { name: "Toggle fullscreen" }).click();
   assert.ok(await page.evaluate(() => window.calls.some((call) => call.command === "window_action" && call.args.action === "fullscreen")));
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
@@ -100,6 +122,17 @@ try {
   await overview.getByText("link lost", { exact: true }).waitFor();
   await page.setViewportSize({ width: 420, height: 700 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "dark" && !document.documentElement.classList.contains("theme-transitioning"));
+  assert.equal(await page.evaluate(() => localStorage.getItem("nexus.theme")), "dark");
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "light" && !document.documentElement.classList.contains("theme-transitioning"));
+  await page.getByRole("switch", { name: "Lockdown mode" }).click();
+  await page.waitForFunction(() => document.querySelector('[role="switch"]').getAttribute("aria-checked") === "true");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByText("Search commands", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Phone", { exact: true }).count(), 0);
   assert.deepEqual(errors, []);
   console.log("Workspace checks passed: native bounds, quality, fill, sidebar, dialog visibility, fullscreen, disconnect, keyboard/context menu, offline removal entry, failure/retry and viewer exit.");
 } finally { await browser.close(); await server.close(); }

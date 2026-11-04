@@ -13,6 +13,9 @@ pub struct Viewport {
     pub height: u32,
     pub visible: bool,
     pub scale: Scale,
+    /// Lift the native picture into a decorated, aspect-correct window.
+    #[serde(default)]
+    pub detached: bool,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -68,6 +71,74 @@ impl Workspace {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopInfo {
+    platform: &'static str,
+    embedded: bool,
+    account: Option<String>,
+}
+
+fn account_name(status: &serde_json::Value) -> Option<String> {
+    let user_id = status["Self"]["UserID"].as_u64()?.to_string();
+    let profile = &status["User"][user_id];
+    ["DisplayName", "LoginName"].iter().find_map(|key| {
+        profile[*key]
+            .as_str()
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned)
+    })
+}
+
+#[tauri::command]
+pub async fn desktop_info() -> DesktopInfo {
+    let mut candidates = vec![std::path::PathBuf::from("tailscale")];
+    #[cfg(target_os = "macos")]
+    candidates.extend(
+        [
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+            "/usr/local/bin/tailscale",
+            "/opt/homebrew/bin/tailscale",
+        ]
+        .map(std::path::PathBuf::from),
+    );
+    #[cfg(windows)]
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        candidates.push(std::path::PathBuf::from(program_files).join("Tailscale/tailscale.exe"));
+    }
+    let account = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        for binary in candidates {
+            let mut command = tokio::process::Command::new(binary);
+            #[cfg(windows)]
+            command.creation_flags(0x0800_0000);
+            let output = command
+                .args(["status", "--json"])
+                .kill_on_drop(true)
+                .output()
+                .await;
+            if let Ok(output) = output {
+                if output.status.success() {
+                    if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                    {
+                        if let Some(account) = account_name(&status) {
+                            return Some(account);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten();
+    DesktopInfo {
+        platform: std::env::consts::OS,
+        embedded: cfg!(windows),
+        account,
     }
 }
 
@@ -155,6 +226,19 @@ pub async fn connect(
 mod tests {
     use super::*;
     #[test]
+    fn account_uses_the_local_user_not_a_peer_profile() {
+        let status = serde_json::json!({"Self": {"UserID": 42}, "User": {
+            "7": {"DisplayName": "Other account"},
+            "42": {"DisplayName": "Local account", "LoginName": "local@example.test"}
+        }});
+        assert_eq!(account_name(&status).as_deref(), Some("Local account"));
+        assert_eq!(
+            account_name(&serde_json::json!({"Self": {"UserID": 42}})),
+            None
+        );
+    }
+
+    #[test]
     fn rejects_unbounded_or_empty_viewports() {
         let mut v = Viewport {
             x: 0,
@@ -163,6 +247,7 @@ mod tests {
             height: 1080,
             visible: true,
             scale: Scale::Fit,
+            detached: false,
         };
         assert!(v.validate().is_ok());
         v.width = 0;

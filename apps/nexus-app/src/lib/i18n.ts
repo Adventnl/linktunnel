@@ -3,9 +3,26 @@
 export type Locale = "en" | "zh-CN";
 
 const en = {
+  "account.unavailable": "Account unavailable",
+  "settings.appearance": "Appearance",
+  "settings.security": "Security",
+  "settings.lockdown": "Lockdown mode",
+  "settings.lockdown.help": "Block new incoming connections to this computer.",
+  "settings.devices": "Paired computers",
+  "settings.details": "Device details",
+  "workspace.popout": "Open in separate window",
+  "workspace.embed": "Return to workspace",
+  "workspace.detached": "Desktop is open in its own window",
+  "workspace.detached.help": "Keep working there, or disconnect below.",
+  "workspace.window": "Session window",
+  "workspace.inline": "In workspace",
+  "workspace.separate": "Separate window",
+  "workspace.resolution": "Remote screen",
+  "settings.session": "Desktop sessions",
+
   "workspace.devices": "Your computers",
   "workspace.ready": "Ready when you are",
-  "workspace.description": "Open a desktop or terminal. Everything stays together.",
+  "workspace.description": "Your desktop, wherever you left it.",
   "workspace.screen": "Desktop",
   "workspace.disconnect": "Disconnect",
   "workspace.sidebar": "Toggle sidebar",
@@ -187,6 +204,23 @@ const en = {
 export type Key = keyof typeof en;
 
 const zh: Record<Key, string> = {
+  "account.unavailable": "账户不可用",
+  "settings.appearance": "外观",
+  "settings.security": "安全",
+  "settings.lockdown": "锁定模式",
+  "settings.lockdown.help": "阻止与此电脑建立新的传入连接。",
+  "settings.devices": "已配对电脑",
+  "settings.details": "设备详情",
+  "workspace.popout": "在独立窗口中打开",
+  "workspace.embed": "返回工作区",
+  "workspace.detached": "桌面已在独立窗口中打开",
+  "workspace.detached.help": "请在独立窗口中操作，或在下方断开连接。",
+  "workspace.window": "会话窗口",
+  "workspace.inline": "工作区内",
+  "workspace.separate": "独立窗口",
+  "workspace.resolution": "远程屏幕",
+  "settings.session": "桌面会话",
+
   "workspace.devices": "你的电脑",
   "workspace.ready": "随时可以连接",
   "workspace.description": "打开桌面或终端，在同一工作区中操作。",

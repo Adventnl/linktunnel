@@ -1,13 +1,12 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
 } from "react";
 import type { Theme } from "../components/SettingsDialog";
-import { DESTRUCTIVE, type PaletteEntry, type Verb } from "../lib/palette";
+import { DESTRUCTIVE, type Verb } from "../lib/palette";
 import { parseLocale, translate, type Key, type Locale } from "../lib/i18n";
 import { dismissToast, initialState, pushToast, reduce } from "../lib/state";
 import { canConnect, isAsleep } from "../lib/status";
@@ -15,6 +14,7 @@ import type {
   AppEvent,
   Bridge,
   Device,
+  DesktopInfo,
   PowerAction,
   Quality,
   Viewport,
@@ -68,13 +68,27 @@ export function useApp(bridge: Bridge) {
   const [theme, setTheme] = useState<Theme>(() =>
     stored<Theme>("nexus.theme", ["auto", "light", "dark"], "light"),
   );
+  const themeTransition = useRef<ViewTransition | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [palette, setPalette] = useState(false);
   const [settings, setSettings] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [unpairing, setUnpairing] = useState<Device | null>(null);
   const [selectedId, selectDevice] = useState<string | null>(null);
   const [connectRequest, setConnectRequest] = useState<string | null>(null);
+  const [desktopInfo, setDesktopInfo] = useState<DesktopInfo>({
+    platform: /Win/.test(navigator.userAgent) ? "windows" : "native",
+    embedded: bridge.mock || /Win/.test(navigator.userAgent), account: null,
+  });
+  const [windowDetached, setDetached] = useState(false);
+  const detached = windowDetached || !desktopInfo.embedded;
+  const [remoteSize, setRemoteSize] = useState({ width: 1920, height: 1080 });
+  useEffect(() => {
+    let cancelled = false;
+    void bridge.desktopInfo().then((info) => {
+      if (!cancelled) { setDesktopInfo(info); }
+    }).catch(() => { /* Account is optional; agent functionality does not depend on Tailscale. */ });
+    return () => { cancelled = true; };
+  }, [bridge]);
   const [screen, setScreen] = useState<Device | null>(null);
   const viewport = useRef<Viewport | null>(null);
   const [viewerStats, setViewerStats] = useState<{
@@ -82,7 +96,6 @@ export function useApp(bridge: Bridge) {
     text: string;
   } | null>(null);
   const [quality, setQuality] = useState<Quality>("auto");
-  const [phone, setPhone] = useState(false);
   const [confirm, setConfirm] = useState<{
     device: Device;
     action: PowerAction;
@@ -126,12 +139,13 @@ export function useApp(bridge: Bridge) {
       setConnectionErrors(({ [device.id]: _drop, ...rest }) => rest);
       try {
         if (screen) await bridge.viewerClose();
+        setRemoteSize({ width: 1920, height: 1080 });
         setScreen(device);
         selectDevice(device.id);
         await bridge.connectScreen(
           device.id,
           viewport.current
-            ? { viewport: { ...viewport.current, visible: true }, quality }
+            ? { viewport: { ...viewport.current, visible: true, detached }, quality }
             : undefined,
         );
       } catch (e) {
@@ -143,7 +157,7 @@ export function useApp(bridge: Bridge) {
         setConnecting(({ [device.id]: _drop, ...rest }) => rest);
       }
     },
-    [bridge, quality, screen],
+    [bridge, quality, screen, detached],
   );
 
   // ---- bridge wiring ------------------------------------------------------------------------
@@ -161,6 +175,8 @@ export function useApp(bridge: Bridge) {
                 [e.id]: e.reason,
               }));
           }
+        } else if (e.kind === "viewer_geometry") {
+          if (e.width > 0 && e.height > 0) setRemoteSize({ width: e.width, height: e.height });
         } else if (e.kind === "viewer_stats") {
           setViewerStats({ id: e.id, text: e.text });
         } else if (e.kind === "connect_requested") {
@@ -198,18 +214,6 @@ export function useApp(bridge: Bridge) {
       document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", theme);
   }, [locale, theme]);
-
-  // Keyboard-first: ⌘K / Ctrl+K opens the palette from anywhere.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPalette((p) => !p);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   // ---- wake and connect ---------------------------------------------------------------------
   useEffect(() => {
@@ -301,13 +305,7 @@ export function useApp(bridge: Bridge) {
   const devices = state.snapshot.devices;
   const lockdown = status?.lockdown ?? false;
   const consent = state.consents[0];
-  const palettePick = useMemo(
-    () => (e: PaletteEntry) => {
-      setPalette(false);
-      run(e.device, e.verb);
-    },
-    [run],
-  );
+
 
   useEffect(() => {
     if (!connectRequest) return;
@@ -348,14 +346,16 @@ export function useApp(bridge: Bridge) {
       .panic()
       .catch((error: unknown) => toast("error", String(error)));
   const modalOpen =
-    palette ||
     settings ||
     pairing ||
     !!unpairing ||
-    phone ||
     !!confirm ||
     !!consent;
   return {
+    desktopInfo,
+    detached,
+    setDetached,
+    remoteSize,
     windowAction,
     toggleLockdown,
     disconnectIncoming,
@@ -366,18 +366,32 @@ export function useApp(bridge: Bridge) {
     locale,
     setLocale,
     theme,
-    setTheme,
+    setTheme: (next: Theme) => {
+      const apply = () => {
+        if (next === "auto") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.setAttribute("data-theme", next);
+        setTheme(next);
+      };
+      if (document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        themeTransition.current?.skipTransition();
+        document.documentElement.classList.add("theme-transitioning");
+        const transition = document.startViewTransition(apply);
+        themeTransition.current = transition;
+        void transition.finished.finally(() => {
+          if (themeTransition.current === transition) {
+            themeTransition.current = null;
+            document.documentElement.classList.remove("theme-transitioning");
+          }
+        });
+      } else apply();
+    },
     now,
-    palette,
-    setPalette,
     settings,
     setSettings,
     pairing,
     setPairing,
     unpairing,
     setUnpairing,
-    phone,
-    setPhone,
     confirm,
     setConfirm,
     terminal,
@@ -394,7 +408,6 @@ export function useApp(bridge: Bridge) {
     devices,
     lockdown,
     consent,
-    palettePick,
     selected,
     selectDevice,
     screen,

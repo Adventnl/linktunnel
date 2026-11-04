@@ -13,7 +13,7 @@ export function DeviceSidebar({
     position: { x: number; y: number };
   }) => void;
 }) {
-  const { t, devices, selected, status } = model;
+  const { t, devices, selected } = model;
   const list = useRef<HTMLElement>(null);
   const [highlight, setHighlight] = useState<{
     x: number;
@@ -137,50 +137,6 @@ export function DeviceSidebar({
           ))}
         </ul>
       </nav>
-      <div className="sidebar-utilities">
-        <button type="button" onClick={() => model.setPhone(true)}>
-          <Icon name="phone" />
-          {t("phone.title")}
-        </button>
-        <button type="button" onClick={() => model.setPalette(true)}>
-          <Icon name="command" />
-          {t("palette.hint")}
-          <kbd>Ctrl K</kbd>
-        </button>
-        <button
-          type="button"
-          title={t("workspace.cli_hint")}
-          onClick={() => model.toast("info", t("workspace.cli_hint"))}
-        >
-          <Icon name="terminal" />
-          {t("workspace.cli")}
-        </button>
-        <button type="button" onClick={() => model.setSettings(true)}>
-          <Icon name="settings" />
-          {t("settings.title")}
-        </button>
-      </div>
-      <div className="local-device">
-        <span
-          className={`signal-dot ${status?.signalConnected ? "online" : ""}`}
-        />
-        <div>
-          <strong>{status?.deviceName ?? t("workspace.local")}</strong>
-          <span>
-            {status?.signalConnected
-              ? t("signal.on")
-              : t("signal.disconnected")}
-          </span>
-        </div>
-        <button
-          type="button"
-          className={`icon-button ${model.lockdown ? "text-danger" : ""}`}
-          title={t(model.lockdown ? "lockdown.disable" : "lockdown.enable")}
-          onClick={model.toggleLockdown}
-        >
-          <Icon name="lock" size={17} />
-        </button>
-      </div>
     </aside>
   );
 }

@@ -13,6 +13,7 @@ export interface Viewport {
   height: number;
   visible: boolean;
   scale: ScaleMode;
+  detached?: boolean;
 }
 export interface ScreenOptions {
   viewport: Viewport;
@@ -106,6 +107,7 @@ export interface PairingSas {
 export type PowerAction = "lock" | "sleep" | "restart" | "shutdown";
 
 export type AppEvent =
+  | { kind: "viewer_geometry"; id: string; width: number; height: number }
   | { kind: "viewer_stats"; id: string; text: string }
   | { kind: "connect_requested"; id: string }
   | { kind: "viewer_ended"; id: string; reason: string }
@@ -142,7 +144,14 @@ export type AppEvent =
   | { kind: "notice"; level: "info" | "error"; text: string };
 
 /** Everything the UI can ask the app to do. */
+export interface DesktopInfo {
+  platform: string;
+  embedded: boolean;
+  account: string | null;
+}
+
 export interface Bridge {
+  desktopInfo(): Promise<DesktopInfo>;
   readonly mock: boolean;
   phoneStatus(): Promise<PhoneStatus>;
   phoneDevices(): Promise<PhoneDevice[]>;

@@ -8,6 +8,7 @@ import { selectBridge } from "./lib/bridge";
 const root = document.getElementById("root");
 if (root) {
   const bridge = selectBridge();
+  document.documentElement.dataset.platform = /Mac/.test(navigator.userAgent) ? "macos" : "other";
   document.documentElement.dataset.runtime = bridge.mock ? "browser" : "native";
   createRoot(root).render(
     <StrictMode>

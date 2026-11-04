@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  popout: "M14 3h7v7 M21 3l-11 11 M10 3H3v18h18v-7",
   monitor: "M3 4h18v12H3z M8 21h8 M12 16v5",
   laptop: "M5 3h14v13H5z M2 20h20l-3-4H5z",
   terminal: "m5 6 5 5-5 5 M13 17h6",

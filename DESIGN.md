@@ -1,36 +1,49 @@
 ---
 name: Link Tunnel
-description: A connected computer workspace in Liquid Glass.
+description: Clear and smoked Liquid Glass for connected computers.
 colors:
-  bg: "#e6edf3"
-  panel: "#fafcfd"
-  panel-2: "#eaf0f5"
-  text: "#223246"
-  muted: "#596a7c"
-  border: "#dce4ec"
-  accent: "#0769e0"
-  accent-text: "#ffffff"
-  danger: "#d6293e"
-  danger-text: "#ffffff"
-  focus: "#2f6df6"
-  glass: "rgb(224 236 247 / .78)"
-  selection: "#d5e7fc"
-  glass-highlight: "rgb(255 255 255 / .9)"
-  dark-bg: "#0e1116"
-  dark-panel: "#171b22"
-  dark-panel-2: "#1f242d"
-  dark-surface: "#18212c"
-  dark-text: "#e8ebf1"
-  dark-muted: "#9aa3b2"
-  dark-border: "#2a303b"
-  dark-accent: "#5b8cff"
-  dark-accent-text: "#0b1020"
-  dark-danger: "#ff5c70"
-  dark-danger-text: "#1a0509"
-  dark-focus: "#8fb0ff"
-  dark-glass: "rgb(30 40 52 / .88)"
-  dark-selection: "#233f5f"
-  dark-glass-highlight: "rgb(255 255 255 / .08)"
+  bg: "#e8edf2"
+  panel: "#f8fafc"
+  panel-2: "#e7edf4"
+  text: "#202936"
+  muted: "#586578"
+  border: "rgb(74 98 127 / .17)"
+  accent: "#086ae8"
+  accent-text: "#fff"
+  danger: "#c42d42"
+  danger-text: "#fff"
+  focus: "#086ae8"
+  glass: "rgb(255 255 255 / .35)"
+  chrome: "rgb(255 255 255 / .22)"
+  glass-highlight: "rgb(255 255 255 / .92)"
+  glass-edge: "rgb(255 255 255 / .7)"
+  glass-shade: "rgb(45 64 94 / .10)"
+  selection: "rgb(255 255 255 / .48)"
+  surface: "rgb(255 255 255 / .16)"
+  ambient-a: "#c5d9ef"
+  ambient-b: "#e2dbea"
+  ambient-c: "#d5e7ed"
+  dark-bg: "#171a21"
+  dark-panel: "#292d36"
+  dark-panel-2: "#323744"
+  dark-text: "#f0f3f8"
+  dark-muted: "#b0bacb"
+  dark-border: "rgb(207 223 255 / .14)"
+  dark-accent: "#79acff"
+  dark-accent-text: "#101d36"
+  dark-danger: "#ff91a1"
+  dark-danger-text: "#291019"
+  dark-focus: "#9cc2ff"
+  dark-glass: "rgb(44 49 61 / .40)"
+  dark-chrome: "rgb(38 43 55 / .30)"
+  dark-glass-highlight: "rgb(255 255 255 / .28)"
+  dark-glass-edge: "rgb(231 238 255 / .20)"
+  dark-glass-shade: "rgb(0 0 0 / .26)"
+  dark-selection: "rgb(165 186 226 / .15)"
+  dark-surface: "rgb(40 45 57 / .15)"
+  dark-ambient-a: "#263c57"
+  dark-ambient-b: "#3b3048"
+  dark-ambient-c: "#233e46"
   terminal-black: "#263544"
   terminal-red: "#a02535"
   terminal-green: "#167044"
@@ -47,27 +60,34 @@ colors:
   dark-terminal-cyan: "#7bcddd"
 typography:
   title:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
-    fontSize: "clamp(24px, 2.4vw, 32px)"
-    fontWeight: 620
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
+    fontSize: "clamp(26px, 2.4vw, 38px)"
+    fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "-.035em"
+  dialog-title:
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
+    fontSize: "23px"
+    fontWeight: 600
+    letterSpacing: "-.025em"
   body:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
     fontSize: "14px"
   label:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+    fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif"
     fontSize: "12px"
     fontWeight: 600
   terminal:
-    fontFamily: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace'
+    fontFamily: "ui-monospace, \"SF Mono\", \"Cascadia Mono\", Menlo, Consolas, monospace"
     fontSize: "13px"
 rounded:
   control: "8px"
-  action: "10px"
-  device-row: "11px"
-  floating: "12px"
-  workspace: "14px"
+  field: "10px"
+  device-row: "16px"
+  pill: "20px"
+  action: "24px"
+  workspace: "26px"
+  portrait: "30px"
 spacing:
   compact: "4px"
   small: "8px"
@@ -75,6 +95,7 @@ spacing:
   regular: "16px"
   roomy: "20px"
   section: "24px"
+  overview: "30px"
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
@@ -95,17 +116,20 @@ components:
     textColor: "{colors.muted}"
     rounded: "{rounded.control}"
     padding: "6px 12px"
+  overview-action:
+    rounded: "{rounded.action}"
+    padding: "12px 24px"
   field:
-    backgroundColor: "{colors.panel-2}"
+    backgroundColor: "{colors.chrome}"
     textColor: "{colors.text}"
-    rounded: "{rounded.control}"
-    padding: "6px 8px"
+    rounded: "{rounded.field}"
+    padding: "8px 12px"
   device-selection:
     backgroundColor: "{colors.selection}"
     rounded: "{rounded.device-row}"
   device-menu:
     backgroundColor: "{colors.glass}"
-    rounded: "{rounded.floating}"
+    rounded: "{rounded.device-row}"
     padding: "6px"
     width: "210px"
 ---
@@ -116,117 +140,117 @@ components:
 
 **Creative North Star: "Liquid Glass"**
 
-Frosted slate navigation frames a clear working surface. Soft highlights, restrained ocean blue and compact native controls make the app feel like one connected workspace. Glass has a structural role around the work; readable desktop and terminal content remain the center of attention.
+Clear white and smoked dark glass share one continuous ambient field. Background diffusion, translucent fill and thin optical highlights distinguish raised navigation and controls from the open workspace. This replaces the former opaque working panel and utility-heavy shell.
 
-The system uses native UI typography, rounded controls and consistent line icons. Light glass is the confirmed default; dark and system appearances preserve the same hierarchy and material relationships. This records the shipped implementation, rather than a separate mockup.
+Native UI typography, compact controls and consistent line icons keep connection work readable. Light is the persisted default; dark and automatic appearances use the same material hierarchy. Native macOS vibrancy and Windows acrylic sit beneath the web interface, while remote pixels remain in a native viewer.
 
 **Key Characteristics:**
-- Translucent navigation and floating controls around an opaque working surface.
-- Compact labels, generous selected-device space and restrained blue selection.
-- A moving selection plate with a brief settling transition for the workspace.
-- Theme-aware controls and terminal output, with reduced motion and transparency support.
+- Clear and smoked glass with matching semantic roles.
+- A floating computer list and quiet session surface, with account and settings in the top bar.
+- A feathered gradient theme dissolve and a moving selection lens.
+- Aspect-correct native desktop presentation with readable terminal content.
 
-Source map: color, material, geometry and motion primitives are in `apps/nexus-app/src/index.css`; shared buttons and dialogs in `components/Modal.tsx`; fields and appearance choices in `components/SettingsDialog.tsx`; navigation and selection in `components/DeviceSidebar.tsx`; workspace composition in `components/AppShell.tsx`, `components/DesktopWorkspace.tsx` and `components/DeviceCard.tsx`; floating actions in `components/DeviceMenu.tsx`; chrome in `components/Titlebar.tsx`; terminal typography and contrast in `components/TerminalPanel.tsx`; icon geometry in `components/Icon.tsx`. Component paths are relative to `apps/nexus-app/src/`. `hooks/useApp.ts` applies persisted appearance; `hooks/useViewerViewport.ts` coordinates the native viewport. `PRODUCT.md` and `.impeccable/surfaces/apps-nexus-app-src-app-tsx.md` provide the confirmed context.
+Source map: `apps/nexus-app/src/index.css` owns material, color, geometry and motion. Component sources under `apps/nexus-app/src/components/` provide chrome (`Titlebar`), navigation (`DeviceSidebar`), session composition (`DesktopWorkspace`), device overview (`DeviceCard`), settings (`SettingsDialog`), shared controls (`Modal`), terminal (`TerminalPanel`) and shared SVG icons (`Icon`). `hooks/useApp.ts` applies appearance and presentation state; `hooks/useViewerViewport.ts` coordinates native geometry. Platform materials are configured under `src-tauri/tauri.macos.conf.json` and `tauri.windows.conf.json`.
 
 ## Colors
 
-Ocean blue sits against cool pale slate in light appearance and charcoal slate in dark appearance. Frontmatter contains the source values; `dark-` keys are alternate values of their corresponding semantic roles, not additional accents.
-
-The sidecar's eight-step color ramps are derived preview metadata for the design panel; they are not additional shipped colors or application tokens.
+Cool pale white and smoked neutral fields receive blue, lilac and cool aqua ambient diffusion. Frontmatter is normative; `dark-` entries are alternate semantic values, not extra accent colors.
 
 ### Primary
-- **Ocean Blue** (`accent`, `accent-text`): primary connection actions and selected-device icons. The selection plate uses its quieter `selection` companion.
-- **Focus Blue** (`focus`): keyboard outlines across controls.
+
+- **Connection Blue** (`accent`, `accent-text`): primary connection actions, selected-device icons and appearance selection.
+- **Focus Blue** (`focus`): the shared keyboard outline.
 
 ### Neutral
-- **Pale Slate** (`bg`, `panel-2`): the outer shell and inset controls.
-- **Clear Work Surface** (`panel`): light work area and opaque containers. Dark appearance distinguishes `dark-panel` from `dark-surface` for the workspace.
-- **Slate Ink** (`text`, `muted`): primary and supporting text; `border` separates compact controls and regions.
-- **Frosted Slate** (`glass`, `glass-highlight`): navigation, menus and dialog materials.
-- **Charcoal Slate** (`dark-` neutral roles): the same hierarchy with lighter text and restrained translucent highlights.
 
-Semantic danger is reserved for destructive controls and errors. Device state dots remain paired with text labels; their green, blue, yellow, orange, red and grey values live in the stylesheet's `--dot-*` family. These are operational statuses, not a decorative accent palette.
+- **Clear White / Smoked Neutral** (`bg`, `panel`, `panel-2` and dark counterparts): ambient ground and readable inset content.
+- **Glass Ink** (`text`, `muted`): primary and supporting information.
+- **Clear / Smoked Glass** (`glass`, `chrome`, `surface`): progressively lighter translucent surface roles.
+- **Optical Rim** (`glass-highlight`, `glass-edge`, `glass-shade`): thin highlights and soft lower shading.
+- **Selection Lens** (`selection`): the moving plate beneath a selected computer.
+- **Ambient Diffusion** (`ambient-a`, `ambient-b`, `ambient-c`): the shared background field visible through raised glass.
 
-Terminal ANSI colors use the dedicated `terminal-` family and its dark counterparts. White derives from normal text, bright black from muted text, and the remaining bright colors reuse their corresponding ANSI values. The terminal enforces a minimum contrast ratio of (4.5).
+Danger colors are reserved for destructive controls and errors. Status dots retain their operational green, blue, yellow, orange, red and grey roles and always accompany text. Dedicated terminal ANSI colors remain separate from the interface accent palette. Sidecar tonal ramps are derived panel previews, not additional shipped colors.
 
-**The Appearance Parity Rule.** Apply semantic roles in both appearances; terminal output must refresh with explicit theme changes and system appearance changes.
+**The Appearance Parity Rule.** Use the matching semantic roles in both appearances; selected dark-row status uses primary text to remain readable over its bright lens.
 
 ## Typography
 
-**Body and UI Font:** the native sans stack in `typography.body`, including Simplified Chinese fallbacks.
-**Label/Mono Font:** the terminal stack in `typography.terminal`, also used for machine identifiers where needed.
+**Body and UI Font:** the native sans stack in frontmatter, including Simplified Chinese fallbacks.
+**Label/Mono Font:** terminal output uses the dedicated monospace stack.
 
-The type is compact and practical. There is no marketing display face: the largest text is a selected computer's name, sized as an app title.
+The application uses native typography for operational controls, with a moderately weighted selected-computer title rather than a marketing display face.
 
 ### Hierarchy
-- **Title:** the responsive title token identifies the selected computer; its tight tracking and moderate weight preserve a quiet center.
-- **Dialog heading:** semibold native UI text (16px, 24px line height).
-- **Body:** the base UI size; overview description uses (13px, 1.7 line height) within a (360px) measure.
-- **Label:** device names and common control labels use the compact label role; utility text and metadata step down to (11px) and status/footer text to (10px).
-- **Terminal:** monospace text uses the terminal token and fills its available workspace.
 
-**The Native Control Rule.** Keep application labels in the native UI stack and terminal content in monospace; use the shared SVG icon set for actions.
+- **Selected computer title:** responsive `title` role with compact tracking; narrow screens use (28px).
+- **Dialog heading:** `dialog-title` role, distinct from compact form section labels.
+- **Body:** base UI and overview description use the body role; overview copy has (1.7) line height and a (360px) measure.
+- **Labels:** device names and control labels use (12px); metadata and status use (11px); the Tailscale caption and browser preview label use (10px).
+- **Terminal:** the terminal role fills the available workspace and preserves themed ANSI output.
 
 ## Layout
 
-The desktop shell uses a full-height grid: integrated titlebar (56px), device sidebar (248px), and a flexible workspace with zero minimum sizing to permit scrolling and native viewport resizing. The workspace toolbar wraps its controls; navigation and content scroll within their own regions. Shared spacing follows the frontmatter scale, with deliberate local exceptions such as toolbar padding (15px 26px) and device selection padding (13px 8px 13px 12px).
+The desktop shell uses a compact top row (64px), a navigation grid column (276px) and the remaining width for the workspace. The floating sidebar sits inside margins (16px); the shell leaves a lower and right inset (24px). At widths below (1000px), navigation reduces to (236px). At widths below (600px), the top row becomes (60px), computers form a horizontal strip (96px), and the workspace follows below with a (10px) outer inset.
 
-At (760px) and below the sidebar narrows to (200px), toolbar and heading padding tighten, and the center titlebar context disappears. At (540px) and below the shell becomes a single column with a titlebar (50px), horizontal device strip (108px), and remaining-height workspace. Utility actions move into the titlebar. Device rows have a minimum width (144px) and scroll horizontally; collapsed navigation removes its row. The browser preview label remains visible at this width.
-
-Dialogs are inset from the viewport, begin below its top edge (12vh), and scroll within a maximum height (78dvh). Standard width is (28rem), wide width (48rem); Settings becomes two columns at Tailwind's medium breakpoint (48rem). Toasts anchor at the lower right and constrain their width to the viewport.
+The selected-device overview uses open central space, with the connection and terminal actions grouped beneath its description. Active sessions reveal a compact toolbar. The native viewport fits the remote ratio within the available stage; space around it belongs to the glass workspace. macOS reserves top-bar space for native traffic lights (100px left padding). Settings groups appearance, language, lockdown and quality first; paired computers and device details are collapsed disclosures.
 
 ## Elevation & Depth
 
-Depth combines translucent fills, thin inset highlights and diffuse shadows. The sidebar blurs underlying material (28px, saturation 1.25); menus use (30px, 1.3) and dialogs (30px, 1.2). The workspace stays opaque. Reduced transparency replaces these glass regions with the panel fill and removes backdrop filtering.
+Depth combines translucent fill, backdrop diffusion, fine inset highlights and diffuse offset shadows. Sidebar diffusion uses blur (36px) with saturation (1.5); dialogs use blur (48px) and the same saturation. The native background supplies platform material, while the browser preview supplies the ambient field directly.
 
 ### Shadow Vocabulary
-- **Floating glass:** `0 12px 40px rgb(31 56 83 / .10)` in light appearance; `0 12px 40px rgb(0 0 0 / .24)` in dark appearance. Used by toasts.
-- **Dialog:** `0 8px 30px rgb(15 23 42 / 0.12)` in light appearance; `0 8px 30px rgb(0 0 0 / 0.5)` in dark appearance.
-- **Device menu:** `inset 0 1px var(--glass-highlight), 0 12px 42px rgb(16 37 61 / .2)`.
-- **Selected device:** `inset 0 1px var(--glass-highlight), 0 2px 5px rgb(21 68 108 / .05)`.
 
-**The Clear Work Rule.** Keep glass in navigation and floating controls; keep the working surface legible and opaque.
+- **Raised glass:** `glass-shadow` is (0 16px 48px) with light or dark neutral opacity.
+- **Floating overlay:** `shadow` is (0 24px 90px), used for dialogs and menus.
+- **Optical rim:** one-pixel inset highlights trace the upper edge; lower shading explains the surface thickness.
+
+**The Native Content Rule.** Keep desktop pixels in the native viewer and terminal content in its monospace surface; glass belongs to the surrounding interface.
 
 ## Shapes
 
-Corners scale with function: compact controls, stronger action buttons, device rows, floating surfaces and the workspace use the frontmatter radius roles. Tabs use a smaller inner radius (6px) within a rounded track (9px). The desktop workspace rounds only its upper-left corner; mobile rounds both upper corners. Quiet one-pixel dividers and borders separate regions. Line icons use rounded ends and joins at stroke width (1.6px); the large computer portrait deliberately lightens its stroke (1px).
+Large continuous surfaces use generous corners: sidebar (24px), workspace and dialogs (26px), and the computer portrait (30px). Device rows, menus and selected plates use (16px). Fields use (10px). Small icon buttons are circular; compact segmented controls use rounded tracks (20px), while overview actions use (24px). Shared ordinary buttons retain a compact (8px) radius.
 
 ## Components
 
 ### Buttons
-Compact, native and clearly ranked. Shared buttons use medium UI text (14px, 20px line height) with the frontmatter padding and radius. Primary and danger buttons brighten on hover; secondary buttons use the inset panel fill with a border that shifts to accent on hover; ghost buttons shift from muted to normal text. Disabled buttons reduce opacity to (.4). Overview actions increase padding to (10px 20px), radius to the action role and reduce type to (12px). Icon buttons use a compact square (30px) and a subtle panel hover fill.
 
-Keyboard focus is a visible outline (2px, offset 2px); forced colors increases it to (3px) in the platform Highlight color.
+Shared buttons use medium UI text (14px) and compact padding (6px 12px). Primary and danger variants use their paired semantic foreground colors and brighten on hover. Secondary controls use inset panel fill; ghost controls move from muted to normal text. Overview actions increase padding (12px 24px), use smaller labels (13px), and receive a glass highlight and soft shadow. Disabled controls reduce opacity (.4). Keyboard focus uses an outline (2px, offset 3px).
 
 ### Cards / Containers
-The selected-device overview is open space within the workspace rather than a floating card. Its computer portrait is a soft gradient tile with generous rounding (24px), an inset highlight and a diffuse shadow. Smaller settings device containers use the control radius, a quiet border and padding (12px).
+
+The workspace is a translucent continuous region, not an opaque document panel. The selected-device overview remains open space. Its computer portrait is a raised glass tile (132px × 118px) with a light monitor or laptop stroke and a textual status companion elsewhere in the overview. Dialogs use a softened scrim, focus trapping, Escape dismissal and focus return.
 
 ### Inputs / Fields
-Settings fields use inset panel fill, the control radius, a border and the field padding token. Keep the label visible above the field. Shared focus treatment applies; input carets use accent. Machine identifiers use monospace and wrap when long.
+
+Selects use translucent chrome fill, normal foreground, field corners and padding (8px 12px). Native option popups receive panel fill. Checkboxes use the accent color. Settings rows pair visible labels with their controls and use a minimum height (46px); secondary help copy uses (12px, 1.6 line height).
 
 ### Navigation
-Device rows pair a line icon, device name, state dot and supporting status. A single selection plate moves behind the selected row instead of painting independent active backgrounds. The plate uses the selection role and device-row radius. Hover is a subtle translucent panel fill. Mobile retains the same row language in a horizontal strip. Workspace tabs use a quiet inset track with the active tab raised by a small diffuse shadow.
 
-### Floating Menus and Dialogs
-Device menus use the frontmatter menu shape, compact rows (9px 10px padding), separators and selection fill for hover and keyboard focus. Dialogs use the same glass family over a dimmed scrim; danger dialogs use a danger border. They trap keyboard focus, close on Escape, and return focus to the invoking control.
+Computer rows pair an icon, name, status dot and label. A single selection lens glides beneath the active row using transform only (320ms, exponential ease-out). Hover adds a quiet translucent fill. Power and unpair actions remain in a context menu; narrow layouts retain the same row language in a horizontal strip. The top bar carries account context and settings, without local-computer or utility footers.
 
-### Selection and Workspace Motion
-Selection geometry glides over (280ms) with `cubic-bezier(.16,1,.3,1)`; row hover shifts over (220ms). Workspace arrival settles from (7px) below with blur (2px) over (400ms); dialogs use the same arrival over (220ms). Menus arrive over (140ms) from a slight upward translation and scale (.98). These movements explain selection and surface appearance. Reduced motion removes animations and transitions. Connection feedback uses a spinner or a state pulse alongside text.
+### Appearance and Lockdown
 
-### Terminal and Native Viewport
-The terminal fills the remaining workspace and uses theme-aware ANSI colors, a visible cursor and shared line icons. The remote picture occupies a native GPU surface coordinated with the surrounding viewport. Fit, fill and pixel controls remain in the persistent toolbar. Floating overlays hide the embedded picture so dialogs and menus can remain readable; the existing standalone viewer is the platform fallback. Browser preview is explicitly labelled.
+Appearance choices use three visual samples with pressed state and a check. Theme changes dissolve the old snapshot across a feathered diagonal mask (850ms); older webviews interpolate the actual ambient and glass colors (700ms). The lockdown switch is a compact track (42px × 25px) with a translated thumb and an accessible switch state. Lockdown help remains visible beside the control.
+
+### Desktop and Terminal Sessions
+
+Desktop pixels stay native. Windows can lift the live picture into a separate window and return it to the workspace; macOS and Linux use the separate viewer. The viewer follows remote proportions in ordinary windowed mode and may letterbox fullscreen. Terminal tabs preserve their session while inactive. Dialogs and overlays hide the embedded native picture so controls stay usable.
+
+**The Accessible Motion Rule.** Honor reduced motion, reduced transparency and forced-color preferences rather than requiring the material effect to understand state.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** apply the Appearance Parity Rule to controls, floating surfaces and terminal output.
-- **Do** keep the working surface opaque under the Clear Work Rule.
-- **Do** reuse native UI type, the shared line icons and visible keyboard focus.
-- **Do** retain the horizontal device strip and accessible utilities at narrow widths.
-- **Do** honor reduced motion, reduced transparency and forced-color focus preferences.
+
+- Do use semantic theme roles for every control and floating surface.
+- Do keep status text beside state dots and preserve visible keyboard focus.
+- Do keep session controls with the active session and preserve remote proportions.
+- Do label synthetic browser preview data visibly at every supported width.
 
 ### Don't:
-- **Don't** replace semantic theme roles with fixed light colors on new controls.
-- **Don't** obscure the working content with decorative glass layers.
-- **Don't** use text glyphs as substitutes for the shared action icons.
-- **Don't** remove status text in favor of color alone.
+
+- Don't restore the phone, command-search, CLI or local-computer utility footer to this desktop shell.
+- Don't blur the remote desktop picture or make glass obscure working content.
+- Don't use glyphs in place of the shared SVG action icons.
+- Don't animate layout dimensions for the moving selection lens.

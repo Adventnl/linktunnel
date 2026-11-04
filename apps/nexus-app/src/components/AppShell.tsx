@@ -30,7 +30,6 @@ export function AppShell({ model }: { model: AppModel }) {
           >
             <Icon name="sidebar" />
           </button>
-          <span>{selected?.name ?? t("workspace.choose")}</span>
           <div className="heading-end">
             {selected && (
               <button
@@ -49,14 +48,6 @@ export function AppShell({ model }: { model: AppModel }) {
                 <Icon name="more" />
               </button>
             )}
-            <button
-              type="button"
-              className="icon-button"
-              title={t("workspace.fullscreen")}
-              onClick={() => windowAction("fullscreen")}
-            >
-              <Icon name="expand" size={17} />
-            </button>
           </div>
         </div>
         {status && !status.signalConnected && (

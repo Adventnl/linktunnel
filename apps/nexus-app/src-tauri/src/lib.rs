@@ -45,6 +45,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            workspace::desktop_info,
             workspace::viewer_layout,
             workspace::viewer_close,
             workspace::window_action,

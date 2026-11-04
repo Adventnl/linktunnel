@@ -56,6 +56,7 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   return {
     mock: true,
+    desktopInfo: async () => ({ platform: "browser", embedded: true, account: null }),
     phoneStatus: async () => ({ adb: { Err: "Phone control requires the installed linktunnel app." }, scrcpy: { Err: "Phone control requires the installed linktunnel app." }, platform: "demo", session: { serial: null, error: null } }),
     phoneDevices: async () => [],
     phonePair: async () => { throw new Error("Phone pairing requires the installed linktunnel app."); },

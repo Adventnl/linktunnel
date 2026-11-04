@@ -5,6 +5,7 @@ import type { AppEvent, Bridge, PowerAction, Snapshot, PhoneDevice, PhoneStatus,
 /** The real bridge: every call is a Tauri command implemented in src-tauri/src/commands.rs. */
 export const tauriBridge: Bridge = {
   mock: false,
+  desktopInfo: () => invoke("desktop_info"),
   phoneStatus: () => invoke<PhoneStatus>("phone_status"),
   phoneDevices: () => invoke<PhoneDevice[]>("phone_devices"),
   phonePair: (address, code) => invoke("phone_pair", { address, code }),
