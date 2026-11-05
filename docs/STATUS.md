@@ -3,6 +3,36 @@
 The honest record of what exists and **what was verified, on what**. Nothing elsewhere in this repository
 claims a capability this page does not.
 
+## Native Windows Bluetooth cellular calls — 2026-11-05
+
+Replaced the external Phone Link launcher with a native Windows telephony bridge,
+Bluetooth-phone/line selection, dialer, permission/registration checks and live
+call controls on Windows versions exposing the per-call API. Windows owns the
+HFP microphone/playback path. The interface distinguishes an available transport
+from confirmed PC audio on a particular call. No phone is automatically connected
+or dialed; closing the panel preserves its separately managed audio connection.
+
+Added a call-enabled full-trust Windows package, SDK schema/payload validation,
+existing-certificate signing support and an explicit development registration
+path when Developer Mode is already enabled. No Phone Link, driver/registry
+workaround, certificate-trust change or Windows security-policy change is used.
+The ordinary unpackaged app lacks the package permissions for cellular calls.
+
+Verified: 17 phone-backend tests passed (one existing physical-phone test ignored),
+29 frontend unit tests, 14 native app tests, frontend production build, native Tauri check/release
+build, strict phone-crate/app Clippy and the extended real React/Tauri-bridge browser
+checks with simulated native call replies. Visual checks cover light, narrow and
+Chinese/dark calling states. MakeAppx built an unsigned review package. See
+[native calls](PHONE_CALLS.md) for the exact API/version and packaging limits.
+
+**Not hardware verified:** package registration/permissions on a live Bluetooth
+phone, Redmi call routing, both audio directions, silent phone/screen behavior,
+incoming calls and Bluetooth release/reconnect. The user deferred pairing/testing.
+On this Windows 10 build 19045 the newer per-call controls are absent; the legacy
+dial request supplies only an audio-routing hint that Windows may ignore. It
+cannot verify or transfer a live call's audio. This implementation has not been
+installed over or substituted for the user's running app.
+
 ## Windows integrated workspace — 2026-11-03
 
 The desktop now uses a light-glass device sidebar and integrated workspace. Windows embeds the

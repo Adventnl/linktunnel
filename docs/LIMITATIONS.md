@@ -11,10 +11,14 @@ trust model; desktop agent lockdown, emergency disconnect and audit do not gover
 it. Use its own Stop action or revoke debugging access on the phone.
 
 Ordinary media forwarding does not carry cellular calls or inject the computer
-microphone. Windows offers a launcher for external Phone Link Bluetooth Calls;
-Nexus cannot verify its audio route. Android cellular-call audio handoff on Mac
-is not implemented. Physical Redmi/HyperOS control, media routing, native Mac
-execution and call transfer remain unverified. See [phone setup](PHONE_CONTROL.md).
+microphone. Windows now has a native Bluetooth call bridge in the call-enabled
+MSIX/development package, with no Phone Link dependency. It requires Windows
+package permissions and an accessible Bluetooth phone. Windows 10 build 19045
+lacks the newer per-call transfer/control API; legacy dialing cannot verify its
+live audio route. Actual Redmi two-way call audio and transport registration
+remain unverified; some Windows builds may reject registration. Android
+cellular-call audio handoff on Mac is not implemented. See
+[native calls](PHONE_CALLS.md) and [phone setup](PHONE_CONTROL.md).
 
 ## Android Codex companion (2026-10-27)
 

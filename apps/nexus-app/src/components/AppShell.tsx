@@ -73,7 +73,7 @@ export function AppShell({ model }: { model: AppModel }) {
             </button>
           </div>
         )}
-        {model.state.snapshot.agent === "unreachable" ? (
+        {model.state.snapshot.agent === "unreachable" && !selected?.phoneSerial ? (
           <div className="workspace-empty" role="status">
             <Icon name="link" size={40} />
             <h1>{t("agent.unreachable")}</h1>
@@ -91,6 +91,7 @@ export function AppShell({ model }: { model: AppModel }) {
           onClose={closeMenu}
           onAction={model.run}
           onUnpair={model.setUnpairing}
+          onPhoneSetup={() => model.setPhone(true)}
         />
       )}
       <ul className="toast-list" aria-live="assertive">

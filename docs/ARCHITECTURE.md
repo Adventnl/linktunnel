@@ -14,8 +14,13 @@ installed adb/scrcpy processes for USB or paired wireless Android control. This
 path uses Android debugging authorisation and keys rather than Nexus identities,
 agent IPC or QUIC. Pixels/audio stay in the native scrcpy window. Desktop agent
 lockdown and audit do not govern it; its own Stop action and app exit end control.
-Windows call setup delegates to external Phone Link; Nexus does not route
-cellular-call audio. See [phone control](PHONE_CONTROL.md).
+The call-enabled Windows package separately manages a native Bluetooth HFP
+transport through Windows telephony APIs. Windows owns the PC communications
+microphone/playback path. A dedicated MTA worker serializes permission,
+registration, line watching and call operations; the dashboard never handles
+call audio samples. Newer per-call controls are detected at runtime, and Windows
+10 legacy dialing cannot verify its live audio route. No external Phone Link is
+used. See [phone control](PHONE_CONTROL.md) and [native calls](PHONE_CALLS.md).
 
 ## 2. The five ideas the design rests on
 

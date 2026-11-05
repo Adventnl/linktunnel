@@ -15,7 +15,7 @@ controls Codex sessions on a computer.
 | Ordinary media audio | Optional, off by default, Android 11+; separate from cellular calls |
 | Wireless pairing | Android 11+ pairing code; separate pairing and connection ports |
 | Session lifecycle | First-frame startup check, bounded diagnostics/deadlines, one managed viewer, close detection, Stop and cancellation on app exit |
-| Windows cellular calls | Opens external Windows Phone Link; configure Bluetooth Calls and transfer there, then verify audio |
+| Windows cellular calls | Native Bluetooth HFP bridge in the call-enabled Link Tunnel package; no Phone Link; hardware audio verification pending |
 | Android cellular-call audio on Mac | Not implemented; use a headset connected directly to the phone |
 | Fully powered-off phone | Cannot be controlled or woken by this implementation |
 | Internet / Nexus relay | Not implemented for phones; needs USB or a reachable wireless-debugging endpoint |
@@ -105,17 +105,18 @@ Android restricts voice-call capture; scrcpy does not provide general computer-m
 injection into a cellular call. See [Android audio-input restrictions](https://developer.android.com/media/platform/sharing-audio-input)
 and [scrcpy audio](https://github.com/Genymobile/scrcpy/blob/master/doc/audio.md).
 
-On **Windows**, select **Open Windows Phone Link**, set up **Calls**, and approve
-Bluetooth pairing/call permissions. During a call use Phone Link's transfer
-control to move it to the PC. The phone still supplies cellular service. Select
-PC audio devices and test both directions. Nexus cannot inspect the audio route,
-silence the phone or confirm transfer. Leave Nexus media audio off with this route.
+On **Windows**, the call-enabled Link Tunnel package provides its own Bluetooth
+calling bridge. Pair the phone in Windows Bluetooth settings, then choose it in
+**Phone → Cellular calls on this computer → Connect call audio**. Dial through
+its selected SIM/line. On supported Windows versions, take an existing call's
+audio onto the PC or answer, mute and end calls in Link Tunnel. The phone still
+supplies cellular service and must remain powered on and within Bluetooth range.
+Leave mirroring's media audio off while calling. No Microsoft Phone Link is used.
 
-Phone Link requires Bluetooth proximity and remains a separate application.
-Microsoft documents headset restrictions, including Bluetooth-headset forwarding;
-arbitrary PC headphones are not guaranteed. Consult [Calls setup](https://support.microsoft.com/en-us/windows/apps/phonelink/setting-up-calls-in-the-phone-link)
-and [Calls troubleshooting](https://support.microsoft.com/en-us/windows/apps/phonelink/troubleshooting-calls-in-the-phone-link).
-The launcher uses Microsoft's documented [Phone Link URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings#phone).
+The ordinary unpackaged executable lacks Windows call permissions. Per-call
+audio transfer/control is unavailable on this Windows 10 build; the legacy
+dialing route and actual Redmi two-way audio remain hardware unverified. See
+[native call setup, packaging and acceptance](PHONE_CALLS.md) before testing.
 
 On **Mac**, Android cellular-call audio handoff is not implemented. Use a headset
 directly connected to the phone while controlling its screen. Moving audio to the
@@ -127,7 +128,11 @@ This uses Android's USB/wireless authorisation, **not Nexus desktop pairing**.
 Android owns the adb keys. Nexus desktop grants, session consent, lockdown,
 emergency disconnect and audit do not govern phone sessions. The panel states
 this and provides a separate Stop action. No adb shell commands, lock bypass,
-automatic port exposure, call recording or microphone capture are added.
+automatic port exposure or call recording are added. Native Windows cellular
+calling is separately enabled by selecting and connecting a Bluetooth phone;
+Windows owns its PC microphone/playback path and package permissions. Desktop
+agent lockdown and the phone screen's Stop action do not govern that audio
+connection; use **Disconnect call audio** or quit Link Tunnel.
 
 ## Verification
 
@@ -156,12 +161,13 @@ Additional macOS verification for bundled tools:
   navigation and making wireless pairing the first setup action.
 
 **Not hardware-verified:** Redmi USB/wireless input, display-off behaviour, media
-routing, measured latency/fps, Redmi mirroring on Mac, Phone Link call transfer,
+routing, measured latency/fps, Redmi mirroring on Mac, native Bluetooth call transfer,
 computer microphone or headphone routing. No phone was connected. Browser tests
 do not prove phone or Bluetooth compatibility.
 
 Acceptance with your phone: pair over Wi-Fi without a USB cable; drag/scroll/type/paste; turn the
 physical display off; lock/unlock with your normal PIN; close/reopen; disconnect
-cable/Wi-Fi; verify Stop and app quit. On Windows, make a test call and confirm the
+cable/Wi-Fi; verify Stop and app quit. On Windows, install the call-enabled package,
+pair the Bluetooth phone, make a test call and confirm the
 other person hears the PC microphone, their voice uses your selected PC output,
 and the phone is not also outputting/capturing call audio.

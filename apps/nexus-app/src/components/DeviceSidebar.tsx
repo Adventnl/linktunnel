@@ -104,7 +104,7 @@ export function DeviceSidebar({
                 }}
               >
                 <Icon
-                  name={device.batteryPercent !== null ? "laptop" : "monitor"}
+                  name={device.phoneSerial ? "phone" : device.batteryPercent !== null ? "laptop" : "monitor"}
                   size={24}
                 />
                 <span className="device-row-copy">

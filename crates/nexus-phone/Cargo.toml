@@ -14,5 +14,11 @@ serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process"] }
 
+[target.'cfg(windows)'.dependencies]
+dunce = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Calls", "Devices_Bluetooth", "Devices_Enumeration", "Foundation", "Foundation_Metadata", "Media_Devices", "Win32_System_WinRT"] }
+windows-future = "0.3"
+
 [dev-dependencies]
 proptest.workspace = true

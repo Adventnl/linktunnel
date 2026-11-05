@@ -37,17 +37,19 @@ export function AppDialogs({ model }: { model: AppModel }) {
   const remember = model.remember;
   return (
     <>
-      {model.phone && <PhonePanel bridge={bridge} t={t} onClose={() => model.setPhone(false)} />}
+      {model.phone && <PhonePanel bridge={bridge} t={t} onClose={() => model.setPhone(false)} onOpen={model.openPhone} />}
       {settings && (
         <SettingsDialog
           bridge={bridge}
           t={t}
           status={status}
-          devices={devices}
+          devices={devices.filter(device => !device.phoneSerial)}
           onLockdown={model.toggleLockdown}
           quality={model.quality}
           onQuality={model.setQuality}
           theme={theme}
+          material={model.material}
+          onMaterial={model.setMaterial}
           locale={locale}
           onTheme={(v) => {
             setTheme(v);

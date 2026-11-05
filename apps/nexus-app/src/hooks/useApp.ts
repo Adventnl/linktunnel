@@ -5,7 +5,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Theme } from "../components/SettingsDialog";
+import type { Material, Theme } from "../components/SettingsDialog";
+import { usePhones } from "./usePhones";
 import { DESTRUCTIVE, type Verb } from "../lib/palette";
 import { parseLocale, translate, type Key, type Locale } from "../lib/i18n";
 import { dismissToast, initialState, pushToast, reduce } from "../lib/state";
@@ -16,6 +17,7 @@ import type {
   Device,
   DesktopInfo,
   PowerAction,
+  PhoneOptions,
   Quality,
   Viewport,
 } from "../lib/types";
@@ -43,6 +45,7 @@ function remember(key: string, value: string) {
 }
 
 export function useApp(bridge: Bridge) {
+  const phones = usePhones(bridge);
   const [state, dispatch] = useReducer(
     (
       s: typeof initialState,
@@ -68,10 +71,18 @@ export function useApp(bridge: Bridge) {
   const [theme, setTheme] = useState<Theme>(() =>
     stored<Theme>("nexus.theme", ["auto", "light", "dark"], "light"),
   );
+  const [material, setMaterial] = useState<Material>(() =>
+    stored<Material>("nexus.material", ["auto", "glass", "solid"], "auto"),
+  );
+  useEffect(() => {
+    document.documentElement.dataset.material = material;
+    remember("nexus.material", material);
+  }, [material]);
   const themeTransition = useRef<ViewTransition | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [settings, setSettings] = useState(false);
   const [phone, setPhone] = useState(false);
+  const [phoneOptions, setPhoneOptions] = useState<Omit<PhoneOptions, "serial">>({ screenOff: false, mediaAudio: false, maxSize: 1600, maxFps: 60 });
   const [pairing, setPairing] = useState(false);
   const [unpairing, setUnpairing] = useState<Device | null>(null);
   const [selectedId, selectDevice] = useState<string | null>(null);
@@ -109,6 +120,8 @@ export function useApp(bridge: Bridge) {
     [locale],
   );
   const pendingConnections = useRef(new Set<string>());
+  const connectionGeneration = useRef(0);
+  const [connectionStarted, setConnectionStarted] = useState(0);
   const [connecting, setConnecting] = useState<Record<string, boolean>>({});
   const [connectionErrors, setConnectionErrors] = useState<
     Record<string, string>
@@ -133,23 +146,42 @@ export function useApp(bridge: Bridge) {
   );
 
   const connect = useCallback(
-    async (device: Device) => {
+    async (device: Device, options = phoneOptions) => {
       if (pendingConnections.current.size > 0) return;
       pendingConnections.current.add(device.id);
+      const generation = ++connectionGeneration.current;
+      setConnectionStarted(Date.now());
       setConnecting((c) => ({ ...c, [device.id]: true }));
       setConnectionErrors(({ [device.id]: _drop, ...rest }) => rest);
       try {
-        if (screen) await bridge.viewerClose();
-        setRemoteSize({ width: 1920, height: 1080 });
+        if (screen?.phoneSerial) await bridge.phoneStop();
+        else if (screen) await bridge.viewerClose();
+        setRemoteSize(device.phoneSerial ? { width: 720, height: 1600 } : { width: 1920, height: 1080 });
         setScreen(device);
         selectDevice(device.id);
-        await bridge.connectScreen(
+        if (device.phoneSerial) {
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              bridge.phoneStart({ ...options, serial: device.phoneSerial },
+                viewport.current ? { ...viewport.current, visible: true, detached } : undefined),
+              new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error(t("phone.timeout"))), 45_000); }),
+            ]);
+            if (generation !== connectionGeneration.current) return;
+            const session = await phones.refreshSession();
+            if (session.width && session.height) setRemoteSize({ width: session.width, height: session.height });
+          } catch (error) {
+            void bridge.phoneStop().catch(() => {});
+            throw error;
+          } finally { clearTimeout(deadline); }
+        } else await bridge.connectScreen(
           device.id,
           viewport.current
             ? { viewport: { ...viewport.current, visible: true, detached }, quality }
             : undefined,
         );
       } catch (e) {
+        if (generation !== connectionGeneration.current) return;
         setScreen(null);
         const reason = e instanceof Error ? e.message : String(e);
         setConnectionErrors((errors) => ({ ...errors, [device.id]: reason }));
@@ -158,7 +190,7 @@ export function useApp(bridge: Bridge) {
         setConnecting(({ [device.id]: _drop, ...rest }) => rest);
       }
     },
-    [bridge, quality, screen, detached],
+    [bridge, quality, screen, detached, phones.refreshSession, phoneOptions, t],
   );
 
   // ---- bridge wiring ------------------------------------------------------------------------
@@ -238,6 +270,7 @@ export function useApp(bridge: Bridge) {
   // ---- actions ------------------------------------------------------------------------------
   const run = useCallback(
     (device: Device, verb: Verb | "files" | "settings") => {
+      if (device.phoneSerial && verb !== "screen") return;
       switch (verb) {
         case "screen":
           if (isAsleep(device)) {
@@ -303,7 +336,7 @@ export function useApp(bridge: Bridge) {
   );
 
   const status = state.snapshot.status;
-  const devices = state.snapshot.devices;
+  const devices = [...state.snapshot.devices, ...phones.devices];
   const lockdown = status?.lockdown ?? false;
   const consent = state.consents[0];
 
@@ -320,12 +353,23 @@ export function useApp(bridge: Bridge) {
     devices.find((d) => d.id === selectedId) ?? devices[0] ?? null;
   const closeScreen = useCallback(async () => {
     try {
-      await bridge.viewerClose();
+      ++connectionGeneration.current;
+      if (screen?.phoneSerial) {
+        await bridge.phoneStop();
+        await phones.refreshSession();
+      } else await bridge.viewerClose();
       setScreen(null);
     } catch (error) {
       toast("error", String(error));
     }
-  }, [bridge, toast]);
+  }, [bridge, toast, screen, phones.refreshSession]);
+  useEffect(() => {
+    if (!screen?.phoneSerial || pendingConnections.current.has(screen.id) || phones.session.starting) return;
+    if (phones.session.serial !== screen.phoneSerial) {
+      setScreen(null);
+      if (phones.session.error) setConnectionErrors(errors => ({ ...errors, [screen.id]: phones.session.error! }));
+    }
+  }, [phones.session, screen]);
   const windowAction = useCallback(
     (action: Parameters<Bridge["windowAction"]>[0]) => {
       void bridge
@@ -368,6 +412,8 @@ export function useApp(bridge: Bridge) {
     locale,
     setLocale,
     theme,
+    material,
+    setMaterial,
     setTheme: (next: Theme) => {
       const apply = () => {
         if (next === "auto") document.documentElement.removeAttribute("data-theme");
@@ -391,6 +437,15 @@ export function useApp(bridge: Bridge) {
     settings,
     setSettings,
     phone,
+    phoneOptions,
+    setPhoneOptions,
+    openPhone: (options: PhoneOptions) => {
+      const device = devices.find(device => device.phoneSerial === options.serial);
+      if (!device) { toast("error", t("phone.empty")); return; }
+      setPhone(false);
+      setPhoneOptions(options);
+      void connect(device, options);
+    },
     setPhone,
     pairing,
     setPairing,
@@ -406,6 +461,8 @@ export function useApp(bridge: Bridge) {
     toast,
     fail,
     connecting,
+    connectionStarted,
+    phones,
     connectionErrors,
     run,
     status,

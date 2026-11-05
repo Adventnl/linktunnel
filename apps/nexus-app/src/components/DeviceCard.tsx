@@ -2,7 +2,7 @@ import { Icon } from "./Icon";
 import { type Verb } from "../lib/palette";
 import { canConnect, canWake, isAsleep, seenParts } from "../lib/status";
 import type { Key } from "../lib/i18n";
-import type { Device } from "../lib/types";
+import type { Device, PhoneOptions } from "../lib/types";
 import { Button } from "./Modal";
 import { StatusDot } from "./StatusDot";
 
@@ -16,6 +16,9 @@ export function DeviceCard({
   connectionError,
   t,
   onAction,
+  phoneOptions,
+  onPhoneOptions,
+  onPhoneSetup,
 }: {
   device: Device;
   now: number;
@@ -25,6 +28,9 @@ export function DeviceCard({
   connectionError?: string;
   t: T;
   onAction: (device: Device, verb: Verb | "files" | "settings") => void;
+  phoneOptions?: Omit<PhoneOptions, "serial">;
+  onPhoneOptions?: (options: Omit<PhoneOptions, "serial">) => void;
+  onPhoneSetup?: () => void;
 }) {
   const up = canConnect(device);
   const waking = wakingSince !== null;
@@ -37,7 +43,7 @@ export function DeviceCard({
     >
       <div className="computer-portrait">
         <Icon
-          name={device.batteryPercent !== null ? "laptop" : "monitor"}
+          name={device.phoneSerial ? "phone" : device.batteryPercent !== null ? "laptop" : "monitor"}
           size={88}
         />
         <span className="portrait-status">
@@ -53,8 +59,17 @@ export function DeviceCard({
         {device.osVersion || t("state.unknown")} {stateLabel}
       </p>
       <p className="overview-description">
-        {up ? t("workspace.description") : t("workspace.offline")}
+        {device.phoneSerial ? t(device.phoneState === "unauthorized" ? "phone.authorize" : up ? "phone.description" : "phone.offline") : up ? t("workspace.description") : t("workspace.offline")}
       </p>
+      {device.phoneSerial && phoneOptions && onPhoneOptions && (
+        <fieldset className="phone-options" disabled={connecting}>
+          <label><input type="checkbox" checked={phoneOptions.screenOff} onChange={e => onPhoneOptions({ ...phoneOptions, screenOff: e.target.checked })} />{t("phone.screen_off")}</label>
+          <label><input type="checkbox" checked={phoneOptions.mediaAudio} onChange={e => onPhoneOptions({ ...phoneOptions, mediaAudio: e.target.checked })} />{t("phone.media_audio")}</label>
+          <label>{t("phone.quality")}<select value={phoneOptions.maxSize} onChange={e => onPhoneOptions({ ...phoneOptions, maxSize: Number(e.target.value) })}>
+            <option value={1080}>1080 · 60 fps</option><option value={1600}>1600 · 60 fps</option><option value={2560}>2560 · 60 fps</option>
+          </select></label>
+        </fieldset>
+      )}
       <dl className="device-facts">
         <dt className="text-muted">{stateLabel}</dt>
         <dd className="text-right text-muted">
@@ -76,16 +91,18 @@ export function DeviceCard({
 
       {connectionError && (
         <div role="alert" className="text-sm">
-          <p className="text-danger">{t("card.connect_error")}</p>
+          <p className="text-danger">{t(device.phoneSerial ? "phone.connect_error" : "card.connect_error")}</p>
+          {device.phoneSerial && <p className="mt-1 break-words whitespace-pre-wrap">{connectionError}</p>}
+          {!device.phoneSerial &&
           <details className="mt-1 text-xs text-muted">
             <summary className="cursor-pointer">
               {t("card.connect_details")}
             </summary>
             <p className="mt-1 break-words">{connectionError}</p>
-          </details>
+          </details>}
         </div>
       )}
-      {canWake(device) && (
+      {!device.phoneSerial && canWake(device) && (
         <p className="text-xs text-muted">{t("card.wake_help")}</p>
       )}
 
@@ -99,10 +116,10 @@ export function DeviceCard({
             >
               {connecting ? t("card.connecting") : t("verb.screen")}
             </Button>
-            <Button onClick={() => onAction(device, "terminal")}>
+            {!device.phoneSerial && <Button onClick={() => onAction(device, "terminal")}>
               <Icon name="terminal" />
               {t("verb.terminal")}
-            </Button>
+            </Button>}
           </>
         )}
         {isAsleep(device) && (
@@ -120,7 +137,8 @@ export function DeviceCard({
                 : t("card.wake_and_connect")}
           </Button>
         )}
-        {canWake(device) && !isAsleep(device) && (
+        {device.phoneSerial && <Button onClick={onPhoneSetup}>{t("phone.connection_settings")}</Button>}
+        {!device.phoneSerial && canWake(device) && !isAsleep(device) && (
           <Button disabled={waking} onClick={() => onAction(device, "wake")}>
             <Icon name="power" />
             {t("verb.wake")}

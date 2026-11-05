@@ -12,9 +12,23 @@ Nexus desktop grants, session consent, lockdown and audit do not cover it. The
 phone panel states this and owns an explicit Stop action. Its native processes
 use argument arrays, validated endpoints/device IDs, stdin-only pairing codes,
 bounded output and deadlines; see `crates/nexus-phone/src/tests.rs` and
-[phone authorisation and limits](PHONE_CONTROL.md). No call-audio capture or
-computer-microphone injection is implemented. External Phone Link owns Windows
-Bluetooth call setup and routing.
+[phone authorisation and limits](PHONE_CONTROL.md).
+
+The call-enabled Windows package has a separate, user-selected Bluetooth HFP
+connection. Windows package capabilities and explicit access/registration govern
+it; desktop grants/lockdown and stopping screen mirroring do not. The app invokes
+native telephony APIs and Windows owns the communications microphone/playback
+path; it does not capture/record call samples or inject a microphone through adb.
+Phone selection and SIM/line selection are explicit. Every call action resolves
+current calls from the selected transport's lines; arbitrary IDs cannot target
+another phone. Dial actions are never automatically retried and queued actions
+whose caller has closed are discarded. Per-call PC-audio status is displayed
+only when Windows reports LocalDevice; transport availability is insufficient.
+Disconnect releases this app's registration without calling Hang Up. API-level
+validation and read-only runtime checks live in `crates/nexus-phone/src/calls.rs`;
+UI/bridge checks use simulated calling replies in `apps/nexus-app/scripts/test-phone.mjs`.
+Actual Bluetooth permission enforcement, two-way Redmi audio and cleanup on live
+hardware remain unverified. See [native calls and acceptance](PHONE_CALLS.md).
 
 ## 1. Assets
 | Asset | Why it matters |

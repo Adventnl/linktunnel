@@ -142,10 +142,9 @@ async fn supervise(
                                 Some("ready") => { if let Some(tx) = ready.take() { let _ = tx.send(Ok(())); } }
                                 Some("stats") => { if let Some(text) = status["text"].as_str() { notify(ViewerEvent::Stats(text.to_owned())); } }
                                 Some("geometry") => {
-                                    if let (Some(width), Some(height)) = (status["width"].as_u64(), status["height"].as_u64()) {
-                                        if (1..=32768).contains(&width) && (1..=32768).contains(&height) {
-                                            notify(ViewerEvent::Geometry(width as u32, height as u32));
-                                        }
+                                    if let (Some(width), Some(height)) = (status["width"].as_u64(), status["height"].as_u64())
+                                        && (1..=32768).contains(&width) && (1..=32768).contains(&height) {
+                                        notify(ViewerEvent::Geometry(width as u32, height as u32));
                                     }
                                 }
                                 Some("fullscreen") => notify(ViewerEvent::Fullscreen),

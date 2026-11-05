@@ -11,6 +11,7 @@ export function DeviceMenu({
   onAction,
   onUnpair,
   onClose,
+  onPhoneSetup,
 }: {
   device: Device;
   position: { x: number; y: number };
@@ -18,6 +19,7 @@ export function DeviceMenu({
   onAction: (device: Device, verb: Verb) => void;
   onUnpair: (device: Device) => void;
   onClose: () => void;
+  onPhoneSetup?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -36,7 +38,8 @@ export function DeviceMenu({
       previous?.focus?.();
     };
   }, [position, onClose]);
-  const actions: { verb: Verb; icon: IconName }[] = [
+  const actions: { verb: Verb; icon: IconName }[] = device.phoneSerial
+    ? (canConnect(device) ? [{ verb: "screen", icon: "phone" }] : []) : [
     ...(canConnect(device)
       ? [
           { verb: "screen" as const, icon: "monitor" as const },
@@ -98,7 +101,8 @@ export function DeviceMenu({
           {t(`verb.${verb}`)}
         </button>
       ))}
-      <div className="menu-separator" />
+      {device.phoneSerial && <button type="button" role="menuitem" onClick={() => { onClose(); onPhoneSetup?.(); }}><Icon name="settings" />{t("phone.connection_settings")}</button>}
+      {!device.phoneSerial && <><div className="menu-separator" />
       <button
         type="button"
         role="menuitem"
@@ -110,7 +114,7 @@ export function DeviceMenu({
       >
         <Icon name="trash" />
         {t("settings.unpair")}
-      </button>
+      </button></>}
     </div>
   );
 }

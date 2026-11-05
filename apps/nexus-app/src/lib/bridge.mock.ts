@@ -65,7 +65,11 @@ export function createMockBridge(snapshot: Snapshot = MOCK_SNAPSHOT): Bridge {
     phoneStart: async () => { throw new Error("Phone control requires the installed linktunnel app."); },
     phoneSession: async (): Promise<PhoneSession> => ({ serial: null, error: null }),
     phoneStop: async () => {},
-    phoneCalls: async () => { throw new Error("Phone Link requires Windows."); },
+    phoneCallsStatus: async () => ({ available: false, bluetooth: false, packaged: false, callControl: false, devices: [], deviceId: null, canRoute: false, lines: [], calls: [], input: null, output: null, notice: null }),
+    phoneCallsConnect: async () => { throw new Error("Bluetooth calls require the installed Windows app."); },
+    phoneCallsDisconnect: async () => { throw new Error("Bluetooth calls require the installed Windows app."); },
+    phoneCallsAction: async () => { throw new Error("Bluetooth calls require the installed Windows app."); },
+    phoneCallsSettings: async () => { throw new Error("Bluetooth calls require the installed Windows app."); },
     snapshot: async () => structuredClone(snapshot),
     onEvent: async (cb) => {
       listeners.add(cb);

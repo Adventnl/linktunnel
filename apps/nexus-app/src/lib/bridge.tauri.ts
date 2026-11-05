@@ -11,10 +11,14 @@ export const tauriBridge: Bridge = {
   phonePair: (address, code) => invoke("phone_pair", { address, code }),
   phoneConnect: (address) => invoke("phone_connect", { address }),
   phoneDisconnect: (address) => invoke("phone_disconnect", { address }),
-  phoneStart: (options) => invoke("phone_start", { options }),
+  phoneStart: (options, viewport) => invoke("phone_start", { options, viewport: viewport ?? null }),
   phoneSession: () => invoke<PhoneSession>("phone_session"),
   phoneStop: () => invoke("phone_stop"),
-  phoneCalls: () => invoke("phone_calls"),
+  phoneCallsStatus: () => invoke("phone_calls_status"),
+  phoneCallsConnect: (deviceId) => invoke("phone_calls_connect", { deviceId }),
+  phoneCallsDisconnect: () => invoke("phone_calls_disconnect"),
+  phoneCallsAction: (action) => invoke("phone_calls_action", { action }),
+  phoneCallsSettings: (audio) => invoke("phone_calls_settings", { audio }),
   snapshot: () => invoke<Snapshot>("snapshot"),
   onEvent: async (cb) => {
     // One channel carries every event; the Rust side tags them with `kind`.

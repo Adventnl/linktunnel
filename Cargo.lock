@@ -4380,10 +4380,14 @@ dependencies = [
 name = "nexus-phone"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "proptest",
  "serde",
  "thiserror 2.0.21",
  "tokio",
+ "windows",
+ "windows-future",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

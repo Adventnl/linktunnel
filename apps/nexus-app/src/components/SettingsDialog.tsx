@@ -5,14 +5,16 @@ import { Icon } from "./Icon";
 
 type T = (key: Key, args?: Record<string, string | number>) => string;
 export type Theme = "auto" | "light" | "dark";
+export type Material = "auto" | "glass" | "solid";
 
 export function SettingsDialog({ bridge, t, status, devices, theme, locale, onTheme, onLocale,
-  onClose, onError, onUnpair, onLockdown, quality, onQuality,
+  onClose, onError, onUnpair, onLockdown, quality, onQuality, material, onMaterial,
 }: {
   bridge: Bridge; t: T; status: AgentStatus | null; devices: Device[];
   theme: Theme; locale: Locale; onTheme: (t: Theme) => void; onLocale: (l: Locale) => void;
   onClose: () => void; onError: (text: string) => void; onUnpair: (device: Device) => void;
   onLockdown: () => void; quality: Quality; onQuality: (quality: Quality) => void;
+  material: Material; onMaterial: (material: Material) => void;
 }) {
   const fail = (e: unknown) => onError(e instanceof Error ? e.message : String(e));
   return <Modal title={t("settings.title")} onClose={onClose} closeLabel={t("common.close")} wide>
@@ -25,6 +27,14 @@ export function SettingsDialog({ bridge, t, status, devices, theme, locale, onTh
             <span className="appearance-sample" aria-hidden="true"><span /><span /></span>
             <span>{t(`settings.theme.${value}`)}{theme === value && <Icon name="check" size={14} />}</span>
           </button>)}
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-copy"><label htmlFor="material">{t("settings.material")}</label><p id="material-help">{t("settings.material.help")}</p></div>
+          <select id="material" value={material} aria-describedby="material-help" onChange={e => onMaterial(e.target.value as Material)}>
+            <option value="auto">{t("settings.material.auto")}</option>
+            <option value="glass">{t("settings.material.glass")}</option>
+            <option value="solid">{t("settings.material.solid")}</option>
+          </select>
         </div>
         <label className="settings-row"><span>{t("settings.language")}</span>
           <select value={locale} onChange={e => onLocale(e.target.value as Locale)}><option value="en">English</option><option value="zh-CN">简体中文</option></select>

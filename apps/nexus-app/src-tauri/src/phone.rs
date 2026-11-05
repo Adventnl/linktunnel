@@ -32,8 +32,57 @@ pub async fn phone_disconnect(phone: State<'_, Phone>, address: String) -> Resul
 }
 
 #[tauri::command]
-pub async fn phone_start(phone: State<'_, Phone>, options: Options) -> Result<(), String> {
-    phone.start(options).await.map_err(|e| e.to_string())
+pub async fn phone_start(
+    app: tauri::AppHandle,
+    phone: State<'_, Phone>,
+    options: Options,
+    viewport: Option<crate::workspace::Viewport>,
+) -> Result<(), String> {
+    if let Some(viewport) = &viewport {
+        viewport.validate()?;
+    }
+    phone.start(options).await.map_err(|e| e.to_string())?;
+    if let Some(viewport) = viewport
+        && let Err(error) = layout(&app, &phone, viewport).await
+    {
+        let _ = phone.stop().await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub async fn layout(
+    app: &tauri::AppHandle,
+    phone: &Phone,
+    viewport: crate::workspace::Viewport,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use tauri::Manager;
+        let parent = app
+            .get_webview_window("main")
+            .ok_or("main window unavailable")?
+            .hwnd()
+            .map_err(|e| e.to_string())?
+            .0 as isize;
+        phone
+            .layout(
+                parent,
+                nexus_phone::WindowBounds {
+                    x: viewport.x,
+                    y: viewport.y,
+                    width: viewport.width,
+                    height: viewport.height,
+                    visible: viewport.visible,
+                    detached: viewport.detached,
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    let _ = (app, phone, viewport);
+    Ok(())
 }
 
 #[tauri::command]
@@ -44,25 +93,4 @@ pub async fn phone_session(phone: State<'_, Phone>) -> Result<Session, String> {
 #[tauri::command]
 pub async fn phone_stop(phone: State<'_, Phone>) -> Result<(), String> {
     phone.stop().await.map_err(|e| e.to_string())
-}
-
-/// Opens a fixed Microsoft-documented URI. Pairing/routing remain in Phone Link.
-#[tauri::command]
-pub async fn phone_calls() -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let status = tokio::process::Command::new("explorer.exe")
-            .arg("ms-settings:mobile-devices-addphone-direct")
-            .status()
-            .await
-            .map_err(|e| e.to_string())?;
-        // Explorer may return 1 after successfully dispatching a URI.
-        if status.success() || status.code() == Some(1) {
-            Ok(())
-        } else {
-            Err(format!("Cannot open Phone Link: {status}"))
-        }
-    }
-    #[cfg(not(windows))]
-    Err("Cellular-call audio handoff is not implemented on this platform.".into())
 }

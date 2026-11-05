@@ -8,6 +8,7 @@ mod commands;
 mod dto;
 mod link;
 mod phone;
+mod phone_calls;
 mod tray;
 mod viewer;
 mod workspace;
@@ -30,6 +31,7 @@ pub fn run() {
                 app.path().resource_dir()?.join("phone-tools"),
             ));
             app.manage(Arc::new(workspace::Workspace::default()));
+            app.manage(nexus_phone::calls::Calls::default());
             let handle = app.handle().clone();
             *link.tray_ok.lock() = tray::build(&handle, &link);
             alert::register_panic_hotkey(&handle);
@@ -78,7 +80,11 @@ pub fn run() {
             phone::phone_start,
             phone::phone_session,
             phone::phone_stop,
-            phone::phone_calls,
+            phone_calls::phone_calls_status,
+            phone_calls::phone_calls_connect,
+            phone_calls::phone_calls_disconnect,
+            phone_calls::phone_calls_action,
+            phone_calls::phone_calls_settings,
         ])
         .build(tauri::generate_context!());
     match result {
@@ -88,6 +94,8 @@ pub fn run() {
                 // in-flight start as well as reaping an already running viewer.
                 let phone = handle.state::<nexus_phone::Phone>();
                 let _ = tauri::async_runtime::block_on(phone.stop());
+                let calls = handle.state::<nexus_phone::calls::Calls>();
+                let _ = tauri::async_runtime::block_on(calls.disconnect());
                 let workspace = handle.state::<Arc<workspace::Workspace>>();
                 let _ = tauri::async_runtime::block_on(workspace.close());
             }

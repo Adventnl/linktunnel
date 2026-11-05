@@ -30,10 +30,13 @@ export type PresenceState =
   | "offline"
   | "unknown";
 
-export type OsFamily = "windows" | "macos" | "linux" | "unknown";
+export type OsFamily = "windows" | "macos" | "linux" | "android" | "unknown";
 export type PathKind = "lan" | "direct" | "relay" | "none";
 
 export interface Device {
+  /** Local Android transport; desktop-agent commands must never receive this id. */
+  phoneSerial?: string;
+  phoneState?: string;
   /** Lower-case hex of the 16-byte device id. */
   id: string;
   name: string;
@@ -158,10 +161,14 @@ export interface Bridge {
   phonePair(address: string, code: string): Promise<void>;
   phoneConnect(address: string): Promise<void>;
   phoneDisconnect(address: string): Promise<void>;
-  phoneStart(options: PhoneOptions): Promise<void>;
+  phoneStart(options: PhoneOptions, viewport?: Viewport): Promise<void>;
   phoneSession(): Promise<PhoneSession>;
   phoneStop(): Promise<void>;
-  phoneCalls(): Promise<void>;
+  phoneCallsStatus(): Promise<PhoneCallsSnapshot>;
+  phoneCallsConnect(deviceId: string): Promise<PhoneCallsSnapshot>;
+  phoneCallsDisconnect(): Promise<PhoneCallsSnapshot>;
+  phoneCallsAction(action: PhoneCallAction): Promise<PhoneCallsSnapshot>;
+  phoneCallsSettings(audio: boolean): Promise<void>;
   snapshot(): Promise<Snapshot>;
   onEvent(cb: (e: AppEvent) => void): Promise<() => void>;
   connectScreen(id: string, options?: ScreenOptions): Promise<void>;
@@ -216,6 +223,10 @@ export interface PhoneOptions {
 export interface PhoneSession {
   serial: string | null;
   error: string | null;
+  starting?: boolean;
+  warning?: string | null;
+  width?: number;
+  height?: number;
 }
 export interface PhoneStatus {
   adb: { Ok: string } | { Err: string };
@@ -223,3 +234,23 @@ export interface PhoneStatus {
   platform: string;
   session: PhoneSession;
 }
+
+export interface PhoneCallsSnapshot {
+  available: boolean;
+  bluetooth: boolean;
+  packaged: boolean;
+  callControl: boolean;
+  devices: { id: string; name: string }[];
+  deviceId: string | null;
+  canRoute: boolean;
+  lines: { id: string; name: string; canDial: boolean }[];
+  calls: { id: string; state: "incoming" | "dialing" | "talking" | "held" | "ended" | "unknown"; onComputer: boolean; muted: boolean }[];
+  input: string | null;
+  output: string | null;
+  notice: string | null;
+}
+
+export type PhoneCallAction =
+  | { kind: "dial"; lineId: string; number: string }
+  | { kind: "answer" | "end" | "takeAudio"; callId: string }
+  | { kind: "mute"; callId: string; muted: boolean };

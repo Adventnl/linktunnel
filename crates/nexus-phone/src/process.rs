@@ -107,7 +107,7 @@ async fn drain(mut reader: impl AsyncRead + Unpin, logs: Logs, ready: watch::Sen
             }
         }
         for &b in &buf[..n] {
-            if b == b'\n' {
+            if b == b'\n' || b == b'\r' {
                 // 3.x logs Texture after decoding. 4.x uses interop textures;
                 // its FPS counter is the shared indication of rendered frames.
                 if frame_received(&line) {
@@ -122,7 +122,7 @@ async fn drain(mut reader: impl AsyncRead + Unpin, logs: Logs, ready: watch::Sen
 }
 
 pub(super) fn frame_received(line: &[u8]) -> bool {
-    if line.starts_with(b"INFO: Texture:") {
+    if line.starts_with(b"INFO: Texture:") || line.starts_with(b"INFO: Texture (") {
         return true;
     }
     let Ok(text) = std::str::from_utf8(line) else {
@@ -154,8 +154,20 @@ pub(super) async fn viewer(cmd: &mut Command, timeout: Duration) -> Result<(Chil
     tokio::spawn(drain(stdout, logs.clone(), tx.clone()));
     tokio::spawn(drain(stderr, logs.clone(), tx));
     let result = tokio::time::timeout(timeout, async {
+        let mut probe = tokio::time::interval(Duration::from_millis(100));
         loop {
             tokio::select! {
+                _ = probe.tick() => {
+                    if logs.tail().lines().any(|line| line.starts_with("ERROR: Server connection failed")
+                        || line.starts_with("ERROR: Could not find any ADB device")
+                        || line.starts_with("ERROR: Could not open video stream")) {
+                        return Err("Could not start the phone viewer.");
+                    }
+                    // scrcpy 5 writes INFO to buffered stdout. Its video window is
+                    // shown on the first frame, even when the log pipe hasn't flushed.
+                    #[cfg(windows)]
+                    if child.id().and_then(crate::window::visible).is_some() { return Ok(()); }
+                }
                 changed = rx.changed() => {
                     if changed.is_err() { return Err("Phone viewer closed before receiving a picture."); }
                     if *rx.borrow() { return Ok(()); }

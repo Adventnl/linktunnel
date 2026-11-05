@@ -90,6 +90,7 @@ fn requires_a_supported_scrcpy_version() {
 fn recognises_both_scrcpy_startup_formats_but_not_idle_or_setup_logs() {
     for line in [
         "INFO: Texture: 1080x2400",
+        "INFO: Texture (D3D11VA): 720x1600",
         "INFO: 1 fps",
         "INFO: 60 fps (+2 frames skipped)\r",
     ] {
@@ -179,6 +180,7 @@ fn tool_fixture() {
             eprintln!("ERROR: Device is unauthorized");
             std::process::exit(1);
         }
+        "server-fail-hang" => eprintln!("ERROR: Server connection failed"),
         "silent-fail" => std::process::exit(1),
         "empty" => return,
         _ => {}
@@ -205,6 +207,12 @@ async fn startup_requires_a_picture_not_a_spawned_process() {
 
 #[tokio::test]
 async fn startup_times_out_and_bounds_diagnostics() {
+    let error = process::viewer(&mut fixture("server-fail-hang"), Duration::from_secs(5))
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("Could not start the phone viewer"));
     let error = process::viewer(&mut fixture("hang"), Duration::from_millis(250))
         .await
         .err()
@@ -216,6 +224,25 @@ async fn startup_times_out_and_bounds_diagnostics() {
         .unwrap();
     assert!(logs.tail().len() <= 8192);
     child.kill().await.unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn bundled_tools_strip_verbatim_paths_before_passing_them_to_c_tools() {
+    let phone = Phone::with_tools(Some(Path::new(
+        r"\\?\C:\Program Files\Link Tunnel\phone-tools",
+    )));
+    assert_eq!(
+        phone.scrcpy,
+        Path::new(r"C:\Program Files\Link Tunnel\phone-tools\scrcpy.exe")
+    );
+    let command = phone.scrcpy();
+    assert!(
+        command
+            .as_std()
+            .get_envs()
+            .all(|(_, value)| value.is_none_or(|v| !v.to_string_lossy().starts_with(r"\\?\")))
+    );
 }
 
 #[tokio::test]
@@ -260,7 +287,9 @@ async fn closed_or_failed_viewers_clear_active_session_and_stop_is_idempotent() 
         session: Session {
             serial: Some("abc123".into()),
             error: None,
+            ..Session::default()
         },
+        ..Managed::default()
     };
     managed.refresh().unwrap();
     assert!(managed.child.is_none());
@@ -270,4 +299,49 @@ async fn closed_or_failed_viewers_clear_active_session_and_stop_is_idempotent() 
     phone.stop().await.unwrap();
     phone.stop().await.unwrap();
     assert!(phone.session().await.serial.is_none());
+}
+
+#[tokio::test]
+async fn session_queries_do_not_wait_behind_startup() {
+    let phone = Phone::default();
+    let _startup = phone.managed.lock().await;
+    let session = tokio::time::timeout(Duration::from_millis(100), phone.session())
+        .await
+        .unwrap();
+    assert!(session.starting);
+    assert!(session.serial.is_none());
+}
+
+/// Opt-in hardware check: NEXUS_TEST_PHONE names one already authorised transport.
+#[tokio::test]
+#[ignore = "requires an explicitly selected, authorised Android phone"]
+async fn real_phone_reports_first_picture() {
+    let serial = std::env::var("NEXUS_TEST_PHONE").expect("set NEXUS_TEST_PHONE");
+    let phone = if let Ok(root) = std::env::var("NEXUS_TEST_PHONE_TOOLS") {
+        // Exercise the exact canonicalized resource path Tauri supplies on Windows.
+        Phone::bundled(std::fs::canonicalize(root).unwrap())
+    } else {
+        Phone::default()
+    };
+    let started = std::time::Instant::now();
+    phone
+        .start(Options {
+            serial: serial.clone(),
+            screen_off: false,
+            ..options()
+        })
+        .await
+        .unwrap();
+    let session = phone.session().await;
+    assert_eq!(session.serial.as_deref(), Some(serial.as_str()));
+    assert!(started.elapsed() < Duration::from_secs(40));
+    #[cfg(windows)]
+    assert!(session.width > 0 && session.height > 0);
+    println!(
+        "First phone picture confirmed in {:?} ({}x{})",
+        started.elapsed(),
+        session.width,
+        session.height
+    );
+    phone.stop().await.unwrap();
 }

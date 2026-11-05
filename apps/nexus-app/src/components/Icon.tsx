@@ -9,7 +9,7 @@ const paths = {
   settings:
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M9 3l-1 3-3 1-2 5 2 5 3 1 1 3h6l1-3 3-1 2-5-2-5-3-1-1-3z",
   phone: "M7 2h10v20H7z M10 18h4",
-  more: "M5 12h.01 M12 12h.01 M19 12h.01",
+  more: "M5 12h0 M12 12h0 M19 12h0",
   chevron: "m9 5 7 7-7 7",
   sidebar: "M3 3h18v18H3z M9 3v18",
   expand: "M8 3H3v5 M16 3h5v5 M3 16v5h5 M21 16v5h-5",
@@ -45,7 +45,7 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth={name === "more" ? "3" : "1.6"}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

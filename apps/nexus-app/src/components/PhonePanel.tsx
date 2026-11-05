@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Modal } from "./Modal";
+import { PhoneCalls } from "./PhoneCalls";
 import type { Key } from "../lib/i18n";
-import type { Bridge, PhoneDevice, PhoneSession, PhoneStatus } from "../lib/types";
+import type { Bridge, PhoneDevice, PhoneOptions, PhoneSession, PhoneStatus } from "../lib/types";
 
 type Translate = (key: Key, args?: Record<string, string | number>) => string;
 const field = "w-full rounded-lg border border-line bg-panel2 px-3 py-2 text-sm text-fg";
 
 /** Local Android control works even when the desktop agent is unreachable. */
-export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translate; onClose: () => void }) {
+export function PhonePanel({ bridge, t, onClose, onOpen }: { bridge: Bridge; t: Translate; onClose: () => void; onOpen: (options: PhoneOptions) => void }) {
   const [status, setStatus] = useState<PhoneStatus | null>(null);
   const [devices, setDevices] = useState<PhoneDevice[]>([]);
   const [session, setSession] = useState<PhoneSession>({ serial: null, error: null });
@@ -15,7 +16,7 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [screenOff, setScreenOff] = useState(true);
+  const [screenOff, setScreenOff] = useState(false);
   const [mediaAudio, setMediaAudio] = useState(false);
   const [quality, setQuality] = useState("1600");
   const [pairAddress, setPairAddress] = useState("");
@@ -78,6 +79,7 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
             <p className="text-muted">{t("phone.wireless_help")}</p>
             <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void run(async () => {
               const pairingCode = code; setCode(""); await bridge.phonePair(pairAddress.trim(), pairingCode);
+              await refresh();
               if (alive.current) setMessage(t("phone.paired"));
             }); }}>
               <label className="block space-y-1">{t("phone.pair_address")}<input className={field} placeholder="192.168.1.20:37123" value={pairAddress} disabled={busy} onChange={(e) => setPairAddress(e.target.value)} autoComplete="off" /></label>
@@ -115,8 +117,7 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy} onClick={() => void run(refresh)}>{t("phone.refresh")}</Button>
             <Button kind="primary" disabled={busy || !ready || selected?.state !== "device" || !!session.serial} onClick={() => void run(async () => {
-              await bridge.phoneStart({ serial, screenOff, mediaAudio, maxSize: Number(quality), maxFps: 60 });
-              const next = await bridge.phoneSession(); if (alive.current) setSession(next);
+              onOpen({ serial, screenOff, mediaAudio, maxSize: Number(quality), maxFps: 60 });
             })}>{busy ? t("phone.working") : t("phone.open")}</Button>
             <Button kind="danger" disabled={busy || !session.serial} onClick={() => void run(async () => {
               await bridge.phoneStop(); const next = await bridge.phoneSession(); if (alive.current) setSession(next);
@@ -127,13 +128,7 @@ export function PhonePanel({ bridge, t, onClose }: { bridge: Bridge; t: Translat
           <p className="text-xs text-muted">{t("phone.limits")}</p>
           <p className="text-xs text-muted">{t("phone.lifecycle")}</p>
         </section>
-        <section className="space-y-2 rounded-lg border border-line p-3">
-          <h3 className="font-semibold">{t("phone.calls")}</h3><p>{t("phone.calls_help")}</p>
-          {status?.platform === "windows" ? <>
-            <p className="text-muted">{t("phone.calls_windows")}</p>
-            <Button disabled={busy} onClick={() => void run(async () => { await bridge.phoneCalls(); if (alive.current) setMessage(t("phone.calls_opened")); })}>{t("phone.calls_open")}</Button>
-          </> : <p className="text-muted">{t("phone.calls_mac")}</p>}
-        </section>
+        <PhoneCalls bridge={bridge} t={t} platform={status?.platform} />
         {(error || session.error) && <pre role="alert" className="whitespace-pre-wrap break-words rounded-lg border border-danger p-3 text-xs text-danger">{error || session.error}</pre>}
         {message && <p role="status">{message}</p>}
       </div>

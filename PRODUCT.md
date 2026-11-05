@@ -32,3 +32,5 @@ The user requested Liquid Glass across the application in white/light and dark m
 ## Open Decisions
 
 The user confirmed light glass as the default appearance. Dark and system remain selectable. The audience is inferred from the request to be the owner controlling their own paired computers; broader audience requirements are unconfirmed.
+
+Android phones share the device list and connection workspace with computers. On Windows, the managed scrcpy picture embeds in the workspace and can pop out without reconnecting; other platforms use a native window. Phone discovery, pairing and control work without the desktop agent. Startup shows elapsed time and Cancel, has a bounded deadline, and reports failures beside Connect. Previously discovered phones remain visible offline. Android input permissions remain separate from desktop trust and lockdown.

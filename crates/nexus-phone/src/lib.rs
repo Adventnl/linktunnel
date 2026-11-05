@@ -3,9 +3,16 @@
 //! Android grants access through its own USB authorisation or wireless pairing. This
 //! transport is independent of linktunnel agent pairing, sessions and lockdown. No call
 //! capture or microphone injection is claimed. Media stays in the native viewer.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
+pub mod calls;
 mod process;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod window;
+
+#[cfg(windows)]
+pub use window::Bounds as WindowBounds;
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -94,6 +101,14 @@ pub struct Session {
     pub serial: Option<String>,
     /// Error from the most recent unexpectedly closed session.
     pub error: Option<String>,
+    /// Startup is in progress; status queries never wait on that operation.
+    pub starting: bool,
+    /// Input permission warning, independent of whether video is working.
+    pub warning: Option<String>,
+    /// Initial decoded picture dimensions, when available from the native viewer.
+    pub width: u32,
+    /// Initial decoded picture height.
+    pub height: u32,
 }
 
 /// Prerequisites and current phone session; works without a linktunnel agent.
@@ -115,6 +130,8 @@ struct Managed {
     child: Option<Child>,
     logs: Option<process::Logs>,
     session: Session,
+    #[cfg(windows)]
+    window: Option<window::Window>,
 }
 
 /// Owns one native phone window. Drop kills it; callers should also call `stop`
@@ -209,6 +226,13 @@ impl Phone {
                     executable("adb")
                 }
             });
+        // Tauri canonicalizes resource_dir to a verbatim Windows path. The
+        // bundled C tools' stat() cannot read that syntax, even for existing files.
+        #[cfg(windows)]
+        let (adb, scrcpy) = (
+            dunce::simplified(&adb).to_owned(),
+            dunce::simplified(&scrcpy).to_owned(),
+        );
         Self {
             adb,
             scrcpy,
@@ -336,7 +360,9 @@ impl Phone {
         tokio::select! {
             biased;
             _ = cancelled => Err(Error::Tool("Phone connection cancelled.".into())),
-            result = self.start_inner(options) => result,
+            result = tokio::time::timeout(Duration::from_secs(40), self.start_inner(options)) => {
+                result.unwrap_or_else(|_| Err(Error::Tool("Phone connection timed out. Check Wireless debugging, unlock the phone, and try Connect again.".into())))
+            },
         }
     }
 
@@ -364,20 +390,55 @@ impl Phone {
         let (child, logs) = process::viewer(&mut cmd, Duration::from_secs(30)).await?;
         managed.child = Some(child);
         managed.logs = Some(logs);
+        #[cfg(windows)]
+        {
+            managed.window = managed
+                .child
+                .as_ref()
+                .and_then(Child::id)
+                .and_then(window::visible);
+        }
         managed.session = Session {
             serial: Some(options.serial),
             error: None,
+            ..Session::default()
         };
+        #[cfg(windows)]
+        if let Some((width, height)) = managed
+            .window
+            .as_ref()
+            .map(|window| (window.width, window.height))
+        {
+            managed.session.width = width;
+            managed.session.height = height;
+        }
         Ok(())
     }
 
     /// Report a user-closed window or disconnected phone accurately.
     pub async fn session(&self) -> Session {
-        let mut managed = self.managed.lock().await;
+        let Ok(mut managed) = self.managed.try_lock() else {
+            return Session {
+                starting: true,
+                ..Session::default()
+            };
+        };
         if let Err(e) = managed.refresh() {
             managed.session.error = Some(e.to_string());
         }
         managed.session.clone()
+    }
+
+    /// Place only this Phone instance's owned native viewer in the dashboard.
+    #[cfg(windows)]
+    pub async fn layout(&self, parent: isize, bounds: WindowBounds) -> Result<(), Error> {
+        // A layout update must never queue behind viewer startup or block cancellation.
+        if let Ok(managed) = self.managed.try_lock()
+            && let Some(window) = &managed.window
+        {
+            window.layout(parent, bounds).map_err(Error::Tool)?;
+        }
+        Ok(())
     }
 
     /// End the owned window. Does not revoke Android's saved debugging authorisation.
@@ -386,6 +447,10 @@ impl Phone {
         let mut managed = self.managed.lock().await;
         managed.logs = None;
         managed.session = Session::default();
+        #[cfg(windows)]
+        {
+            managed.window = None;
+        }
         if let Some(mut child) = managed.child.take() {
             child.kill().await.map_err(|e| Error::Tool(e.to_string()))?;
         }
@@ -395,6 +460,13 @@ impl Phone {
 
 impl Managed {
     fn refresh(&mut self) -> Result<(), Error> {
+        if self
+            .logs
+            .as_ref()
+            .is_some_and(|logs| logs.tail().contains("INJECT_EVENTS"))
+        {
+            self.session.warning = Some("input_permission".into());
+        }
         let Some(child) = self.child.as_mut() else {
             return Ok(());
         };

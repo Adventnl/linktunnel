@@ -14,6 +14,7 @@ export const DESTRUCTIVE: ReadonlySet<Verb> = new Set<Verb>(["sleep", "restart",
 
 /** Which verbs make sense for a device right now. */
 export function verbsFor(d: Device): Verb[] {
+  if (d.phoneSerial) return canConnect(d) ? ["screen"] : [];
   const verbs: Verb[] = [];
   if (canConnect(d)) verbs.push("screen", "terminal", "lock", "sleep", "restart", "shutdown");
   if (canWake(d)) verbs.push("wake");

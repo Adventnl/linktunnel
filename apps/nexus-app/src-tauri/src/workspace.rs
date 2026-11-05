@@ -119,15 +119,12 @@ pub async fn desktop_info() -> DesktopInfo {
                 .kill_on_drop(true)
                 .output()
                 .await;
-            if let Ok(output) = output {
-                if output.status.success() {
-                    if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                    {
-                        if let Some(account) = account_name(&status) {
-                            return Some(account);
-                        }
-                    }
-                }
+            if let Ok(output) = output
+                && output.status.success()
+                && let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                && let Some(account) = account_name(&status)
+            {
+                return Some(account);
             }
         }
         None
@@ -144,10 +141,13 @@ pub async fn desktop_info() -> DesktopInfo {
 
 #[tauri::command]
 pub async fn viewer_layout(
+    app: tauri::AppHandle,
+    phone: State<'_, nexus_phone::Phone>,
     workspace: State<'_, Arc<Workspace>>,
     viewport: Viewport,
 ) -> Result<(), String> {
     viewport.validate()?;
+    crate::phone::layout(&app, &phone, viewport.clone()).await?;
     let control = workspace.control.lock().await.clone();
     if let Some(control) = control {
         let _ = control.send(Control::Layout(viewport)).await;

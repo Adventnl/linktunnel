@@ -28,7 +28,9 @@
         "minHeight": 520,
         "center": true,
         "decorations": false,
+        "shadow": false,
         "transparent": true,
+        "backgroundColor": "#00000000",
         "windowEffects": { "effects": ["acrylic"], "color": [214, 229, 242, 100] }
       }
     ]
