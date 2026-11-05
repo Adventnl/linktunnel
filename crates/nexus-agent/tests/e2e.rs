@@ -605,7 +605,8 @@ async fn default_personal_access_streams_again_without_anyone_at_the_target() {
     let (backend, _probe) = SyntheticBackend::new(SyntheticConfig {
         width: 320,
         height: 240,
-        animate: true,
+        // An idle headless desktop sends one picture, then only sends damage.
+        animate: false,
         ..Default::default()
     });
     let mut mac = start_device("MacBook", 1, &dir.path().join("a"), Some(server.url())).await;

@@ -11,7 +11,9 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bytes::BytesMut;
-use nexus_media::controller::{ControllerOptions, ControllerSession, MediaEvent, Streams};
+use nexus_media::controller::{
+    ControllerOptions, ControllerSession, ControllerStats, MediaEvent, Streams, VideoFrame,
+};
 use nexus_proto::v1::{
     IpcEvent, MonitorInfo, OpenSession, OsFamily, SessionCursorPos, SessionCursorShape,
     SessionEnded, SessionMonitor, SessionMonitorChanged, SessionOpened, SessionQuality,
@@ -105,51 +107,15 @@ pub(crate) async fn open(
     let mut monitors: Vec<MonitorInfo> = Vec::new();
     let mut video: Option<VideoStarted> = None;
     if req.want_video {
-        let deadline = tokio::time::Instant::now() + START_TIMEOUT;
-        loop {
-            let ev = match tokio::time::timeout_at(deadline, streams.events.recv()).await {
-                Ok(Some(ev)) => ev,
-                Ok(None) => {
-                    return Err(AgentError::Failed(
-                        "the session ended before video started".into(),
-                    ));
-                }
-                Err(_) => {
-                    controller.close().await;
-                    return Err(AgentError::Failed(
-                        "the device did not start streaming in time".into(),
-                    ));
-                }
-            };
-            match ev {
-                MediaEvent::Monitors(m) => monitors = m,
-                MediaEvent::Started(v) => {
-                    video = Some(v);
-                    break;
-                }
-                MediaEvent::Refused { code, message } => {
-                    controller.close().await;
-                    return Err(
-                        if code == nexus_proto::v1::ErrorCode::PermissionDenied as i32 {
-                            AgentError::Denied(format!("the device refused: {message}"))
-                        } else {
-                            AgentError::Failed(format!("the device refused: {message}"))
-                        },
-                    );
-                }
-                MediaEvent::Closed(reason) => {
-                    return Err(AgentError::Failed(format!("session closed: {reason}")));
-                }
-                // A shape sent before the stream started: forward it now so it is not lost.
-                MediaEvent::CursorShape(shape) => {
-                    let _ = ctx.events.try_send(IpcEvent {
-                        body: Some(Ev::SessionCursorShape(SessionCursorShape {
-                            session_id: id,
-                            shape: Some(shape),
-                        })),
-                    });
-                }
-                MediaEvent::Frame(_) | MediaEvent::Privacy(_) => {}
+        let result = wait_for_video(&mut streams.events, &ctx.events, id, controller.stats()).await;
+        match result {
+            Ok((list, started)) => {
+                monitors = list;
+                video = Some(started);
+            }
+            Err(error) => {
+                controller.close().await;
+                return Err(error);
             }
         }
     }
@@ -212,6 +178,88 @@ pub(crate) async fn open(
     })
 }
 
+async fn wait_for_video(
+    events: &mut mpsc::Receiver<MediaEvent>,
+    output: &mpsc::Sender<IpcEvent>,
+    id: u64,
+    stats: &ControllerStats,
+) -> Result<(Vec<MonitorInfo>, VideoStarted), AgentError> {
+    let mut monitors = Vec::new();
+    let deadline = tokio::time::Instant::now() + START_TIMEOUT;
+    loop {
+        let ev = match tokio::time::timeout_at(deadline, events.recv()).await {
+            Ok(Some(ev)) => ev,
+            Ok(None) => {
+                return Err(AgentError::Failed(
+                    "the session ended before video started".into(),
+                ));
+            }
+            Err(_) => {
+                return Err(AgentError::Failed(
+                    "the device did not start streaming in time".into(),
+                ));
+            }
+        };
+        match ev {
+            MediaEvent::Monitors(m) => monitors = m,
+            MediaEvent::Started(v) => {
+                return Ok((monitors, v));
+            }
+            MediaEvent::Refused { code, message } => {
+                return Err(
+                    if code == nexus_proto::v1::ErrorCode::PermissionDenied as i32 {
+                        AgentError::Denied(format!("the device refused: {message}"))
+                    } else {
+                        AgentError::Failed(format!("the device refused: {message}"))
+                    },
+                );
+            }
+            MediaEvent::Closed(reason) => {
+                return Err(AgentError::Failed(format!("session closed: {reason}")));
+            }
+            // A shape sent before the stream started: forward it now so it is not lost.
+            MediaEvent::CursorShape(shape) => {
+                let _ = output.try_send(IpcEvent {
+                    body: Some(Ev::SessionCursorShape(SessionCursorShape {
+                        session_id: id,
+                        shape: Some(shape),
+                    })),
+                });
+            }
+            // Video and control use separate QUIC streams. The first keyframe can
+            // beat Started; an idle desktop may never send a second picture.
+            MediaEvent::Frame(frame) => {
+                if let Some(body) = video_event(id, frame, stats.clock_offset()) {
+                    tokio::time::timeout_at(deadline, output.send(IpcEvent { body: Some(body) }))
+                        .await
+                        .map_err(|_| {
+                            AgentError::Failed(
+                                "viewer did not receive startup video in time".into(),
+                            )
+                        })?
+                        .map_err(|_| {
+                            AgentError::Failed("viewer disconnected during startup".into())
+                        })?;
+                }
+            }
+            MediaEvent::Privacy(_) => {}
+        }
+    }
+}
+
+fn video_event(id: u64, frame: VideoFrame, offset: i64) -> Option<Ev> {
+    let mut buf = BytesMut::with_capacity(frame.header.wire_len() + frame.payload.len());
+    frame.header.encode(&mut buf).ok()?;
+    buf.extend_from_slice(&frame.payload);
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    let upstream = (frame.recv_us as i64 - (frame.header.capture_us as i64 - offset)).max(0) as u64;
+    Some(Ev::SessionVideo(SessionVideo {
+        session_id: id,
+        frame: buf.freeze(),
+        upstream_us: upstream,
+    }))
+}
+
 /// Asks the target for its sound and starts playing it on the default output device.
 #[cfg(feature = "audio-device")]
 async fn start_playback(
@@ -257,13 +305,8 @@ async fn pump_events(
                 let Some(ev) = ev else { break "session ended".to_owned() };
                 let out = match ev {
                     MediaEvent::Frame(f) => {
-                        let mut buf = BytesMut::with_capacity(f.header.wire_len() + f.payload.len());
-                        if f.header.encode(&mut buf).is_err() { continue; }
-                        buf.extend_from_slice(&f.payload);
-                        let offset = stats.clock_offset();
-                        #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-                        let upstream = (f.recv_us as i64 - (f.header.capture_us as i64 - offset)).max(0) as u64;
-                        Ev::SessionVideo(SessionVideo { session_id: id, frame: buf.freeze(), upstream_us: upstream })
+                        let Some(body) = video_event(id, f, stats.clock_offset()) else { continue; };
+                        body
                     }
                     MediaEvent::Privacy(state) => Ev::SessionPrivacyState(nexus_proto::v1::SessionPrivacyState { session_id: id, enabled: state.enabled, local_input_blocked: state.local_input_blocked }),
                     MediaEvent::CursorShape(shape) => Ev::SessionCursorShape(SessionCursorShape { session_id: id, shape: Some(shape) }),
@@ -419,4 +462,85 @@ pub(crate) async fn privacy(
         .await
         .map_err(|e| AgentError::Denied(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nexus_proto::v1::VideoCodec;
+    use nexus_proto::wire::video::{FrameFlags, FrameKind, VideoFrameHeader};
+
+    #[tokio::test]
+    async fn idle_desktop_keyframe_before_started_reaches_the_viewer() {
+        let (tx, mut events) = mpsc::channel(4);
+        let (output, mut received) = mpsc::channel(4);
+        let header = VideoFrameHeader {
+            codec: VideoCodec::H264,
+            kind: FrameKind::Key,
+            monitor: 0,
+            flags: FrameFlags::SCREEN_CONTENT,
+            width: 320,
+            height: 240,
+            frame_seq: 0,
+            ref_seq: 0,
+            payload_len: 4,
+            capture_us: 100,
+            send_us: 120,
+            dirty: Vec::new(),
+        };
+        tx.send(MediaEvent::Frame(VideoFrame {
+            header: header.clone(),
+            payload: bytes::Bytes::from_static(&[0, 0, 0, 1]),
+            recv_us: 150,
+        }))
+        .await
+        .unwrap();
+        tx.send(MediaEvent::Started(VideoStarted {
+            width: 320,
+            height: 240,
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+        // No more frames: a stationary GNOME desktop is damage driven.
+        drop(tx);
+        let (_, started) = wait_for_video(&mut events, &output, 7, &ControllerStats::default())
+            .await
+            .unwrap();
+        assert_eq!((started.width, started.height), (320, 240));
+        let event = received
+            .try_recv()
+            .expect("the only keyframe must survive startup");
+        let Some(Ev::SessionVideo(video)) = event.body else {
+            panic!("expected video");
+        };
+        assert_eq!(video.session_id, 7);
+        assert_eq!(video.upstream_us, 50);
+        let len = header.wire_len();
+        assert_eq!(
+            VideoFrameHeader::decode(&video.frame[..len]).unwrap(),
+            header
+        );
+        assert_eq!(&video.frame[len..], &[0, 0, 0, 1]);
+        assert!(received.try_recv().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn startup_without_started_keeps_the_start_deadline() {
+        let (tx, mut events) = mpsc::channel(1);
+        let (output, _received) = mpsc::channel(1);
+        output.send(IpcEvent::default()).await.unwrap();
+        tx.send(MediaEvent::CursorShape(Default::default()))
+            .await
+            .unwrap();
+        // Even without a Started response, waiting must end at the existing deadline.
+        let error = wait_for_video(&mut events, &output, 7, &ControllerStats::default())
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("did not start streaming in time")
+        );
+    }
 }
